@@ -4,7 +4,7 @@
 
 目前已建立 Brookesia 最小学习固件，实机日志确认默认桌面及 Settings 启动、页面交互和偏好保存；外设接入与长期稳定性继续验证。微雪参考工程保存在独立仓库 `ESP32-P4-WIFI6-Touch-LCD-3.5/`。
 
-每版完成情况与验证边界见 [已完成清单](docs/07-completed-checklist.md)。
+每版完成情况与验证边界见 [已完成清单](COMPLETED.md)。
 
 ## 阅读顺序
 

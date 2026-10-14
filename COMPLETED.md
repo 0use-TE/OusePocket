@@ -46,13 +46,13 @@
 
 ### 已完成文档
 
-- [x] [项目上下文](00-project-context.md)：固定背景、已确认事项与继续工作依据。
-- [x] [需求与路线](01-requirements-roadmap.md)。
-- [x] [可行性评估](02-feasibility.md)。
-- [x] [架构理解手册](03-architecture-guide.md)。
-- [x] [最小工程与计数器教程](04-brookesia-minimal-tutorial.md)。
-- [x] [System Core 依赖与核心组件](05-brookesia-core-components.md)。
-- [x] [Settings 配置指南](06-brookesia-settings-guide.md)。
+- [x] [项目上下文](docs/00-project-context.md)：固定背景、已确认事项与继续工作依据。
+- [x] [需求与路线](docs/01-requirements-roadmap.md)。
+- [x] [可行性评估](docs/02-feasibility.md)。
+- [x] [架构理解手册](docs/03-architecture-guide.md)。
+- [x] [最小工程与计数器教程](docs/04-brookesia-minimal-tutorial.md)。
+- [x] [System Core 依赖与核心组件](docs/05-brookesia-core-components.md)。
+- [x] [Settings 配置指南](docs/06-brookesia-settings-guide.md)。
 
 ### 本版已知限制与下一步验收
 
