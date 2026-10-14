@@ -108,3 +108,97 @@
 文件开头只有上一轮的 `ELF file SHA256`、`Rebooting` 和 SW_CPU_RESET，缺少其故障正文，不能判断上一轮为何重启，也不能从 Saved PC 在 LVGL flushing 推断 LVGL 导致崩溃。此前另一份日志中的 TLSF 非法访问仍是历史未定位故障，本轮未复现。
 
 剩余能力缺口：Wi-Fi/Network HAL关闭，但 SNTP 仍自动注册，桌面/Settings尝试绑定时报缺少网络连接接口；AudioPlayback未注册，音量禁用；System Device关闭，Settings拿不到 GeneralIface重启接口和BoardInfo接口。当前版本主题/语言先保存偏好，再要求重启；由于重启接口缺失，点击立即重启会进入失败提示，不能将保存成功写成已完成当前界面切换。后续可补系统HAL与停止离线SNTP注册，暂未改固件配置、编译或烧录。
+
+### 本次实现，等待用户编译与实测
+
+用户授权启用System Device、声音、Wi-Fi/BLE，并增加DPI设置。已启用System/Restart、Wi-Fi/Network/SNTP、C6 Hosted/NimBLE；BLE服务在Settings按钮首次使用时显式加入，避免启动时探测未知C6固件。新增微雪ES8311 CodecPlayer与测试音Playback HAL，复用AudioPlayback音量和静音，不使用其他板的Board Manager音频配置。暂不支持媒体文件解码、录音、经典蓝牙音频或手机通知协议。
+
+Settings复制到仓库管理的`components/brookesia_app_settings`并调整manifest/CMake，新增测试音、BLE广播控制和75%/100%/125%DPI比例。DPI保存于NVS `ouse.device / DensityPct`，main启动读回density，修改后重启生效。defaults与已有sdkconfig已同步，实际编译后生效值仍待验证。C6 SDIO引脚已对照完整原理图：18/19/14–17，Reset54，Slot1；C6固件未知，不能保证启用即成功。
+
+本次没有编译或烧录，保持用户自行执行；不能把代码完成写进COMPLETED.md。重新构建后需更新LittleFS设置页面。步骤与验收见Settings指南第9节。
+
+2026-10-14更新：按用户要求移除当前固件蓝牙功能，保留Wi-Fi、声音和DPI设置；前文蓝牙描述属于历史实现或后续规划。
+
+### 全屏下拉快捷面板，等待实机验证
+
+用户要求平时保留状态栏，顶部下拉后像手机一样占满屏幕，底部上滑收起。已将官方System Super 0.8.3复制到本地`components/brookesia_system_super`维护扩展，主manifest改用该目录；固定参考源码不变。新增面板直接调用Display/AudioPlayback服务调亮度、音量和静音，Wi-Fi暂仅展示连接状态。展开后取消旧状态栏1.5秒自动隐藏计时，全屏拦截触摸，底部24dp上滑区域或关闭按钮收起；面板内控件滚动不会退出应用。收起回到原桌面/应用，不停止当前应用。
+
+ESP-IDF 6.1构建通过，固件`0x747710`，8MB应用分区剩余约9%；JSON、依赖、动作连接静态检查通过。新页面随LittleFS打包，更新需要主固件和LittleFS。尚未烧录验证，因此不写入COMPLETED.md。说明见`07-desktop-quick-controls.md`。没有实现通知中心、最近任务、蓝牙或左右返回。
+
+随后用户实机反馈亮度和音量可以设置，但当前位置滑钮不可见，静音/关闭按钮缺少边框。本轮仅修改面板JSON：增加indicator和knob的partStyles，按钮显式2dp边框、内边距和按下样式。该视觉修正只需要更新LittleFS；不据此推断静音、收起手势和所有主题/缩放均已通过实机验收。
+
+### 启动画面恢复
+
+用户反馈开机启动画面消失。源码确认原因是此前闪屏修复在`System::start()`返回后才打开背光，而Core已在该方法内移除启动覆盖层。main新增产品子类`PocketSystem`，在`on_init()`最开始强制刷新已挂载的启动画面、等待100ms后打开背光，再调用Super的`on_init()`继续初始化；设置覆盖层最短挂载时间600ms。保持重启前关灯、启动时黑屏清除LCD旧GRAM；初始化/启动失败会关灯，关闭启动覆盖层的构建仍在桌面就绪后点亮。这次修改主固件，视觉时序待重新烧录验证。
+
+修复后ESP-IDF 6.1构建通过，固件大小`0x748130`，应用分区仍剩余约9%。烧录导出目录同步最新主固件；本轮无页面资源变化，只需更新0x10000的主固件。启动日志新增`Startup overlay visible; preparing desktop`，用于与`READY`核对先后顺序。
+
+### 下一步系统能力核对：最近任务和电量
+
+用户希望回桌面时保留应用，在最近任务列表中单独关闭。当前Super底部手势调用`close_active_app()`→`stop_app()`，确实直接停止当前应用。Core已有`pause_app/resume_app/stop_app`，但pause仅调用应用生命周期回调并改变状态，不自动暂停所有FreeRTOS任务，也不替产品桌面完成隐藏/切换界面。微雪旧Phone的Manager已实现短上滑Home、上滑停留RECENTS_SCREEN、删除任务卡片发送STOP；可参考交互，不能直接复制旧版API到新版Super。
+
+微雪仓库中的Phone状态栏初始化调用`setBatteryPercent(false, 100)`，main只定时更新时钟，没有真实电量刷新调用；320×480样式开启电池图标，关闭百分比文字。因此仓库示例图标是默认满电展示，不能据此确认用户到手固件采集了真实电量。
+
+原理图PMIC区明确为AXP2101，经ESP I2C SDA/SCL连接；BSP对应SDA GPIO7、SCL GPIO8。最新HAL已有AXP2101 BatteryIface适配，但需要Board Manager的匹配设备和power_manager接口，不能仅打开POWER_DEVICE便认定本板已接入。当前固件POWER_DEVICE关闭，Super状态栏未接电量。后续建议接入电池电压/百分比/充电状态，再显示于状态栏和快捷面板，同时补自动息屏与唤醒。此轮仅核对和记录，没有修改固件或实现最近任务/电池功能。
+
+### SD卡存储设计讨论
+
+用户已有SD卡，询问应用/日志放置和拔卡处理。建议系统固件、桌面/Settings资源、关键设置和小型动态应用默认内部Flash；SD作为可移除扩展存储，用于媒体、用户文件、下载包和导出日志，后续允许显式选择SD安装动态应用。无卡必须仍能启动桌面和Settings。日志采用有容量限制的RAM环形缓冲，SD批量落盘，少量关键故障摘要保留内部Flash，避免无卡时无限写NVS。
+
+源码核对：Core支持Internal/External/Auto安装目标；Auto在有外部卷时优先选择外部卷，因此接入SD后应明确选择Internal作为默认。外部卷识别/安装支持不代表热插拔已完成。微雪BSP提供FAT/SDMMC挂载与卸载，但slot配置为`SDMMC_SLOT_NO_CD`，不能依赖已有卡检测中断。产品还需统一存储状态及I/O错误处理、安全移除（停止新I/O、刷新并关闭文件、卸载）和意外拔卡降级。拔卡后仅依赖SD的应用/媒体功能不可用，系统保持运行；写入中硬拔可能损坏FAT或当前文件，无法承诺无损。挂载失败不能自动格式化。以上为设计建议，尚未实现或确认为最终存储策略。
+
+### 2026-10-14 三项基础能力实现（待实机验收）
+
+用户“那完成！”授权实现。新增 `pocket_platform` 常驻服务和只读 AXP2101 BatteryIface，接入 SDMMC/FAT（不格式化）、后台文件复制、电量缓存、NVS 息屏偏好和触摸唤醒。Settings 独立电源页，状态栏百分比；未实现深度睡眠/关机/电源键。SD 没有 CD 检测，约5秒检查状态，重新插卡需点连接；复制期间拒绝安全移除。内部文件入口限定 `/littlefs/user`，不展示系统/应用运行目录；SD 不作为 Core 应用安装卷，默认安装位置强制内部。
+
+预装 `examples/file-manager/src` 的 JSON/JS 包 `net.0use.files`，可用 `tools/package-file-manager.py` 构建开发 BPK。文件应用支持分页、目录返回、新建、重命名、普通文件复制、文件/空目录删除（二次确认）；不支持媒体预览、目录递归复制。计数器仍未预装。
+
+为最近任务新增本地 `components/brookesia_system_core`（官方 Core0.8.4 快照拷贝，依赖指向参考库），不修改 `.reference`。应用 Stack 挂载，pause 隐藏当前screen-flow根，resume恢复并刷新前台，已暂停应用start转resume。Super短上滑Home、停留450ms最近任务、名称卡片恢复/关闭/上滑关闭，最多3个非桌面应用按使用顺序回收。统一 `system.navigation.back` 只派发前台，键盘/对话框优先；C++根页返回unexpected("navigation.home")，JS根页返回字符串同名，由Core转交Super。暂停不强制冻结应用自建任务。
+
+ESP-IDF6.1完整构建通过：主固件 `0x75ad60`，8MB应用分区余约8%。静态资源/依赖检查、文件应用行为测试通过；实际LittleFS镜像确认Settings、Files/profile、电源页、最近任务资源存在，Counter不存在。四文件复制到 `examples/brookesia-minimal/build/bootloader/bin` 并核对SHA256。本轮必须同时更新主固件和LittleFS；重烧LittleFS会替换其文件和已安装应用。所有硬件效果仍待实机验收，未更改COMPLETED.md，未Git提交或烧录。完整使用、接口、限制、验收顺序见 `docs/08-files-power-navigation.md`。完整日志系统和媒体播放器不在本轮实现范围。
+
+### 2026-10-14 新页面字体单位导致启动失败：已修复，待重烧验收
+
+用户实机日志报告 Settings 首页 `Field 'font_size' must use sp units`，随后背光从80%设为0%。原因是新增资源生成器把标签字体写成 `16dp`（电量为 `12dp`），违反当前 GUI parser 的字体 `sp` 要求；注册应用解析失败使 System 初始化返回错误，main 的失败处理主动关闭背光。这不是该日志中的内存崩溃或屏幕驱动未启动。
+
+已修正生成器并重新生成 Settings 首页/电源页、Files 和 Super 电量/最近任务资源；静态检查补充所有产品资源的字体字面量单位校验（61项通过），文件应用原有行为测试通过。ESP-IDF6.1构建通过，实际 LittleFS 镜像逐一检查上述四个页面字体及状态栏字体常量，确认 Files/profile 存在、Counter仍未预装。导出目录四文件SHA256核对通过。
+
+主固件SHA256仍为 `9B133934B199A48E5D8791B9847860CC987B6412977AC6A652FC04F0A39723C9`，与修复前相同。已烧上一轮三项能力固件的设备，本次只需更新导出目录 `littlefs_data.bin` 至 `0x810000`；LittleFS重新烧录会替换其中的应用和文件。未实际烧录，启动恢复和新功能仍待实机验收；不更新COMPLETED.md。
+
+### 2026-10-14 最近任务重复动作导致桌面启动失败：已修复，待重烧验收
+
+用户再次提供日志：Shell 启动报 `Document action must be unique: 'ouse.recents.close0'`，卡片本体与其关闭按钮同时占用该动作名，System start失败后背光关闭。此前仅修正字体单位，未验证GUI文档动作唯一性，遗漏了这个独立错误。
+
+生成器及实际资源将三张卡片的上滑动作分别改为 `ouse.recents.swipe_close0/1/2`，关闭按钮保留 `ouse.recents.close0/1/2`；Shell新增相应订阅并复用停止任务逻辑，仍仅上滑方向触发手势关闭。静态检查新增按文档检查已加载screens/templates的字面量动作唯一性（不扫描未加载模板），先复现原始重复动作失败，再验证修复通过；检查三个手势/按钮动作及C++订阅连接。此检查不替代运行时模板展开与实机启动验证。
+
+ESP-IDF6.1构建通过，主固件 `0x75ae90`，应用分区剩8%。实际LittleFS镜像核对Settings/Shell/Files全部63个已引用资源与源文件一致，100个字面量动作无重复，三张卡片手势/按钮动作分离，Files/profile存在，Counter未预装。文件管理器既有行为测试通过。四文件重新导出至 `examples/brookesia-minimal/build/bootloader/bin`，SHA256核对通过；主固件SHA256为 `E93E794CCE51E40ECC0E6DBEB75EBA420CBB1C886367FE0864520D834C7EF64A`。
+
+本次修改了动作订阅代码和页面资源，必须一起更新 `0x10000` 主固件与 `0x810000` LittleFS；分区表/bootloader未变化。LittleFS重烧会替换其中的应用和文件。未实际烧录或确认桌面恢复，不更新COMPLETED.md。
+
+### 2026-10-14 Files 服务声明与应用切换修复（待实机验收）
+
+用户本次21:57日志确认桌面已经启动，Files失败原因明确为 `Pocket (service is not declared in app manifest)`。已在Files清单顶层声明Pocket 1.0.0服务，并重新生成BPK与LittleFS。此前测试未按真实清单限制服务调用，现已补上该检查。
+
+源码确认另一个独立缺陷：GUI Stack重排再次调用LVGL后端mount_screen时，无条件清除HIDDEN，可能暴露已暂停的Settings。新增本地 `components/brookesia_gui_lvgl`（官方0.8.5快照），保留record->hidden，不修改.reference。Super统一切换应用时暂停旧前台、激活目标，失败恢复旧前台；Core补pause/resume状态保护，Running重激活不重复调用on_resume。应用前台时隐藏Launcher主体，保留系统覆盖层。
+
+侧滑改用实际起止坐标判定，避开顶部/底部，启动动画期间忽略导航；底部快速上滑回Home，上滑停留450ms打开最近任务。应用中顶部轻触显示系统状态栏，1.5秒自动隐藏，下拉仍打开全屏快捷面板。Settings自己的页面标题栏属于应用内容。最近任务改为横向滚动名称/状态卡片，可恢复和关闭，尚未实现微雪旧Phone的屏幕截图缩略图。无图标应用启动动画不再引用不存在的default图像；移除已删除BLE控件的文案更新，修正新增Power标签的绑定键。
+
+静态资源检查、真实Files清单/UI约束下的JS行为测试通过；MSVC本机测试抽取真实LVGL挂载方法，参考版复现暂停画面暴露，本地版通过隐藏/恢复/重新挂载，真实C++导航策略边界检查通过。这些测试不覆盖触摸硬件和像素渲染。ESP-IDF6.1构建通过，主固件 `0x75c570`，8MB应用分区剩8%。实际LittleFS中63个已引用资源与源码一致，100个字面量动作唯一，Files清单/JS/profile/UI及两种语言核对通过，Counter未预装。
+
+四文件已导出并核对SHA256至 `examples/brookesia-minimal/build/bootloader/bin`。主固件SHA256为 `AD6200470D4804162AFDB9EAD1EAC0D47264CCF59F907A145768203F5E80BC7F`，LittleFS为 `6B8AA129D124738B709201E9B029C9961A5C7969901D0D0D22A8B10E3FFC2B43`。本次一起更新0x10000主固件与0x810000 LittleFS，bootloader和分区表未变化；LittleFS重烧会替换其中的应用和用户文件，先备份。尚未实机验证，不更新COMPLETED.md，不Git提交或烧录。C6固件版本不匹配警告仍待另行处理。
+
+### 2026-10-14 按微雪旧 Phone 实现截图最近任务（已获用户实机确认）
+
+用户要求完全参考随仓库微雪旧 Brookesia Phone 的逻辑。已核对 Base Manager/App、Phone Manager 与 recents_screen：暂停后截图，保留页面/状态，横向截图卡片居中吸附，点击恢复、上推关闭、全部关闭。旧版源码是横向卡片，非三星重叠堆栈。本轮将这些行为迁移到本地 Core/Super/LVGL 后端，旧示例和 `.reference` 保持不改。
+
+Core 隐藏应用前调用截图钩子；LVGL 后端合成当前内容和 Top 标题栏，排除桌面及系统弹框，截图后恢复原对象父级/位置/层级。同尺寸 RGB565 缓存复用，关闭时释放；320×480 每张约300KiB，最多三张约900KiB，不含页面及绘制开销。卡片沿用微雪180×302配置（预览180×270、间隔40、圆角20），左右切换、上推关闭、短滑复位、点击恢复及全部关闭；兼容明暗主题。事件经过GUI/Shell输入线程，代次过滤过期事件，不在LVGL回调中同步停止应用。实际指针测试曾检出程序滚动未临时开启SCROLLABLE，现按微雪逻辑修复并通过。
+
+侧边新增透明触摸拦截及跟手返回箭头，达到阈值变蓝，松手隐藏；仍只向前台应用派发统一返回动作。暂停保留 JS 环境及变量，不强制冻结自建 FreeRTOS 任务；框架应用定时器在暂停态不执行，应用自己的 on_pause 可控制业务。STOP 成功后卸载 JS runtime，重新 START 创建新环境，处理本次日志中重复打开后 `SyntaxError: redeclaration of 'gui'` 的运行时复用原因。
+
+按用户要求取消 Files 预装，开发源码保留在 `examples/file-manager`；主工程配置时清理旧生成stage，不删除SD内容。最新 LittleFS `/apps` 仅含 Settings，Shell资源在 `/system/super`；计数器仍不预装。电源服务及设置保留。
+
+ESP-IDF6.1最终构建通过，主固件 `0x760fc0`（7,737,280字节），8MB应用分区余 `0x9f040`（约8%）。资源/动作/依赖静态检查、真实后端隐藏/恢复与导航边界测试通过；实际LVGL软件渲染测试通过截图像素/标题合成、原场景恢复、静态预览/复用、卡片资源生命周期、明暗主题、返回提示和真实指针下点击/横滑/上推/全部关闭事件。实际LittleFS镜像121个文件与staging逐字节一致，Files和Counter不存在，LV_USE_SNAPSHOT已开启。测试不覆盖设备触摸驱动、帧率和真实后台业务，实机尚未验收。
+
+四文件重新导出至 `examples/brookesia-minimal/build/bootloader/bin` 并校验SHA256；主固件 `019182FD5D72570EACB665009764F57C2B1BB9E1855CA237B56A95C19AD3040E`，LittleFS `3DDFA0C052BC61F2461C3108EF408FCCDA8E622653C75E0CC2D7ADFFE543F116`。本轮必须一起更新0x10000主固件及0x810000 LittleFS；重烧LittleFS替换原分区内容，先备份。不更新COMPLETED.md，不Git提交或烧录。使用说明见 `docs/08-files-power-navigation.md`。
+
+随后用户反馈「现在非常完美」，确认本版效果，并要求更新完成清单及本地Git提交。根目录清单新增截图最近任务、保留/恢复、左右切换、上推关闭、全部关闭、侧滑箭头与明暗主题；不将文档、未预装Files或未验证计数器记为完成。本次提交保存当前产品组件、配置、资源生成工具、测试及文档，不包含构建产物或微雪嵌套参考仓库；不推送远端。

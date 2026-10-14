@@ -1,0 +1,9 @@
+{
+  "name": "net.0use.files",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "brookesia build",
+    "release": "brookesia release"
+  }
+}

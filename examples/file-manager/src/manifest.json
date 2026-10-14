@@ -1,0 +1,26 @@
+{
+  "package": {
+    "id": "net.0use.files",
+    "name": {
+      "en": "Files",
+      "zh_CN": "文件管理"
+    },
+    "version": "1.0.0",
+    "visible": true,
+    "systems": [
+      "super"
+    ]
+  },
+  "runtime": {
+    "type": "JavaScript",
+    "entry": "app/main.js",
+    "resource_dir": "res",
+    "arguments": []
+  },
+  "services": [
+    {
+      "name": "Pocket",
+      "version": "1.0.0"
+    }
+  ]
+}

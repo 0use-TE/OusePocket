@@ -6,6 +6,12 @@
 
 每版完成情况与验证边界见 [已完成清单](COMPLETED.md)。
 
+当前代码已新增系统重启、微雪音频输出、C6 Wi-Fi及DPI设置，构建通过，外设功能继续实机验证。接入说明与验收步骤见 [Settings指南第9节](docs/06-brookesia-settings-guide.md#9-当前接入重启声音wi-fi和dpi)。
+
+已增加全屏下拉快捷面板，可调亮度、音量和静音，显示 Wi-Fi 状态；构建通过，交互待实机验证。用法与修改入口见 [桌面快捷面板](docs/07-desktop-quick-controls.md)。
+
+电源设置、侧滑返回和微雪式截图最近任务见 [使用和架构说明](docs/08-files-power-navigation.md)。截图最近任务与手势导航已获用户实机确认。当前只预装桌面和 Settings，Files 已取消预装，独立开发源码保留；不预装计数器。
+
 ## 阅读顺序
 
 想从最小示例开始，先读 [Brookesia 入门与热更新计数器](docs/04-brookesia-minimal-tutorial.md)。配套固件位于 `examples/brookesia-minimal/`，动态应用位于 `examples/counter/`。
@@ -18,3 +24,5 @@
 4. [架构理解手册](docs/03-architecture-guide.md)：各层职责、调用流程、资源管理与如何掌控开发。
 
 资料核对日期：2026-10-14。文档中的“建议”是工程方案，“已确认”来自资料或代码检查，“待验证”必须通过后续实验确认。
+
+2026-10-14更新：按用户要求移除当前固件蓝牙功能，保留Wi-Fi、声音和DPI设置；前文蓝牙描述属于历史实现或后续规划。

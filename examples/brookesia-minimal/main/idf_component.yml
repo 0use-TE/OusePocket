@@ -1,6 +1,9 @@
 dependencies:
   idf: ">=6.0,<=6.2"
   waveshare/esp32_p4_wifi6_touch_lcd_3_5: "==2.0.2"
+  # P4 uses the C6 coprocessor for Wi-Fi. Keep this explicit so
+  # dependency resolution works before the new HAL Kconfig options are loaded.
+  espressif/esp_hosted: "==2.12.3"
   espressif/brookesia_hal_adaptor:
     version: "0.8.*"
     override_path: ../../../.reference/esp-brookesia/hal/brookesia_hal_adaptor
@@ -9,13 +12,19 @@ dependencies:
     override_path: ../../../.reference/esp-brookesia/service/media/brookesia_service_display
   espressif/brookesia_gui_lvgl:
     version: "0.8.*"
-    override_path: ../../../.reference/esp-brookesia/gui/brookesia_gui_lvgl
+    override_path: ../../../components/brookesia_gui_lvgl
   espressif/brookesia_runtime_js:
     version: "0.8.*"
     override_path: ../../../.reference/esp-brookesia/runtime/brookesia_runtime_js
   espressif/brookesia_system_super:
     version: "0.8.*"
-    override_path: ../../../.reference/esp-brookesia/system/brookesia_system_super
+    override_path: ../../../components/brookesia_system_super
+  espressif/brookesia_system_core:
+    version: "0.8.*"
+    override_path: ../../../components/brookesia_system_core
   espressif/brookesia_app_settings:
     version: "0.8.*"
-    override_path: ../../../.reference/esp-brookesia/app/brookesia_app_settings
+    override_path: ../../../components/brookesia_app_settings
+  espressif/brookesia_service_audio:
+    version: "0.8.*"
+    override_path: ../../../.reference/esp-brookesia/service/media/brookesia_service_audio

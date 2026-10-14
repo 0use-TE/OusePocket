@@ -7,8 +7,11 @@
 #include "bsp/esp-bsp.h"
 #include "bsp/display.h"
 #include "bsp/touch.h"
+#include "pocket_platform.hpp"
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_io.h"
+#include "esp_heap_caps.h"
+#include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "brookesia/hal_interface.hpp"
@@ -24,6 +27,12 @@ constexpr const char *GROUP = "waveshare_lcd35";
 esp_lcd_panel_handle_t panel = nullptr;
 esp_lcd_panel_io_handle_t io = nullptr;
 esp_lcd_touch_handle_t touch = nullptr;
+
+void darken_before_restart()
+{
+    // Runs before ESP-IDF disables peripherals during an orderly esp_restart().
+    (void)bsp_display_brightness_set(0);
+}
 
 class Panel final : public display::PanelIface {
 public:
@@ -135,8 +144,9 @@ public:
         uint16_t x = 0, y = 0, strength = 0;
         uint8_t count = 0;
         if (esp_lcd_touch_get_coordinates(touch, &x, &y, &strength, &count, 1) && count) {
+            if (ouse::pocket_touch(true)) return true;
             points.push_back({static_cast<int16_t>(x), static_cast<int16_t>(y), strength, 0});
-        }
+        } else ouse::pocket_touch(false);
         return true;
     }
     bool register_interrupt_handler(InterruptHandler handler, void *) override {
@@ -149,21 +159,21 @@ public:
     Backlight() : BacklightIface({.group_id = GROUP}) {}
     bool set_brightness(uint8_t percent) override {
         const uint8_t value = std::clamp<uint8_t>(percent, 10, 100);
-        if (bsp_display_brightness_set(on_.load() ? value : 0) != ESP_OK) return false;
+        if (!ouse::pocket_backlight(value, on_.load())) return false;
         brightness_ = value;
         return true;
     }
     bool get_brightness(uint8_t &percent) override { percent = brightness_.load(); return true; }
     bool is_light_on_off_supported() override { return true; }
     bool set_light_on_off(bool on) override {
-        if (bsp_display_brightness_set(on ? brightness_.load() : 0) != ESP_OK) return false;
+        if (!ouse::pocket_backlight(brightness_.load(), on)) return false;
         on_ = on;
         return true;
     }
     bool is_light_on() const override { return on_.load(); }
 private:
     std::atomic<uint8_t> brightness_{70};
-    std::atomic<bool> on_{true};
+    std::atomic<bool> on_{false};
 };
 
 class WaveshareDisplay final : public Device {
@@ -181,14 +191,27 @@ private:
     }
     bool on_init() override {
         ESP_ERROR_CHECK(bsp_display_brightness_init());
+        ESP_ERROR_CHECK(bsp_display_brightness_set(0));
+        ESP_ERROR_CHECK(esp_register_shutdown_handler(darken_before_restart));
         ESP_ERROR_CHECK(bsp_display_new(nullptr, &panel, &io));
         ESP_ERROR_CHECK(bsp_touch_new(nullptr, &touch));
         auto display_panel = std::make_shared<Panel>();
         if (!display_panel->attach()) return false;
+        // The LCD can retain pixels across a CPU reset. Clear its entire GRAM
+        // while dark, with an internal DMA buffer, before LVGL owns the panel.
+        constexpr uint32_t rows = 10;
+        auto *black = static_cast<uint8_t *>(heap_caps_calloc(
+            320 * rows, sizeof(uint16_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA));
+        if (!black) return false;
+        bool cleared = true;
+        for (uint32_t y = 0; y < 480 && cleared; y += rows) {
+            cleared = display_panel->draw_bitmap_sync(0, y, 320, y + rows, black, 1000);
+        }
+        heap_caps_free(black);
+        if (!cleared) return false;
         interfaces_.emplace("Ouse:Panel", display_panel);
         interfaces_.emplace("Ouse:Touch", std::make_shared<Touch>());
         interfaces_.emplace("Ouse:Backlight", std::make_shared<Backlight>());
-        ESP_ERROR_CHECK(bsp_display_brightness_set(70));
         return true;
     }
     void on_deinit() override {

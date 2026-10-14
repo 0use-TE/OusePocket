@@ -1,0 +1,857 @@
+{
+  "type": "viewScreen",
+  "id": "main",
+  "placement": {
+    "width": "${env.widthDp}",
+    "height": "${env.heightDp}"
+  },
+  "commonProps": {
+    "scrollable": true
+  },
+  "layout": {
+    "type": "flex",
+    "flexFlow": "column",
+    "gap": "8dp"
+  },
+  "children": [
+    {
+      "type": "label",
+      "id": "path",
+      "labelProps": {
+        "text": "Files"
+      },
+      "commonProps": {
+        "clickable": false
+      },
+      "style": {
+        "fontSize": "16sp"
+      }
+    },
+    {
+      "type": "label",
+      "id": "status",
+      "labelProps": {
+        "text": "Internal storage / SD"
+      },
+      "commonProps": {
+        "clickable": false
+      },
+      "style": {
+        "fontSize": "16sp"
+      }
+    },
+    {
+      "type": "container",
+      "id": "volumes",
+      "placement": {
+        "width": "100%",
+        "height": "wrap"
+      },
+      "commonProps": {
+        "scrollable": false
+      },
+      "layout": {
+        "type": "flex",
+        "flexFlow": "column",
+        "gap": "8dp"
+      },
+      "children": [
+        {
+          "type": "button",
+          "id": "internal",
+          "placement": {
+            "width": "100%",
+            "height": "40dp"
+          },
+          "style": {
+            "padding": "8dp",
+            "radius": "8dp",
+            "borderWidth": "1dp",
+            "borderColor": "#687080"
+          },
+          "layout": {
+            "type": "flex",
+            "mainAlign": "center",
+            "crossAlign": "center"
+          },
+          "events": [
+            {
+              "type": "clicked",
+              "action": "files.internal"
+            }
+          ],
+          "children": [
+            {
+              "type": "label",
+              "id": "title",
+              "labelProps": {
+                "text": "Internal"
+              },
+              "commonProps": {
+                "clickable": false
+              },
+              "style": {
+                "fontSize": "16sp"
+              },
+              "bindings": {
+                "labelProps.text": "text"
+              }
+            }
+          ]
+        },
+        {
+          "type": "button",
+          "id": "sd",
+          "placement": {
+            "width": "100%",
+            "height": "40dp"
+          },
+          "style": {
+            "padding": "8dp",
+            "radius": "8dp",
+            "borderWidth": "1dp",
+            "borderColor": "#687080"
+          },
+          "layout": {
+            "type": "flex",
+            "mainAlign": "center",
+            "crossAlign": "center"
+          },
+          "events": [
+            {
+              "type": "clicked",
+              "action": "files.sd"
+            }
+          ],
+          "children": [
+            {
+              "type": "label",
+              "id": "title",
+              "labelProps": {
+                "text": "SD card / connect"
+              },
+              "commonProps": {
+                "clickable": false
+              },
+              "style": {
+                "fontSize": "16sp"
+              },
+              "bindings": {
+                "labelProps.text": "text"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "button",
+      "id": "up",
+      "placement": {
+        "width": "100%",
+        "height": "40dp"
+      },
+      "style": {
+        "padding": "8dp",
+        "radius": "8dp",
+        "borderWidth": "1dp",
+        "borderColor": "#687080"
+      },
+      "layout": {
+        "type": "flex",
+        "mainAlign": "center",
+        "crossAlign": "center"
+      },
+      "events": [
+        {
+          "type": "clicked",
+          "action": "files.back"
+        }
+      ],
+      "children": [
+        {
+          "type": "label",
+          "id": "title",
+          "labelProps": {
+            "text": "Parent / back"
+          },
+          "commonProps": {
+            "clickable": false
+          },
+          "style": {
+            "fontSize": "16sp"
+          },
+          "bindings": {
+            "labelProps.text": "text"
+          }
+        }
+      ]
+    },
+    {
+      "type": "button",
+      "id": "entry0",
+      "placement": {
+        "width": "100%",
+        "height": "40dp"
+      },
+      "style": {
+        "padding": "8dp",
+        "radius": "8dp",
+        "borderWidth": "1dp",
+        "borderColor": "#687080"
+      },
+      "layout": {
+        "type": "flex",
+        "mainAlign": "center",
+        "crossAlign": "center"
+      },
+      "events": [
+        {
+          "type": "clicked",
+          "action": "files.entry0"
+        }
+      ],
+      "children": [
+        {
+          "type": "label",
+          "id": "title",
+          "labelProps": {
+            "text": ""
+          },
+          "commonProps": {
+            "clickable": false
+          },
+          "style": {
+            "fontSize": "16sp"
+          },
+          "bindings": {
+            "labelProps.text": "text"
+          }
+        }
+      ],
+      "bindings": {
+        "commonProps.hidden": "hidden"
+      }
+    },
+    {
+      "type": "button",
+      "id": "entry1",
+      "placement": {
+        "width": "100%",
+        "height": "40dp"
+      },
+      "style": {
+        "padding": "8dp",
+        "radius": "8dp",
+        "borderWidth": "1dp",
+        "borderColor": "#687080"
+      },
+      "layout": {
+        "type": "flex",
+        "mainAlign": "center",
+        "crossAlign": "center"
+      },
+      "events": [
+        {
+          "type": "clicked",
+          "action": "files.entry1"
+        }
+      ],
+      "children": [
+        {
+          "type": "label",
+          "id": "title",
+          "labelProps": {
+            "text": ""
+          },
+          "commonProps": {
+            "clickable": false
+          },
+          "style": {
+            "fontSize": "16sp"
+          },
+          "bindings": {
+            "labelProps.text": "text"
+          }
+        }
+      ],
+      "bindings": {
+        "commonProps.hidden": "hidden"
+      }
+    },
+    {
+      "type": "button",
+      "id": "entry2",
+      "placement": {
+        "width": "100%",
+        "height": "40dp"
+      },
+      "style": {
+        "padding": "8dp",
+        "radius": "8dp",
+        "borderWidth": "1dp",
+        "borderColor": "#687080"
+      },
+      "layout": {
+        "type": "flex",
+        "mainAlign": "center",
+        "crossAlign": "center"
+      },
+      "events": [
+        {
+          "type": "clicked",
+          "action": "files.entry2"
+        }
+      ],
+      "children": [
+        {
+          "type": "label",
+          "id": "title",
+          "labelProps": {
+            "text": ""
+          },
+          "commonProps": {
+            "clickable": false
+          },
+          "style": {
+            "fontSize": "16sp"
+          },
+          "bindings": {
+            "labelProps.text": "text"
+          }
+        }
+      ],
+      "bindings": {
+        "commonProps.hidden": "hidden"
+      }
+    },
+    {
+      "type": "button",
+      "id": "entry3",
+      "placement": {
+        "width": "100%",
+        "height": "40dp"
+      },
+      "style": {
+        "padding": "8dp",
+        "radius": "8dp",
+        "borderWidth": "1dp",
+        "borderColor": "#687080"
+      },
+      "layout": {
+        "type": "flex",
+        "mainAlign": "center",
+        "crossAlign": "center"
+      },
+      "events": [
+        {
+          "type": "clicked",
+          "action": "files.entry3"
+        }
+      ],
+      "children": [
+        {
+          "type": "label",
+          "id": "title",
+          "labelProps": {
+            "text": ""
+          },
+          "commonProps": {
+            "clickable": false
+          },
+          "style": {
+            "fontSize": "16sp"
+          },
+          "bindings": {
+            "labelProps.text": "text"
+          }
+        }
+      ],
+      "bindings": {
+        "commonProps.hidden": "hidden"
+      }
+    },
+    {
+      "type": "button",
+      "id": "entry4",
+      "placement": {
+        "width": "100%",
+        "height": "40dp"
+      },
+      "style": {
+        "padding": "8dp",
+        "radius": "8dp",
+        "borderWidth": "1dp",
+        "borderColor": "#687080"
+      },
+      "layout": {
+        "type": "flex",
+        "mainAlign": "center",
+        "crossAlign": "center"
+      },
+      "events": [
+        {
+          "type": "clicked",
+          "action": "files.entry4"
+        }
+      ],
+      "children": [
+        {
+          "type": "label",
+          "id": "title",
+          "labelProps": {
+            "text": ""
+          },
+          "commonProps": {
+            "clickable": false
+          },
+          "style": {
+            "fontSize": "16sp"
+          },
+          "bindings": {
+            "labelProps.text": "text"
+          }
+        }
+      ],
+      "bindings": {
+        "commonProps.hidden": "hidden"
+      }
+    },
+    {
+      "type": "button",
+      "id": "entry5",
+      "placement": {
+        "width": "100%",
+        "height": "40dp"
+      },
+      "style": {
+        "padding": "8dp",
+        "radius": "8dp",
+        "borderWidth": "1dp",
+        "borderColor": "#687080"
+      },
+      "layout": {
+        "type": "flex",
+        "mainAlign": "center",
+        "crossAlign": "center"
+      },
+      "events": [
+        {
+          "type": "clicked",
+          "action": "files.entry5"
+        }
+      ],
+      "children": [
+        {
+          "type": "label",
+          "id": "title",
+          "labelProps": {
+            "text": ""
+          },
+          "commonProps": {
+            "clickable": false
+          },
+          "style": {
+            "fontSize": "16sp"
+          },
+          "bindings": {
+            "labelProps.text": "text"
+          }
+        }
+      ],
+      "bindings": {
+        "commonProps.hidden": "hidden"
+      }
+    },
+    {
+      "type": "button",
+      "id": "previous",
+      "placement": {
+        "width": "100%",
+        "height": "40dp"
+      },
+      "style": {
+        "padding": "8dp",
+        "radius": "8dp",
+        "borderWidth": "1dp",
+        "borderColor": "#687080"
+      },
+      "layout": {
+        "type": "flex",
+        "mainAlign": "center",
+        "crossAlign": "center"
+      },
+      "events": [
+        {
+          "type": "clicked",
+          "action": "files.previous"
+        }
+      ],
+      "children": [
+        {
+          "type": "label",
+          "id": "title",
+          "labelProps": {
+            "text": "Previous page"
+          },
+          "commonProps": {
+            "clickable": false
+          },
+          "style": {
+            "fontSize": "16sp"
+          },
+          "bindings": {
+            "labelProps.text": "text"
+          }
+        }
+      ]
+    },
+    {
+      "type": "button",
+      "id": "next",
+      "placement": {
+        "width": "100%",
+        "height": "40dp"
+      },
+      "style": {
+        "padding": "8dp",
+        "radius": "8dp",
+        "borderWidth": "1dp",
+        "borderColor": "#687080"
+      },
+      "layout": {
+        "type": "flex",
+        "mainAlign": "center",
+        "crossAlign": "center"
+      },
+      "events": [
+        {
+          "type": "clicked",
+          "action": "files.next"
+        }
+      ],
+      "children": [
+        {
+          "type": "label",
+          "id": "title",
+          "labelProps": {
+            "text": "Next page"
+          },
+          "commonProps": {
+            "clickable": false
+          },
+          "style": {
+            "fontSize": "16sp"
+          },
+          "bindings": {
+            "labelProps.text": "text"
+          }
+        }
+      ]
+    },
+    {
+      "type": "button",
+      "id": "mkdir",
+      "placement": {
+        "width": "100%",
+        "height": "40dp"
+      },
+      "style": {
+        "padding": "8dp",
+        "radius": "8dp",
+        "borderWidth": "1dp",
+        "borderColor": "#687080"
+      },
+      "layout": {
+        "type": "flex",
+        "mainAlign": "center",
+        "crossAlign": "center"
+      },
+      "events": [
+        {
+          "type": "clicked",
+          "action": "files.mkdir"
+        }
+      ],
+      "children": [
+        {
+          "type": "label",
+          "id": "title",
+          "labelProps": {
+            "text": "New folder"
+          },
+          "commonProps": {
+            "clickable": false
+          },
+          "style": {
+            "fontSize": "16sp"
+          },
+          "bindings": {
+            "labelProps.text": "text"
+          }
+        }
+      ]
+    },
+    {
+      "type": "button",
+      "id": "rename",
+      "placement": {
+        "width": "100%",
+        "height": "40dp"
+      },
+      "style": {
+        "padding": "8dp",
+        "radius": "8dp",
+        "borderWidth": "1dp",
+        "borderColor": "#687080"
+      },
+      "layout": {
+        "type": "flex",
+        "mainAlign": "center",
+        "crossAlign": "center"
+      },
+      "events": [
+        {
+          "type": "clicked",
+          "action": "files.rename"
+        }
+      ],
+      "children": [
+        {
+          "type": "label",
+          "id": "title",
+          "labelProps": {
+            "text": "Rename selected"
+          },
+          "commonProps": {
+            "clickable": false
+          },
+          "style": {
+            "fontSize": "16sp"
+          },
+          "bindings": {
+            "labelProps.text": "text"
+          }
+        }
+      ]
+    },
+    {
+      "type": "button",
+      "id": "copy",
+      "placement": {
+        "width": "100%",
+        "height": "40dp"
+      },
+      "style": {
+        "padding": "8dp",
+        "radius": "8dp",
+        "borderWidth": "1dp",
+        "borderColor": "#687080"
+      },
+      "layout": {
+        "type": "flex",
+        "mainAlign": "center",
+        "crossAlign": "center"
+      },
+      "events": [
+        {
+          "type": "clicked",
+          "action": "files.copy"
+        }
+      ],
+      "children": [
+        {
+          "type": "label",
+          "id": "title",
+          "labelProps": {
+            "text": "Copy selected"
+          },
+          "commonProps": {
+            "clickable": false
+          },
+          "style": {
+            "fontSize": "16sp"
+          },
+          "bindings": {
+            "labelProps.text": "text"
+          }
+        }
+      ]
+    },
+    {
+      "type": "button",
+      "id": "paste",
+      "placement": {
+        "width": "100%",
+        "height": "40dp"
+      },
+      "style": {
+        "padding": "8dp",
+        "radius": "8dp",
+        "borderWidth": "1dp",
+        "borderColor": "#687080"
+      },
+      "layout": {
+        "type": "flex",
+        "mainAlign": "center",
+        "crossAlign": "center"
+      },
+      "events": [
+        {
+          "type": "clicked",
+          "action": "files.paste"
+        }
+      ],
+      "children": [
+        {
+          "type": "label",
+          "id": "title",
+          "labelProps": {
+            "text": "Paste here"
+          },
+          "commonProps": {
+            "clickable": false
+          },
+          "style": {
+            "fontSize": "16sp"
+          },
+          "bindings": {
+            "labelProps.text": "text"
+          }
+        }
+      ]
+    },
+    {
+      "type": "button",
+      "id": "delete",
+      "placement": {
+        "width": "100%",
+        "height": "40dp"
+      },
+      "style": {
+        "padding": "8dp",
+        "radius": "8dp",
+        "borderWidth": "1dp",
+        "borderColor": "#687080"
+      },
+      "layout": {
+        "type": "flex",
+        "mainAlign": "center",
+        "crossAlign": "center"
+      },
+      "events": [
+        {
+          "type": "clicked",
+          "action": "files.delete"
+        }
+      ],
+      "children": [
+        {
+          "type": "label",
+          "id": "title",
+          "labelProps": {
+            "text": "Delete selected (tap twice)"
+          },
+          "commonProps": {
+            "clickable": false
+          },
+          "style": {
+            "fontSize": "16sp"
+          },
+          "bindings": {
+            "labelProps.text": "text"
+          }
+        }
+      ]
+    },
+    {
+      "type": "button",
+      "id": "refresh",
+      "placement": {
+        "width": "100%",
+        "height": "40dp"
+      },
+      "style": {
+        "padding": "8dp",
+        "radius": "8dp",
+        "borderWidth": "1dp",
+        "borderColor": "#687080"
+      },
+      "layout": {
+        "type": "flex",
+        "mainAlign": "center",
+        "crossAlign": "center"
+      },
+      "events": [
+        {
+          "type": "clicked",
+          "action": "files.refresh"
+        }
+      ],
+      "children": [
+        {
+          "type": "label",
+          "id": "title",
+          "labelProps": {
+            "text": "Refresh"
+          },
+          "commonProps": {
+            "clickable": false
+          },
+          "style": {
+            "fontSize": "16sp"
+          },
+          "bindings": {
+            "labelProps.text": "text"
+          }
+        }
+      ]
+    },
+    {
+      "type": "button",
+      "id": "eject",
+      "placement": {
+        "width": "100%",
+        "height": "40dp"
+      },
+      "style": {
+        "padding": "8dp",
+        "radius": "8dp",
+        "borderWidth": "1dp",
+        "borderColor": "#687080"
+      },
+      "layout": {
+        "type": "flex",
+        "mainAlign": "center",
+        "crossAlign": "center"
+      },
+      "events": [
+        {
+          "type": "clicked",
+          "action": "files.eject"
+        }
+      ],
+      "children": [
+        {
+          "type": "label",
+          "id": "title",
+          "labelProps": {
+            "text": "Safely remove SD"
+          },
+          "commonProps": {
+            "clickable": false
+          },
+          "style": {
+            "fontSize": "16sp"
+          },
+          "bindings": {
+            "labelProps.text": "text"
+          }
+        }
+      ]
+    }
+  ],
+  "style": {
+    "padding": "12dp"
+  }
+}

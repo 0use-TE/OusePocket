@@ -1,4 +1,6 @@
 #include <memory>
+#include <expected>
+#include <string>
 #include <vector>
 #include "boost/json/array.hpp"
 #include "brookesia/lib_utils/describe_helpers.hpp"
@@ -8,13 +10,63 @@
 #include "esp_heap_caps.h"
 #include "esp_rom_sys.h"
 #include "esp_log.h"
+#include "esp_lv_adapter.h"
 #include "brookesia/gui_lvgl.hpp"
 #include "brookesia/system_super.hpp"
 #include "brookesia/service_helper/media/display.hpp"
 #include "brookesia/service_manager/service/manager.hpp"
+#include "ouse_preferences.hpp"
 
 using namespace esp_brookesia;
 using DisplayHelper = service::helper::Display;
+
+class PocketSystem final : public system::super::System {
+public:
+    explicit PocketSystem(double output_id) : output_id_(output_id) {}
+
+    std::expected<void, std::string> reveal_display()
+    {
+        if (display_revealed_) return {};
+        auto &source = gui::lvgl::DisplaySource::get_instance();
+        if (esp_lv_adapter_refresh_now(source.display()) != ESP_OK) {
+            return std::unexpected("Initial UI refresh failed; keeping backlight off");
+        }
+        // Let the final asynchronous SPI transfer settle before turning on the light.
+        vTaskDelay(pdMS_TO_TICKS(100));
+        auto result = DisplayHelper::call_function_sync(
+            DisplayHelper::FunctionId::SetBacklightOnOff, output_id_, true,
+            service::helper::Timeout(1000));
+        if (!result) return result;
+        display_revealed_ = true;
+        return {};
+    }
+
+    void darken_display()
+    {
+        auto result = DisplayHelper::call_function_sync(
+            DisplayHelper::FunctionId::SetBacklightOnOff, output_id_, false,
+            service::helper::Timeout(1000));
+        if (!result) ESP_LOGE("Ouse", "Backlight off: %s", result.error().c_str());
+        display_revealed_ = false;
+    }
+
+protected:
+    std::expected<void, std::string> on_init() override
+    {
+#if BROOKESIA_SYSTEM_SUPER_ENABLE_STARTUP_OVERLAY
+        // Core mounts and processes the startup overlay before invoking on_init().
+        // Reveal that valid frame while Super initializes fonts, themes and apps.
+        auto result = reveal_display();
+        if (!result) return result;
+        ESP_LOGI("Ouse", "Startup overlay visible; preparing desktop");
+#endif
+        return system::super::System::on_init();
+    }
+
+private:
+    double output_id_;
+    bool display_revealed_ = false;
+};
 
 static void log_memory(const char *phase)
 {
@@ -33,8 +85,10 @@ static void allocation_failed(size_t size, uint32_t caps, const char *function)
         function, static_cast<unsigned>(size), static_cast<unsigned long>(caps));
 }
 
+#include "pocket_platform.hpp"
 static void initialize_system()
 {
+    // Platform is started below after Core mounts LittleFS.
     log_memory("before services");
     auto &manager = service::ServiceManager::get_instance();
     if (!manager.init() || !manager.start()) {
@@ -72,7 +126,7 @@ static void initialize_system()
     }
     const double output_id = static_cast<double>(outputs.front().id);
     auto backlight = DisplayHelper::call_function_sync(
-        DisplayHelper::FunctionId::SetBacklightOnOff, output_id, true,
+        DisplayHelper::FunctionId::SetBacklightOnOff, output_id, false,
         service::helper::Timeout(1000));
     if (!backlight) {
         ESP_LOGE("Ouse", "Backlight setup: %s", backlight.error().c_str());
@@ -89,21 +143,41 @@ static void initialize_system()
     }
 
     log_memory("before system init");
-    static auto shell = std::make_unique<system::super::System>();
+    static auto shell = std::make_unique<PocketSystem>(output_id);
     system::super::System::Config config;
     config.core_config.gui_backend = std::make_unique<gui::lvgl::Backend>();
+    config.desktop_backend = static_cast<gui::lvgl::Backend *>(config.core_config.gui_backend.get());
+    config.core_config.startup_overlay.min_present_ms = 600;
+    config.core_config.storage.default_install_target = system::core::StorageInstallTarget::Internal;
+    const int density_percent = ouse::load_density_percent();
     config.core_config.environment = {
-        .width_px = 320, .height_px = 480, .density = 1.0F, .font_scale = 1.0F,
+        .width_px = 320, .height_px = 480,
+        .density = static_cast<float>(density_percent) / 100.0F, .font_scale = 1.0F,
     };
+    ESP_LOGI("Ouse", "UI scale: %d%% (restart applies saved preference)", density_percent);
     auto initialized = shell->init(std::move(config));
     if (!initialized) {
+        shell->darken_display();
         ESP_LOGE("Ouse", "System init: %s", initialized.error().c_str());
         return;
     }
     log_memory("before system start");
+    auto storage_preference = shell->set_default_install_storage(system::core::StorageInstallTarget::Internal);
+    if (!storage_preference) ESP_LOGW("Ouse", "Internal install preference: %s", storage_preference.error().c_str());
+    ouse::start_pocket_platform();
     auto started = shell->start();
-    if (!started) ESP_LOGE("Ouse", "System start: %s", started.error().c_str());
-    else ESP_LOGI("Ouse", "READY: System Super + Settings + BPK installer");
+    if (!started) {
+        shell->darken_display();
+        ESP_LOGE("Ouse", "System start: %s", started.error().c_str());
+        return;
+    }
+    // Fallback for builds with startup overlays disabled.
+    auto revealed = shell->reveal_display();
+    if (!revealed) {
+        ESP_LOGE("Ouse", "Backlight reveal: %s", revealed.error().c_str());
+        return;
+    }
+    ESP_LOGI("Ouse", "READY: System Super + Settings + BPK installer");
 }
 
 static void setup(void *)

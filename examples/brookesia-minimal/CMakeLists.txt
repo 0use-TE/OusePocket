@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
+set(EXTRA_COMPONENT_DIRS "${CMAKE_CURRENT_LIST_DIR}/../../components/pocket_platform")
 set(CMAKE_NINJA_FORCE_RESPONSE_FILE 1 CACHE INTERNAL "")
 if(CMAKE_HOST_WIN32)
     set(CONFIGDEP_ENABLE 0 CACHE BOOL "Avoid Windows AUX configdep path" FORCE)
