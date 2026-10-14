@@ -1,0 +1,54 @@
+{
+  "type": "viewScreen",
+  "id": "main",
+  "layout": {
+    "type": "flex",
+    "flexFlow": "column",
+    "mainAlign": "center",
+    "crossAlign": "center",
+    "gap": "16dp"
+  },
+  "children": [
+    {
+      "type": "label",
+      "id": "title",
+      "labelProps": {
+        "text": "OusePocket Counter"
+      }
+    },
+    {
+      "type": "label",
+      "id": "value",
+      "labelProps": { "text": "0" }
+    },
+    {
+      "type": "button",
+      "id": "increment",
+      "layout": { "type": "flex", "mainAlign": "center", "crossAlign": "center" },
+      "placement": { "width": "200dp", "height": "56dp" },
+      "events": [{ "type": "clicked", "action": "counter.increment" }],
+      "children": [{
+        "type": "label", "id": "text",
+        "labelProps": { "text": "Add" },
+        "placement": { "alignSelf": "center" },
+        "commonProps": { "clickable": false }
+      }]
+    },
+    {
+      "type": "button",
+      "id": "reset",
+      "layout": { "type": "flex", "mainAlign": "center", "crossAlign": "center" },
+      "placement": { "width": "200dp", "height": "56dp" },
+      "events": [{ "type": "clicked", "action": "counter.reset" }],
+      "children": [{
+        "type": "label", "id": "text",
+        "labelProps": { "text": "Reset" },
+        "commonProps": { "clickable": false }
+      }]
+    },
+    {
+      "type": "label", "id": "version",
+      "labelProps": { "text": "v1.0.0 | step 1" }
+    }
+  ]
+}

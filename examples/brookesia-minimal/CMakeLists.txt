@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.16)
+set(CMAKE_NINJA_FORCE_RESPONSE_FILE 1 CACHE INTERNAL "")
+if(CMAKE_HOST_WIN32)
+    set(CONFIGDEP_ENABLE 0 CACHE BOOL "Avoid Windows AUX configdep path" FORCE)
+endif()
+include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+project(ouse_brookesia_minimal)
+brookesia_system_super_apply_compile_policy()
