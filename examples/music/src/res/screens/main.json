@@ -1,0 +1,1240 @@
+{
+  "type": "viewScreen",
+  "id": "main",
+  "styleRefs": [
+    "app.page"
+  ],
+  "style": {
+    "padding": "12dp",
+    "paddingTop": "30dp",
+    "paddingBottom": "28dp",
+    "borderWidth": "0dp"
+  },
+  "placement": {
+    "width": "${env.widthDp}",
+    "height": "${env.heightDp}",
+    "mode": "flow"
+  },
+  "commonProps": {
+    "scrollable": true
+  },
+  "layout": {
+    "type": "flex",
+    "flexFlow": "column",
+    "gap": "8dp",
+    "crossAlign": "center"
+  },
+  "children": [
+    {
+      "type": "label",
+      "id": "title",
+      "placement": {
+        "width": "100%",
+        "height": "wrap",
+        "mode": "flow"
+      },
+      "styleRefs": [
+        "app.body"
+      ],
+      "style": {
+        "fontSize": "22sp"
+      },
+      "commonProps": {
+        "clickable": false
+      },
+      "labelProps": {
+        "text": "${constant.ui.title}"
+      },
+      "bindings": {
+        "labelProps.text": "text"
+      }
+    },
+    {
+      "type": "image",
+      "id": "cover",
+      "placement": {
+        "width": "120dp",
+        "height": "120dp",
+        "mode": "flow"
+      },
+      "imageProps": {
+        "src": "${image.cover}",
+        "innerAlign": "contain"
+      },
+      "commonProps": {
+        "clickable": false
+      }
+    },
+    {
+      "type": "label",
+      "id": "song",
+      "placement": {
+        "width": "100%",
+        "height": "wrap",
+        "mode": "flow"
+      },
+      "styleRefs": [
+        "app.body"
+      ],
+      "style": {
+        "fontSize": "18sp"
+      },
+      "commonProps": {
+        "clickable": false
+      },
+      "labelProps": {
+        "text": "${constant.ui.library}"
+      },
+      "bindings": {
+        "labelProps.text": "text"
+      }
+    },
+    {
+      "type": "label",
+      "id": "status",
+      "placement": {
+        "width": "100%",
+        "height": "wrap",
+        "mode": "flow"
+      },
+      "styleRefs": [
+        "app.body"
+      ],
+      "style": {
+        "fontSize": "12sp"
+      },
+      "commonProps": {
+        "clickable": false
+      },
+      "labelProps": {
+        "text": "${constant.ui.ready}"
+      },
+      "bindings": {
+        "labelProps.text": "text"
+      }
+    },
+    {
+      "type": "label",
+      "id": "elapsed",
+      "placement": {
+        "width": "100%",
+        "height": "wrap",
+        "mode": "flow"
+      },
+      "styleRefs": [
+        "app.body"
+      ],
+      "style": {
+        "fontSize": "12sp"
+      },
+      "commonProps": {
+        "clickable": false
+      },
+      "labelProps": {
+        "text": "00:00"
+      },
+      "bindings": {
+        "labelProps.text": "text"
+      }
+    },
+    {
+      "type": "progressBar",
+      "id": "progress",
+      "placement": {
+        "width": "100%",
+        "height": "4dp",
+        "mode": "flow"
+      },
+      "rangeProps": {
+        "min": 0,
+        "max": 1000,
+        "value": 0
+      },
+      "commonProps": {
+        "clickable": false
+      },
+      "style": {
+        "bgColor": "${color.surface.base}",
+        "radius": "2dp"
+      },
+      "partStyles": {
+        "indicator": {
+          "bgColor": "${color.primary.fill}",
+          "radius": "2dp"
+        }
+      },
+      "bindings": {
+        "rangeProps.value": "value"
+      }
+    },
+    {
+      "type": "container",
+      "id": "controls",
+      "placement": {
+        "width": "100%",
+        "height": "wrap",
+        "mode": "flow"
+      },
+      "style": {
+        "padding": "0dp",
+        "bgColor": "",
+        "borderWidth": "0dp"
+      },
+      "commonProps": {
+        "scrollable": false
+      },
+      "layout": {
+        "type": "flex",
+        "flexFlow": "row",
+        "gap": "8dp",
+        "mainAlign": "center",
+        "crossAlign": "center"
+      },
+      "children": [
+        {
+          "type": "button",
+          "id": "previous",
+          "placement": {
+            "width": "match",
+            "height": "44dp",
+            "flexGrow": 1,
+            "mode": "flow"
+          },
+          "styleRefs": [
+            "app.buttonSecondary"
+          ],
+          "style": {
+            "padding": "6dp",
+            "borderWidth": "0dp",
+            "radius": "16dp"
+          },
+          "commonProps": {
+            "scrollable": false
+          },
+          "layout": {
+            "type": "flex",
+            "mainAlign": "center",
+            "crossAlign": "center"
+          },
+          "events": [
+            {
+              "type": "clicked",
+              "action": "music.previous"
+            }
+          ],
+          "children": [
+            {
+              "type": "image",
+              "id": "icon",
+              "placement": {
+                "width": "26dp",
+                "height": "26dp",
+                "mode": "flow"
+              },
+              "imageProps": {
+                "src": "${image.previous}",
+                "innerAlign": "contain"
+              },
+              "style": {
+                "imageRecolor": "${color.text.default}",
+                "imageRecolorOpacity": 255
+              },
+              "commonProps": {
+                "clickable": false
+              },
+              "bindings": {
+                "imageProps.src": "src"
+              }
+            }
+          ]
+        },
+        {
+          "type": "button",
+          "id": "play",
+          "placement": {
+            "width": "match",
+            "height": "44dp",
+            "flexGrow": 1,
+            "mode": "flow"
+          },
+          "styleRefs": [
+            "app.buttonPrimary"
+          ],
+          "style": {
+            "padding": "6dp",
+            "borderWidth": "0dp",
+            "radius": "16dp"
+          },
+          "commonProps": {
+            "scrollable": false
+          },
+          "layout": {
+            "type": "flex",
+            "mainAlign": "center",
+            "crossAlign": "center"
+          },
+          "events": [
+            {
+              "type": "clicked",
+              "action": "music.play"
+            }
+          ],
+          "children": [
+            {
+              "type": "image",
+              "id": "icon",
+              "placement": {
+                "width": "26dp",
+                "height": "26dp",
+                "mode": "flow"
+              },
+              "imageProps": {
+                "src": "${image.play}",
+                "innerAlign": "contain"
+              },
+              "style": {
+                "imageRecolor": "${color.primary.on}",
+                "imageRecolorOpacity": 255
+              },
+              "commonProps": {
+                "clickable": false
+              },
+              "bindings": {
+                "imageProps.src": "src"
+              }
+            }
+          ]
+        },
+        {
+          "type": "button",
+          "id": "next",
+          "placement": {
+            "width": "match",
+            "height": "44dp",
+            "flexGrow": 1,
+            "mode": "flow"
+          },
+          "styleRefs": [
+            "app.buttonSecondary"
+          ],
+          "style": {
+            "padding": "6dp",
+            "borderWidth": "0dp",
+            "radius": "16dp"
+          },
+          "commonProps": {
+            "scrollable": false
+          },
+          "layout": {
+            "type": "flex",
+            "mainAlign": "center",
+            "crossAlign": "center"
+          },
+          "events": [
+            {
+              "type": "clicked",
+              "action": "music.next"
+            }
+          ],
+          "children": [
+            {
+              "type": "image",
+              "id": "icon",
+              "placement": {
+                "width": "26dp",
+                "height": "26dp",
+                "mode": "flow"
+              },
+              "imageProps": {
+                "src": "${image.next}",
+                "innerAlign": "contain"
+              },
+              "style": {
+                "imageRecolor": "${color.text.default}",
+                "imageRecolorOpacity": 255
+              },
+              "commonProps": {
+                "clickable": false
+              },
+              "bindings": {
+                "imageProps.src": "src"
+              }
+            }
+          ]
+        },
+        {
+          "type": "button",
+          "id": "stop",
+          "placement": {
+            "width": "match",
+            "height": "44dp",
+            "flexGrow": 1,
+            "mode": "flow"
+          },
+          "styleRefs": [
+            "app.buttonSecondary"
+          ],
+          "style": {
+            "padding": "6dp",
+            "borderWidth": "0dp",
+            "radius": "16dp"
+          },
+          "commonProps": {
+            "scrollable": false
+          },
+          "layout": {
+            "type": "flex",
+            "mainAlign": "center",
+            "crossAlign": "center"
+          },
+          "events": [
+            {
+              "type": "clicked",
+              "action": "music.stop"
+            }
+          ],
+          "children": [
+            {
+              "type": "label",
+              "id": "title",
+              "placement": {
+                "width": "match",
+                "height": "wrap",
+                "mode": "flow"
+              },
+              "styleRefs": [
+                "app.body"
+              ],
+              "style": {
+                "fontSize": "13sp",
+                "textAlign": "center"
+              },
+              "commonProps": {
+                "clickable": false
+              },
+              "labelProps": {
+                "text": "${constant.ui.stop}"
+              },
+              "bindings": {
+                "labelProps.text": "text"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "id": "volume",
+      "placement": {
+        "width": "100%",
+        "height": "wrap",
+        "mode": "flow"
+      },
+      "style": {
+        "padding": "0dp",
+        "bgColor": "",
+        "borderWidth": "0dp"
+      },
+      "commonProps": {
+        "scrollable": false
+      },
+      "layout": {
+        "type": "flex",
+        "flexFlow": "row",
+        "gap": "8dp",
+        "mainAlign": "center",
+        "crossAlign": "center"
+      },
+      "children": [
+        {
+          "type": "button",
+          "id": "less",
+          "placement": {
+            "width": "44dp",
+            "height": "44dp",
+            "flexGrow": 0,
+            "mode": "flow"
+          },
+          "styleRefs": [
+            "app.buttonSecondary"
+          ],
+          "style": {
+            "padding": "6dp",
+            "borderWidth": "0dp",
+            "radius": "16dp"
+          },
+          "commonProps": {
+            "scrollable": false
+          },
+          "layout": {
+            "type": "flex",
+            "mainAlign": "center",
+            "crossAlign": "center"
+          },
+          "events": [
+            {
+              "type": "clicked",
+              "action": "music.volume_down"
+            }
+          ],
+          "children": [
+            {
+              "type": "label",
+              "id": "title",
+              "placement": {
+                "width": "match",
+                "height": "wrap",
+                "mode": "flow"
+              },
+              "styleRefs": [
+                "app.body"
+              ],
+              "style": {
+                "fontSize": "13sp",
+                "textAlign": "center"
+              },
+              "commonProps": {
+                "clickable": false
+              },
+              "labelProps": {
+                "text": "-"
+              },
+              "bindings": {
+                "labelProps.text": "text"
+              }
+            }
+          ]
+        },
+        {
+          "type": "label",
+          "id": "value",
+          "placement": {
+            "width": "match",
+            "height": "wrap",
+            "flexGrow": 1,
+            "mode": "flow"
+          },
+          "styleRefs": [
+            "app.body"
+          ],
+          "style": {
+            "fontSize": "13sp"
+          },
+          "commonProps": {
+            "clickable": false
+          },
+          "labelProps": {
+            "text": "${constant.ui.volume}"
+          },
+          "bindings": {
+            "labelProps.text": "text"
+          }
+        },
+        {
+          "type": "button",
+          "id": "more",
+          "placement": {
+            "width": "44dp",
+            "height": "44dp",
+            "flexGrow": 0,
+            "mode": "flow"
+          },
+          "styleRefs": [
+            "app.buttonSecondary"
+          ],
+          "style": {
+            "padding": "6dp",
+            "borderWidth": "0dp",
+            "radius": "16dp"
+          },
+          "commonProps": {
+            "scrollable": false
+          },
+          "layout": {
+            "type": "flex",
+            "mainAlign": "center",
+            "crossAlign": "center"
+          },
+          "events": [
+            {
+              "type": "clicked",
+              "action": "music.volume_up"
+            }
+          ],
+          "children": [
+            {
+              "type": "label",
+              "id": "title",
+              "placement": {
+                "width": "match",
+                "height": "wrap",
+                "mode": "flow"
+              },
+              "styleRefs": [
+                "app.body"
+              ],
+              "style": {
+                "fontSize": "13sp",
+                "textAlign": "center"
+              },
+              "commonProps": {
+                "clickable": false
+              },
+              "labelProps": {
+                "text": "+"
+              },
+              "bindings": {
+                "labelProps.text": "text"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "id": "sources",
+      "placement": {
+        "width": "100%",
+        "height": "wrap",
+        "mode": "flow"
+      },
+      "style": {
+        "padding": "0dp",
+        "bgColor": "",
+        "borderWidth": "0dp"
+      },
+      "commonProps": {
+        "scrollable": false
+      },
+      "layout": {
+        "type": "flex",
+        "flexFlow": "row",
+        "gap": "8dp",
+        "mainAlign": "center",
+        "crossAlign": "center"
+      },
+      "children": [
+        {
+          "type": "button",
+          "id": "sd",
+          "placement": {
+            "width": "match",
+            "height": "44dp",
+            "flexGrow": 1,
+            "mode": "flow"
+          },
+          "styleRefs": [
+            "app.buttonSecondary"
+          ],
+          "style": {
+            "padding": "6dp",
+            "borderWidth": "0dp",
+            "radius": "16dp"
+          },
+          "commonProps": {
+            "scrollable": false
+          },
+          "layout": {
+            "type": "flex",
+            "mainAlign": "center",
+            "crossAlign": "center"
+          },
+          "events": [
+            {
+              "type": "clicked",
+              "action": "music.sd"
+            }
+          ],
+          "children": [
+            {
+              "type": "label",
+              "id": "title",
+              "placement": {
+                "width": "match",
+                "height": "wrap",
+                "mode": "flow"
+              },
+              "styleRefs": [
+                "app.body"
+              ],
+              "style": {
+                "fontSize": "13sp",
+                "textAlign": "center"
+              },
+              "commonProps": {
+                "clickable": false
+              },
+              "labelProps": {
+                "text": "${constant.ui.sd}"
+              },
+              "bindings": {
+                "labelProps.text": "text"
+              }
+            }
+          ]
+        },
+        {
+          "type": "button",
+          "id": "internal",
+          "placement": {
+            "width": "match",
+            "height": "44dp",
+            "flexGrow": 1,
+            "mode": "flow"
+          },
+          "styleRefs": [
+            "app.buttonSecondary"
+          ],
+          "style": {
+            "padding": "6dp",
+            "borderWidth": "0dp",
+            "radius": "16dp"
+          },
+          "commonProps": {
+            "scrollable": false
+          },
+          "layout": {
+            "type": "flex",
+            "mainAlign": "center",
+            "crossAlign": "center"
+          },
+          "events": [
+            {
+              "type": "clicked",
+              "action": "music.internal"
+            }
+          ],
+          "children": [
+            {
+              "type": "label",
+              "id": "title",
+              "placement": {
+                "width": "match",
+                "height": "wrap",
+                "mode": "flow"
+              },
+              "styleRefs": [
+                "app.body"
+              ],
+              "style": {
+                "fontSize": "13sp",
+                "textAlign": "center"
+              },
+              "commonProps": {
+                "clickable": false
+              },
+              "labelProps": {
+                "text": "${constant.ui.internal}"
+              },
+              "bindings": {
+                "labelProps.text": "text"
+              }
+            }
+          ]
+        },
+        {
+          "type": "button",
+          "id": "refresh",
+          "placement": {
+            "width": "match",
+            "height": "44dp",
+            "flexGrow": 1,
+            "mode": "flow"
+          },
+          "styleRefs": [
+            "app.buttonSecondary"
+          ],
+          "style": {
+            "padding": "6dp",
+            "borderWidth": "0dp",
+            "radius": "16dp"
+          },
+          "commonProps": {
+            "scrollable": false
+          },
+          "layout": {
+            "type": "flex",
+            "mainAlign": "center",
+            "crossAlign": "center"
+          },
+          "events": [
+            {
+              "type": "clicked",
+              "action": "music.refresh"
+            }
+          ],
+          "children": [
+            {
+              "type": "label",
+              "id": "title",
+              "placement": {
+                "width": "match",
+                "height": "wrap",
+                "mode": "flow"
+              },
+              "styleRefs": [
+                "app.body"
+              ],
+              "style": {
+                "fontSize": "13sp",
+                "textAlign": "center"
+              },
+              "commonProps": {
+                "clickable": false
+              },
+              "labelProps": {
+                "text": "${constant.ui.refresh}"
+              },
+              "bindings": {
+                "labelProps.text": "text"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "label",
+      "id": "library",
+      "placement": {
+        "width": "100%",
+        "height": "wrap",
+        "mode": "flow"
+      },
+      "styleRefs": [
+        "app.body"
+      ],
+      "style": {
+        "fontSize": "12sp"
+      },
+      "commonProps": {
+        "clickable": false
+      },
+      "labelProps": {
+        "text": "${constant.ui.empty}"
+      },
+      "bindings": {
+        "labelProps.text": "text"
+      }
+    },
+    {
+      "type": "button",
+      "id": "track0",
+      "placement": {
+        "width": "100%",
+        "height": "44dp",
+        "flexGrow": 0,
+        "mode": "flow"
+      },
+      "styleRefs": [
+        "app.buttonSecondary"
+      ],
+      "style": {
+        "padding": "6dp",
+        "borderWidth": "0dp",
+        "radius": "16dp"
+      },
+      "commonProps": {
+        "scrollable": false
+      },
+      "layout": {
+        "type": "flex",
+        "mainAlign": "center",
+        "crossAlign": "center"
+      },
+      "events": [
+        {
+          "type": "clicked",
+          "action": "music.track0"
+        }
+      ],
+      "children": [
+        {
+          "type": "label",
+          "id": "title",
+          "placement": {
+            "width": "match",
+            "height": "wrap",
+            "mode": "flow"
+          },
+          "styleRefs": [
+            "app.body"
+          ],
+          "style": {
+            "fontSize": "13sp",
+            "textAlign": "center"
+          },
+          "commonProps": {
+            "clickable": false
+          },
+          "labelProps": {
+            "text": ""
+          },
+          "bindings": {
+            "labelProps.text": "text"
+          }
+        }
+      ],
+      "bindings": {
+        "commonProps.hidden": "hidden"
+      }
+    },
+    {
+      "type": "button",
+      "id": "track1",
+      "placement": {
+        "width": "100%",
+        "height": "44dp",
+        "flexGrow": 0,
+        "mode": "flow"
+      },
+      "styleRefs": [
+        "app.buttonSecondary"
+      ],
+      "style": {
+        "padding": "6dp",
+        "borderWidth": "0dp",
+        "radius": "16dp"
+      },
+      "commonProps": {
+        "scrollable": false
+      },
+      "layout": {
+        "type": "flex",
+        "mainAlign": "center",
+        "crossAlign": "center"
+      },
+      "events": [
+        {
+          "type": "clicked",
+          "action": "music.track1"
+        }
+      ],
+      "children": [
+        {
+          "type": "label",
+          "id": "title",
+          "placement": {
+            "width": "match",
+            "height": "wrap",
+            "mode": "flow"
+          },
+          "styleRefs": [
+            "app.body"
+          ],
+          "style": {
+            "fontSize": "13sp",
+            "textAlign": "center"
+          },
+          "commonProps": {
+            "clickable": false
+          },
+          "labelProps": {
+            "text": ""
+          },
+          "bindings": {
+            "labelProps.text": "text"
+          }
+        }
+      ],
+      "bindings": {
+        "commonProps.hidden": "hidden"
+      }
+    },
+    {
+      "type": "button",
+      "id": "track2",
+      "placement": {
+        "width": "100%",
+        "height": "44dp",
+        "flexGrow": 0,
+        "mode": "flow"
+      },
+      "styleRefs": [
+        "app.buttonSecondary"
+      ],
+      "style": {
+        "padding": "6dp",
+        "borderWidth": "0dp",
+        "radius": "16dp"
+      },
+      "commonProps": {
+        "scrollable": false
+      },
+      "layout": {
+        "type": "flex",
+        "mainAlign": "center",
+        "crossAlign": "center"
+      },
+      "events": [
+        {
+          "type": "clicked",
+          "action": "music.track2"
+        }
+      ],
+      "children": [
+        {
+          "type": "label",
+          "id": "title",
+          "placement": {
+            "width": "match",
+            "height": "wrap",
+            "mode": "flow"
+          },
+          "styleRefs": [
+            "app.body"
+          ],
+          "style": {
+            "fontSize": "13sp",
+            "textAlign": "center"
+          },
+          "commonProps": {
+            "clickable": false
+          },
+          "labelProps": {
+            "text": ""
+          },
+          "bindings": {
+            "labelProps.text": "text"
+          }
+        }
+      ],
+      "bindings": {
+        "commonProps.hidden": "hidden"
+      }
+    },
+    {
+      "type": "button",
+      "id": "track3",
+      "placement": {
+        "width": "100%",
+        "height": "44dp",
+        "flexGrow": 0,
+        "mode": "flow"
+      },
+      "styleRefs": [
+        "app.buttonSecondary"
+      ],
+      "style": {
+        "padding": "6dp",
+        "borderWidth": "0dp",
+        "radius": "16dp"
+      },
+      "commonProps": {
+        "scrollable": false
+      },
+      "layout": {
+        "type": "flex",
+        "mainAlign": "center",
+        "crossAlign": "center"
+      },
+      "events": [
+        {
+          "type": "clicked",
+          "action": "music.track3"
+        }
+      ],
+      "children": [
+        {
+          "type": "label",
+          "id": "title",
+          "placement": {
+            "width": "match",
+            "height": "wrap",
+            "mode": "flow"
+          },
+          "styleRefs": [
+            "app.body"
+          ],
+          "style": {
+            "fontSize": "13sp",
+            "textAlign": "center"
+          },
+          "commonProps": {
+            "clickable": false
+          },
+          "labelProps": {
+            "text": ""
+          },
+          "bindings": {
+            "labelProps.text": "text"
+          }
+        }
+      ],
+      "bindings": {
+        "commonProps.hidden": "hidden"
+      }
+    },
+    {
+      "type": "container",
+      "id": "pages",
+      "placement": {
+        "width": "100%",
+        "height": "wrap",
+        "mode": "flow"
+      },
+      "style": {
+        "padding": "0dp",
+        "bgColor": "",
+        "borderWidth": "0dp"
+      },
+      "commonProps": {
+        "scrollable": false
+      },
+      "layout": {
+        "type": "flex",
+        "flexFlow": "row",
+        "gap": "8dp",
+        "mainAlign": "center",
+        "crossAlign": "center"
+      },
+      "children": [
+        {
+          "type": "button",
+          "id": "previous",
+          "placement": {
+            "width": "match",
+            "height": "44dp",
+            "flexGrow": 1,
+            "mode": "flow"
+          },
+          "styleRefs": [
+            "app.buttonSecondary"
+          ],
+          "style": {
+            "padding": "6dp",
+            "borderWidth": "0dp",
+            "radius": "16dp"
+          },
+          "commonProps": {
+            "scrollable": false
+          },
+          "layout": {
+            "type": "flex",
+            "mainAlign": "center",
+            "crossAlign": "center"
+          },
+          "events": [
+            {
+              "type": "clicked",
+              "action": "music.page_previous"
+            }
+          ],
+          "children": [
+            {
+              "type": "label",
+              "id": "title",
+              "placement": {
+                "width": "match",
+                "height": "wrap",
+                "mode": "flow"
+              },
+              "styleRefs": [
+                "app.body"
+              ],
+              "style": {
+                "fontSize": "13sp",
+                "textAlign": "center"
+              },
+              "commonProps": {
+                "clickable": false
+              },
+              "labelProps": {
+                "text": "${constant.ui.previous}"
+              },
+              "bindings": {
+                "labelProps.text": "text"
+              }
+            }
+          ]
+        },
+        {
+          "type": "label",
+          "id": "number",
+          "placement": {
+            "width": "match",
+            "height": "wrap",
+            "flexGrow": 1,
+            "mode": "flow"
+          },
+          "styleRefs": [
+            "app.body"
+          ],
+          "style": {
+            "fontSize": "12sp"
+          },
+          "commonProps": {
+            "clickable": false
+          },
+          "labelProps": {
+            "text": "1 / 1"
+          },
+          "bindings": {
+            "labelProps.text": "text"
+          }
+        },
+        {
+          "type": "button",
+          "id": "next",
+          "placement": {
+            "width": "match",
+            "height": "44dp",
+            "flexGrow": 1,
+            "mode": "flow"
+          },
+          "styleRefs": [
+            "app.buttonSecondary"
+          ],
+          "style": {
+            "padding": "6dp",
+            "borderWidth": "0dp",
+            "radius": "16dp"
+          },
+          "commonProps": {
+            "scrollable": false
+          },
+          "layout": {
+            "type": "flex",
+            "mainAlign": "center",
+            "crossAlign": "center"
+          },
+          "events": [
+            {
+              "type": "clicked",
+              "action": "music.page_next"
+            }
+          ],
+          "children": [
+            {
+              "type": "label",
+              "id": "title",
+              "placement": {
+                "width": "match",
+                "height": "wrap",
+                "mode": "flow"
+              },
+              "styleRefs": [
+                "app.body"
+              ],
+              "style": {
+                "fontSize": "13sp",
+                "textAlign": "center"
+              },
+              "commonProps": {
+                "clickable": false
+              },
+              "labelProps": {
+                "text": "${constant.ui.next}"
+              },
+              "bindings": {
+                "labelProps.text": "text"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

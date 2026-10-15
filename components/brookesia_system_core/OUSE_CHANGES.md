@@ -9,5 +9,6 @@
 - 统一返回动作 system.navigation.back，只由产品桌面派发给前台；根页面可请求 navigation.home。
 - 在隐藏应用前调用默认无操作的 `on_app_snapshot` 钩子，由产品实现截图；不将 LVGL 截图策略放入通用 Core。
 - STOP 成功后卸载运行时环境，PAUSE 保留；JS 应用再次 START 使用新环境，避免全局 let 重复声明。
+- START 生命周期成功后，显式恢复当前内容页及标题栏可见性；预加载DOM曾在PAUSE时隐藏、STOP后继续缓存，不会再因重新挂载保留hidden而显示空白。恢复失败走现有启动回滚。输出应用ID、当前screen及visible诊断日志。
 
 不提供进程隔离，也不强制暂停应用自建任务。详细契约见 docs/08-files-power-navigation.md。

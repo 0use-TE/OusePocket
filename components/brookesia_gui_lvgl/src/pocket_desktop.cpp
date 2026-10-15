@@ -90,6 +90,11 @@ std::expected<void, std::string> DesktopImpl::capture(uint32_t id,
 void DesktopImpl::release(uint32_t id) { snapshots_.erase(id); }
 void DesktopImpl::clear() { snapshots_.clear(); }
 void DesktopImpl::hide() {
+    // A vertically dragged card temporarily lives directly under the host.
+    for (const auto &card : cards_) {
+        if (card->release_timer) lv_timer_delete(card->release_timer);
+        if (valid(card->drag) && lv_obj_get_parent(card->drag) != card->slot) lv_obj_delete(card->drag);
+    }
     if (valid(body_)) lv_obj_delete(body_);
     body_ = nullptr; table_ = nullptr; cards_.clear();
     ignore_release_ = false;
@@ -122,6 +127,13 @@ std::expected<void, std::string> DesktopImpl::show(const std::vector<RecentTask>
     event_handle_ = root->handle;
     generation_ = generation;
     ignore_release_ = ignore_release;
+    if (ignore_release) {
+        // Showing a new widget under the finger can synthesize another Pressed
+        // while the opening swipe is still held. Consume that entire gesture.
+        for (auto *input = lv_indev_get_next(nullptr); input; input = lv_indev_get_next(input))
+            if (lv_indev_get_type(input) == LV_INDEV_TYPE_POINTER && lv_indev_get_state(input) == LV_INDEV_STATE_PRESSED)
+                lv_indev_wait_release(input);
+    }
     auto *display = lv_obj_get_display(root->object);
     const int width = lv_display_get_horizontal_resolution(display), height = lv_display_get_vertical_resolution(display);
     const int card_w = width * 180 / 320, preview_h = height * 270 / 480, title_h = height * 32 / 480;
@@ -132,6 +144,9 @@ std::expected<void, std::string> DesktopImpl::show(const std::vector<RecentTask>
     lv_obj_set_style_bg_opa(root->object, LV_OPA_COVER, 0);
     lv_obj_set_style_text_color(heading->object, foreground, 0);
     body_ = box(root->object, width, height - 40);
+    // The GUI document's host uses flex, but this native surface has fixed
+    // screen coordinates. Do not let the host rearrange it as a flex item.
+    lv_obj_add_flag(body_, LV_OBJ_FLAG_IGNORE_LAYOUT);
     lv_obj_set_pos(body_, 0, 40);
     lv_obj_set_style_text_font(body_, lv_obj_get_style_text_font(heading->object, LV_PART_MAIN), 0);
     lv_obj_set_style_text_color(body_, foreground, 0);
@@ -151,6 +166,9 @@ std::expected<void, std::string> DesktopImpl::show(const std::vector<RecentTask>
         card->slot = box(table_, card_w, preview_h + title_h);
         transparent(card->slot); lv_obj_add_flag(card->slot, LV_OBJ_FLAG_SNAPPABLE);
         card->drag = box(card->slot, card_w, preview_h + title_h); transparent(card->drag);
+        // Keep explicit x/y when promoted to the document's flex-column host.
+        // Otherwise flex puts the preview below body_, outside the viewport.
+        lv_obj_add_flag(card->drag, LV_OBJ_FLAG_IGNORE_LAYOUT);
         lv_obj_add_flag(card->drag, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_flag(card->drag, LV_OBJ_FLAG_PRESS_LOCK);
         lv_obj_add_event_cb(card->drag, card_event, LV_EVENT_ALL, card.get());
@@ -222,23 +240,81 @@ void DesktopImpl::card_event(lv_event_t *event) {
     auto *input = lv_indev_active(); if (!input) return;
     lv_point_t point {}; lv_indev_get_point(input, &point);
     if (code == LV_EVENT_PRESSED) {
+        if (card->closing) return;
+        if (card->release_timer) {
+            // A brief empty touch sample is not the end of the finger's drag.
+            // Preserve its original anchor when contact returns before confirmation.
+            lv_timer_delete(card->release_timer); card->release_timer = nullptr;
+            return;
+        }
+        card->input = input;
         desktop.ignore_release_ = false; desktop.press_ = point; desktop.axis_ = recent::Axis::None;
-    } else if (code == LV_EVENT_PRESSING && !desktop.ignore_release_) {
+    } else if (code == LV_EVENT_PRESSING && !desktop.ignore_release_ && !card->closing) {
         const int dx = point.x - desktop.press_.x, dy = point.y - desktop.press_.y;
         if (desktop.axis_ == recent::Axis::None) desktop.axis_ = recent::choose_axis(dx, dy, desktop.step_);
-        if (desktop.axis_ == recent::Axis::Vertical) lv_obj_set_y(card->drag, std::clamp(dy, -desktop.threshold_, desktop.threshold_));
+        if (desktop.axis_ == recent::Axis::Vertical) {
+            // Dismissal distance is a release decision, not a movement limit.
+            // Draw directly under the full-screen host to escape slot/table
+            // clipping, retaining the horizontal slot for the other cards.
+            if (lv_obj_get_parent(card->drag) == card->slot) {
+                auto *host = lv_obj_get_parent(desktop.body_);
+                lv_area_t origin {}, host_area {};
+                lv_obj_get_coords(card->slot, &origin); lv_obj_get_coords(host, &host_area);
+                card->drag_origin_y = origin.y1 - host_area.y1;
+                lv_obj_set_parent(card->drag, host);
+                lv_obj_set_pos(card->drag, origin.x1 - host_area.x1, card->drag_origin_y);
+            }
+            lv_obj_set_y(card->drag, card->drag_origin_y + dy);
+        }
     } else if (code == LV_EVENT_RELEASED) {
+        if (card->closing || card->release_timer) return;
         if (desktop.ignore_release_) { desktop.ignore_release_ = false; return; }
         const auto action = recent::release(desktop.axis_, point.x - desktop.press_.x, point.y - desktop.press_.y, desktop.threshold_);
-        lv_obj_set_y(card->drag, 0);
+        if (action != recent::Action::Close) {
+            lv_obj_set_parent(card->drag, card->slot);
+            lv_obj_set_pos(card->drag, 0, 0);
+        }
         switch (action) {
         case recent::Action::Open: desktop.emit("open", card->id); break;
-        case recent::Action::Close: desktop.emit("close", card->id); break;
+        case recent::Action::Close:
+            // Do not stop an app on a single Released sample. Confirm continuous
+            // release first; a renewed press cancels this pending dismissal.
+            card->release_timer = lv_timer_create(confirm_card_release, 80, card);
+            break;
         case recent::Action::Next: desktop.focus(desktop.focus_ + 1, true); break;
         case recent::Action::Previous: desktop.focus(desktop.focus_ ? desktop.focus_ - 1 : 0, true); break;
         case recent::Action::Rebound: break;
         }
-    } else if (code == LV_EVENT_PRESS_LOST) { lv_obj_set_y(card->drag, 0); }
+    } else if (code == LV_EVENT_PRESS_LOST) {
+        if (card->closing || card->release_timer) return;
+        lv_obj_set_parent(card->drag, card->slot);
+        lv_obj_set_pos(card->drag, 0, 0);
+    }
+}
+
+void DesktopImpl::confirm_card_release(lv_timer_t *timer) {
+    auto *card = static_cast<Card *>(lv_timer_get_user_data(timer));
+    card->release_timer = nullptr;
+    lv_timer_delete(timer);
+    if (!valid(card->drag) || !card->input || lv_indev_get_state(card->input) != LV_INDEV_STATE_RELEASED) return;
+    card->closing = true;
+    const int height = lv_display_get_vertical_resolution(lv_obj_get_display(card->drag));
+    lv_anim_t animation;
+    lv_anim_init(&animation);
+    lv_anim_set_var(&animation, card->drag);
+    lv_anim_set_user_data(&animation, card);
+    lv_anim_set_exec_cb(&animation, [](void *object, int32_t y) { lv_obj_set_y(static_cast<lv_obj_t *>(object), y); });
+    lv_anim_set_values(&animation, lv_obj_get_y(card->drag), -lv_obj_get_height(card->drag) - height / 10);
+    lv_anim_set_duration(&animation, 180);
+    lv_anim_set_path_cb(&animation, lv_anim_path_ease_out);
+    lv_anim_set_completed_cb(&animation, complete_card_close);
+    if (!lv_anim_start(&animation)) card->desktop->emit("close", card->id);
+}
+
+void DesktopImpl::complete_card_close(lv_anim_t *animation) {
+    auto *card = static_cast<Card *>(lv_anim_get_user_data(animation));
+    // This event still travels through SystemGui to the app-input worker.
+    card->desktop->emit("close", card->id);
 }
 
 void DesktopImpl::navigation_edges(int side, int margin) {

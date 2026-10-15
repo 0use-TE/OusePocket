@@ -1,0 +1,41 @@
+{
+  "type": "imageSet",
+  "images": [
+    {
+      "id": "launcher_icon",
+      "src": "music_launcher.png",
+      "width": 92,
+      "height": 92
+    },
+    {
+      "id": "play",
+      "src": "music_play.png",
+      "width": 48,
+      "height": 48
+    },
+    {
+      "id": "pause",
+      "src": "music_pause.png",
+      "width": 48,
+      "height": 48
+    },
+    {
+      "id": "previous",
+      "src": "music_previous.png",
+      "width": 48,
+      "height": 48
+    },
+    {
+      "id": "next",
+      "src": "music_next.png",
+      "width": 48,
+      "height": 48
+    },
+    {
+      "id": "cover",
+      "src": "music_cover.png",
+      "width": 128,
+      "height": 128
+    }
+  ]
+}

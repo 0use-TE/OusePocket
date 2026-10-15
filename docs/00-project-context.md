@@ -1,6 +1,6 @@
 # 项目上下文
 
-更新日期：2026-10-14。此文件是长期交接入口，不依赖聊天历史。
+更新日期：2026-10-15。此文件是长期交接入口，不依赖聊天历史。
 
 ## 用户目标与背景
 
@@ -202,3 +202,102 @@ ESP-IDF6.1最终构建通过，主固件 `0x760fc0`（7,737,280字节），8MB�
 四文件重新导出至 `examples/brookesia-minimal/build/bootloader/bin` 并校验SHA256；主固件 `019182FD5D72570EACB665009764F57C2B1BB9E1855CA237B56A95C19AD3040E`，LittleFS `3DDFA0C052BC61F2461C3108EF408FCCDA8E622653C75E0CC2D7ADFFE543F116`。本轮必须一起更新0x10000主固件及0x810000 LittleFS；重烧LittleFS替换原分区内容，先备份。不更新COMPLETED.md，不Git提交或烧录。使用说明见 `docs/08-files-power-navigation.md`。
 
 随后用户反馈「现在非常完美」，确认本版效果，并要求更新完成清单及本地Git提交。根目录清单新增截图最近任务、保留/恢复、左右切换、上推关闭、全部关闭、侧滑箭头与明暗主题；不将文档、未预装Files或未验证计数器记为完成。本次提交保存当前产品组件、配置、资源生成工具、测试及文档，不包含构建产物或微雪嵌套参考仓库；不推送远端。
+
+### 2026-10-14 Settings 偶发纯色画面：启动可见性补丁（待实机复测）
+
+用户随后报告 Settings 有时正常打开、有时纯色白屏，进入最近任务再点击 Settings 可恢复。日志显示正常 START（324ms），未报崩溃。代码检查确认 START 与 RESUME 不对称：RESUME 调用 set_app_visible(true)，START 在挂载及on_start后未显式恢复页面；Settings启用preload_dom，PAUSE设置的内容/标题根hidden会随STOP后的缓存保留，Backend为避免Stack重排暴露暂停应用又刻意保留hidden。因此存在「启动成功但页面仍隐藏」的明确缺陷，与恢复后显示的现象相符；尚不能凭旧日志断言所有偶发白屏均由此引起。
+
+已在Core成功on_start后、标记Running之前恢复当前screen-flow根可见性，失败走现有启动回滚，不改变后端保留暂停隐藏的策略。加入 `App screen visibility: id(...), screen(...), visible(...)` 日志。MSVC检查原有Stack隐藏/恢复、手势边界及最近任务渲染/输入通过；额外执行真实Core页面显示方法，确认缓存内容页/标题栏从hidden恢复、像素能渲染。测试使用后端记录与调度替身，不覆盖设备时序。
+
+ESP-IDF6.1构建通过，主固件 `0x7611a0`，SHA256 `A32026EDEA58C3F2FDC32F48ADA6B299858FE877BA5FEB93945ED0EFA743AEB2`；四文件重新导出校验。LittleFS SHA256仍为 `3DDFA0C052BC61F2461C3108EF408FCCDA8E622653C75E0CC2D7ADFFE543F116`，bootloader/分区表也与上一版一致。设备已经是上一版截图最近任务时，本次只需更新 `0x10000` 主固件，无需重写LittleFS。未提前记入完成清单，未新增Git提交或烧录。
+
+### 2026-10-15 最近任务自由拖动与默认电池菜单（待实机验收）
+
+用户反馈启动白屏「应该是解决了」，随后要求去掉最近任务卡片上下移动的限制，并将电池设置入口做成默认样式的左侧图标菜单。旧逻辑将垂直位移clamp在±关闭阈值内，已去除。关闭阈值仅保留为松手判定，整张卡片可跟手到屏幕边缘。实际LVGL9.5检查发现仅添加OVERFLOW_VISIBLE仍会被原slot/table绘制范围裁剪；最终采用垂直拖动时临时重挂到全屏host，保留其他卡片的横向位置。上推松手关闭时不先跳回原位，下拉或短滑复位；面板隐藏/刷新清理已移出的卡片。未加入惯性抛掷或退出动画。
+
+电池入口并入Settings主列表，复用官方nav_menu_item的图标/标题/箭头/行高/按压与主题样式。绿色42×42电池图标衍生自微雪旧Phone Apache-2.0组件的白色电池PNG，资源索引新增home.power。英语/中文更新路径迁移到 `/settings_home/page/main_list/power/title_box/title`，使用模板声明的labelProps.text键；生成器可重复运行。
+
+真实LVGL指针检查通过250px向下拖动、200px向上拖动、屏幕顶部超出原slot的预览像素、短滑复位、横向切换及正确关闭事件；缓存Core内容页/标题栏恢复与已有截图/主题检查仍通过。静态资源检查通过，实际LittleFS122个文件与staging逐字节一致，电池模板及PNG存在，Files/Counter仍未预装。ESP-IDF6.1构建通过，主固件 `0x761220`，四文件已导出并核对SHA256。主固件 `1B06496B17642AAC8142A3B22A6106DFB58923E6F5898C4C989F95A5B1268736`，LittleFS `013E663F8035ACE62BDBA2158B1740811EEE42177787D3BFDB58B0093682331A`。本次UI资源有变化，必须同时更新0x10000主程序及0x810000 LittleFS；覆盖LittleFS前备份数据。尚未实机验收，未更新完成清单、未新增Git提交或烧录。
+# 2026-10-15 本轮待验收
+
+2026-10-15 主题重复重启日志（附件 `ede91145-5dab-418c-9f34-fc4c15f0c5cb`）：首次为用户确认后的 System HAL 正常重启；随后启动时发生 `Load access fault`，panic 导致第二次重启，最后一次启动成功。使用 SHA256 完全匹配的 ELF `f1bcf626252970d5ec8c6cb769ce37d39794c2fd10f964009cc1e233c5bb4782` 解码：`MEPC 0x48567326 → xQueueSemaphoreTake`，调用链包含 `Usb::Impl::update_connection_state → pthread_mutex_lock_internal`。故障队列地址 `0x48746cb0` 在 PSRAM，普通动态 FreeRTOS 队列应在内部 RAM；无法单凭日志判断句柄失效源头。
+
+本轮将 USB 0.8.1 纳入本地 components，Core及main显式引用，状态/发送锁改为提前创建的内部 RAM FreeRTOS mutex，获取前校验地址。开启轻量堆越界检测，启动阶段检查完整性，打印 `esp_reset_reason`。这是针对故障路径的加固和诊断，尚不能宣称实机重启稳定性已解决。主题快捷入口不再显示 Light/Dark，保留“主题 / Theme”及待重启提示/确认。此前 UI 修复包括电池主题变体、快捷图标contain、滑钮端点余量、Settings标题栏/内容区分离、导航摘要分行及主题卡片自适应高度。GPIO/USB资源管理器不在本轮范围。
+
+最终验证：真实 Brookesia parser/validator、LVGL 布局夹具（中英文、明暗、75/100/125%）以及最近任务/缓存可见性回归通过；ESP-IDF6.1完整构建通过，主固件 `0x7657d0`，分区剩余约8%。核对compile_commands确认USB使用本地组件，LittleFS镜像173个文件与staging逐字节一致，标题/overlay staging与最终源码一致。四文件导出到 `examples/brookesia-minimal/build/bootloader/bin` 并核对SHA256：主程序 `AFCC2842A1673AEE05A53BB1594449790F79F0593B1CAD8529341BB65B1F229C`，LittleFS `0DF8059CE70CB4446C271FC4CBCCB4F6C6C4977A39285C5A4622816A2A4C58D9`。需同时更新0x10000和0x810000；LittleFS重烧覆盖内部文件/已安装应用。没有烧录设备，没有新增Git提交，没有将待实机项目写入完成清单。
+
+桌面改为固定网格左右分页，取消纵向滚动；快捷面板改为主题图标卡片和水平滑条，移除关闭按钮与提示文字。下拉、底部上滑采用跟手拖动及松手吸附，展开手势结束前控件禁用，防止误调亮度/音量。状态栏只显示电池图标，下拉显示百分比及充电状态。待设备验证后再更新根目录功能完成清单。
+
+最近任务提前关闭待复测：展开时消耗原始上滑；关闭需连续松手 80ms，接触恢复取消待关闭并保留拖动锚点，滑出动画结束后才停止应用。真实 LVGL 已验证短暂断触恢复及定时器清理；现有设备日志不足以确认原始触摸释放的原因。
+
+2026-10-15：用户澄清按住时预览消失、松手恢复，上滑仍能正常关闭；已用与生产 JSON 一致的 flex-column 根容器复现布局覆盖拖动坐标。原生主体和拖动卡片添加 IGNORE_LAYOUT，明暗主题下按住和轻微上滑的真实截图像素回归通过。主题快捷入口改为保存同一 GUI 偏好并提示“立即重启 / 稍后”，按钮显示“重启生效 / 待重启”；Settings 恢复前台同步偏好。状态栏换为横向五格电池，按20%分档，充电/未知独立图标，百分比仅下拉显示。ESP-IDF 构建及资源/主题行为回归通过，已导出 build/bootloader/bin；需更新0x10000主程序和0x810000 LittleFS。等待实机复测，不记入完成清单。
+
+### 2026-10-15 用户确认当前版本正常
+
+用户回复“没问题了，记录下”，确认当前桌面、快捷面板、最近任务、电池图标、Settings布局及主题重启效果，根目录 COMPLETED.md 已追加功能列表。主题重复重启加固在本次复测中未再报告异常；未进行长期压力测试，先前锁句柄异常的根因仍未独立证实。
+
+计数器仍未预装、未实机安装或验证热更新，不计入完成清单。现有独立 BPK 为 net.0use.counter 1.0.0（每次加1）和1.1.0（每次加10），包内manifest和入口已核对。安装通过USB服务的UART0控制通道，与console共用CH343串口及115200波特率；默认安装到内部 /littlefs/apps，开机扫描manifest恢复应用列表。计数值只保存在内存，停止/重启后归零。安装步骤补充在 examples/counter/README.md。本轮仅更新记录和说明，未占用串口、烧录设备或新增Git提交。
+
+### 2026-10-15 睡前修复及独立应用（待实机）
+
+用户随后提供 b321ad50-2230-4ee3-843b-0db4ddb65cca 完整日志及两张截图，授权自主修复不透明 Settings 图标、布局、重复开机过场、密码/SSID 乱码，并实现独立音乐和日志应用、检查桌面回归。未要求提交 Git；未烧录、未占用串口、未新增 Git 提交。
+
+实际 LVGL 原配置为 ASCII；密码 UTF-8 圆点在第二次输入时被按字节计数，导致遮罩异常增长。已改 defaults/实际配置为 UTF-8 并加编译断言，真实 LVGL 测试先复现旧错误，再通过连续64个8、长度限制、删除、显示密码、中文与光标输入。设置首页 JPG 换透明 PNG，按主题染色，导航标题/摘要以24dp/18dp网格行及6dp内边距稳定布局；自动行高曾在真实渲染夹具中撑大，已修复并加入文字/行边界断言。
+
+旧 ELF SHA256 a3a9aa084a36aba86cea53bce136f30f3652f4feaaf8111eb1e07097550076ef 匹配用户日志，两次 panic 分别经过 Asio 的 pthread_mutex_lock_internal 和 esp_vfs_select，后者读取有效只读 lwIP select ops 常量也 fault。重复动画伴随 panic 重启。关闭 PSRAM XiP/指令/rodata搬移，普通小块分配256字节内优先内部RAM，保留PSRAM UI数据及外部任务栈、已有堆检测与reset reason。此为规避，根因和设备反复重启稳定性仍未证实；需要新日志与匹配的新ELF继续定位，不能宣称彻底根治。
+
+音乐为 examples/music/src 的独立 JSON+JS 应用，参考微雪旧SquareLine UI（原页没有真实播放器）。固件扩展 ES8311 HAL 接通MP3/16-bit PCM WAV，8–48kHz单/双声道；播放、暂停继续、前后曲、音量及原生顺序播放。SD目录/sdcard/music，内部目录/littlefs/user/music；无快进或ID3封面，进度条按消费字节显示，已播放时间按PCM计算。后台保留播放，关闭最近任务卡停止/释放；SD读取有文件租约，拔卡错误关文件后才卸载，不是GPIO/USB通用资源管理器。
+
+日志后端位于 Pocket，ESP_LOG回调只格式化及写64×384字节环形缓冲，UART输出保留；每两秒写内部/littlefs/user/logs的3个约64KiB轮转文件。轮转失败停止追加并报告persistent=false。独立日志查看器位于examples/log-viewer，具备实时/历史、错误文本筛选、暂停及两次确认清空；后台停止自身轮询。ROM/底层panic转储不经此hook，最后约两秒可能未落盘，不替代core dump。
+
+通过真实parser/validator及LVGL布局/软件渲染的中英文、明暗75/100/125%检查，新增透明像素与控制宽度、文字高度断言；最近任务/缓存可见性/侧滑回归通过。两个实际JS入口与Manifest/GUI路径回归通过，覆盖重载、无SD、缺目录、控制、后台、定时器及过期回调。实际Playback C++用硬件/解码替身验证格式切换、扩容、边界、暂停关闭与文件释放；实际日志后端用真实主机文件验证轮转、失败恢复、UTF-8、游标和新进程读取历史。不能以主机替身证明真实声音及拔卡可靠性。
+
+ESP-IDF6.1最终构建通过，主程序0x77c030，8MiB分区余约6%。实际LittleFS181个文件与staging逐字节一致，Settings/Shell源码与staging一致，出厂/apps只有Settings；Music/Logs/Counter/Files均未预装。四文件导出到examples/brookesia-minimal/build/bootloader/bin并核对SHA256：主程序DDD63B5EB434F3E1F4F44503F30AFE13959B59CAE4297F2749FC4C98C0877D44，LittleFS11C8ADE9B7F798AE5FE35A48F72697EB20029C0616746947C2661901C5F65E22，新ELF A5D71947B356B87F179AF48A717F88A8FBB043016E95A32C382ACF8002B5AC03。建议本次按导出说明更新四文件；重烧LittleFS先备份用户数据。
+
+独立包已生成：examples/music/dist/net.0use.music-1.0.0.bpk（SHA256 bbec46c9e71f755b8a77a38b40537a438b27419e3b4e93e89a21dbdb114e2d41），examples/log-viewer/dist/net.0use.logs-1.0.0.bpk（18da2ba7a1c091a7cc84a299cd3392a66f4de1f334f7cfc182e05d62e2d524d2）。安装命令/用法在各README，综合记录在docs/10-overnight-stability-and-apps.md。未将本轮待实机功能加入COMPLETED.md，保留用户此前确认的完成记录。
+
+### 2026-10-15 后续完整日志纠正 XiP 配置
+
+设备已接到当前电脑，用户明确后续不再复制产物到build/bootloader/bin；保留标准build产物，不自动烧录。
+
+完整附件533fcc87-0458-463b-a96a-b18c6a166122确认芯片v3.2、ELF前缀a5d71947b与当前完全一致，启动在Flash cache_utils.c:114触发esp_task_stack_is_sane_cache_disabled断言，SP=0x4800ed90。上一轮关闭XiP却保留setup及Brookesia workers的PSRAM栈，是本轮已证实的配置冲突，现撤销关闭XiP方案，恢复SPIRAM_XIP_FROM_PSRAM/FETCH_INSTRUCTIONS/RODATA=y。main.cpp增加编译期冲突检查，check-device-integration.py检查defaults，实际sdkconfig同步。此前时钟中断Store access fault是否同源未证实，不宣称恢复XiP根治全部历史故障。原匹配ELF备份在build/diagnostics/a5d71947b。
+
+2026-10-15 后续附件74b889a8-fb54-4dd2-be25-35d1c3a1111d：恢复XiP后系统已进入主题/语言读取阶段，随后Load access fault在lock_acquire_generic读取0x4ff8debc，调用链pthread_cond_timedwait → Boost condition_variable → boost::this_thread::sleep_for → TaskScheduler空闲轮询。当前build ELF SHA256为3B7E436CF4863512AD4B724ABB34907160D3CF19666B4D7A25263F0D0C823252；该附件未包含完整启动SHA，不能以当前ELF哈希直接断言设备匹配。SDK源码与Boost实现显示该sleep_for每轮创建临时mutex/condition_variable，当前无法证明对象失效根因，也没有证据认定Boost或SDK本身有缺陷。
+
+按用户“开启xip，检查为什么报错”，确认defaults和实际sdkconfig三个XiP配置均为y。对已定位等待路径做局部修正：components/pocket_platform/cmake/scheduler_poll_wait.cmake从main/CMakeLists引入，仅把Brookesia task_scheduler.cpp空闲sleep_for替换为本地scheduler_poll_wait.hpp的vTaskDelay。保留轮询间隔，向上取整至少1tick，避免忙轮询，worker返回循环顶部继续检查中断/停止；停止唤醒不再通过Boost条件变量立即发生，空闲时等待至本轮delay结束。使用生成源覆盖，不改.reference，不改全局pthread及其他mutex。覆盖位置缺失/重复时CMake失败，防止上游更新静默失效。
+
+tools/test-scheduler-wait.py已通过真实主机CMake生成（替换源、移除原源、保留flags）、替换失败分支和实际延时helper在100/1000Hz下零值/向上取整/大值边界测试；静态集成检查通过。未构建或烧录ESP固件，由用户操作；设备根因和修复效果待复测。构建应出现“OusePocket: scheduler idle polling uses FreeRTOS delay”。本轮无LittleFS资源变化，可只更新主程序，避免覆盖已安装应用/日志。
+
+### 2026-10-15 对照微雪示例排查启动内存不足（待实机）
+
+附件db51ea78-20b2-45d9-a798-f1f29cee5c76显示Wi-Fi SDIO reset阶段84字节、caps=0x804分配失败，随后libc lock_init_generic创建锁失败abort。SDK本地源码确认caps为INTERNAL|8BIT；可以确认内部可用堆不足，不能仅凭这段截断日志确定全部占用来源。
+
+对照微雪04_wifistation和11_esp_brookesia_phone：当前使用微雪BSP 2.0.2初始化面板/触摸，SDIO引脚和reset保持原板设置；旧Phone defaults关闭Brookesia服务，不能当作同时启用新Core/Super、Wi-Fi及USB的内存验收。当前显示缓冲20行、小于已安装微雪BSP的50行，没有证据更换显示驱动。Brookesia P4官方Wi-Fi及thread_config示例的小对象内部分配阈值为0，本项目此前改成256。
+
+本轮将SPIRAM_MALLOC_ALWAYSINTERNAL恢复为0，保留128KiB内部保留池；启用Hosted 2.12.3自带ESP_HOSTED_DFLT_TASK_FROM_SPIRAM，将Hosted任务栈迁入PSRAM，TCB及SDIO DMA仍由驱动分配内部内存。三个XiP选项继续开启。enable-device-config.py同时维护defaults和已有sdkconfig，静态检查覆盖这六个实际配置，避免只改defaults不生效。分配失败回调增加ROM输出的内部free/largest/minimum及PSRAM free，增加显示和platform阶段内存采样；未改全局pthread或.reference。
+
+静态集成检查通过；用当前ESP-IDF真实Kconfig重新解析并输出独立检查配置，确认六个选项均被保留。尝试ESP32-P4编译器语法检查时，编译器本身无法启动，Windows返回WinError 623（无效的系统DLL重定位），连--version也失败。因此本轮未生成新固件、未烧录、未复制到bootloader/bin，不能宣称实机修复。现有build缓存还包含旧D:/Projects/OusePocket路径，验证时只在diagnostics中生成重定位后的配置输入，不覆盖原构建记录。后续应在可工作的ESP-IDF终端重新配置/构建并实机验证。本轮无LittleFS资源变化，不需要重烧LittleFS。
+
+### 2026-10-15 原生 pthread 与服务线程内部栈修正（历史阶段，后续仍复现）
+
+用户随后清理迁移后的旧build并重新构建烧录，提供附件a11ecc87-11fa-4c5a-8767-69dadc2a529f。ELF SHA256 9805e17cd08b14cdcec3e2eca3231fac2ef8a47bc4bdcaddf608d51169f301e7完全匹配。两次Core1异常分别为VFS select数组读取和USB函数栈保存指令，不能据函数名继续认定USB锁损坏。启动采样内部free385863、largest253940，本次没有分配失败记录。用户要求对照微雪和官方、修复当前桌面异常。
+
+已对照微雪旧Phone/BSP、当前Brookesia和ESP-IDF pthread源码及P4勘误，修正ThreadConfig::apply遗漏inherit_cfg初始化的明确缺陷；产品CMake overlay恢复SDK原生pthread mutex，去掉全局锁包装；服务主调度器和工具线程改内部栈，显式保留Pocket/媒体依赖的第二调度器。大块GUI/Core栈及UI对象仍在PSRAM，XiP和小对象优先PSRAM策略保留。没有修改微雪引脚、屏幕驱动、桌面资源或.reference。
+
+真实主机CMake生成与实际ThreadConfig::apply回归通过，验证源选择、包装移除、内部/外部栈、名字/亲和性、禁用继承和上游替换点变化失败；现有真实LVGL页面恢复、截图、最近任务、主题、指针手势回归通过。实际ESP构建规则已确认无pthread包装且替代源生效，服务内部栈和XiP实际配置正确。此前DLL错误在正常权限执行中消失，属于隔离运行环境限制；不要建议用户重装SDK。详细分析、修正和实机验收边界见docs/12-startup-thread-memory.md。本轮无LittleFS资源变更，后续只更新主程序，不自动烧录、不新增Git提交、不将未验收稳定性记入COMPLETED.md。
+
+最终ESP-IDF6.1完整构建通过，主程序0x77d7d0，SHA256 286A95209859AE84E9993A89AA5DA23C6A47399B7E9188F1F090E10745917134，ELF 9B48DADC7DC34A9DAA33FBDDB09248A24DA472816845A2E3403FE4783BAF937C。LittleFS181个文件逐字节核对通过。用户明确“我来烧录就好了”，由用户只更新0x10000主程序，不烧录LittleFS、不操作设备串口；实机稳定性仍待验收。
+
+### 2026-10-15 暂停USB主机控制服务作隔离对照
+
+用户后续日志确认9b48dadc7仍异常：Core1中断返回读取内部RAM栈失败，另一次USB后台取锁读取内部RAM信号量字段失败。上一轮线程/锁调整未解决根因，不能认定PSRAM栈或USB mutex就是唯一原因。最新故障发生于读取主题/语言之后，尚无桌面启动完成标记；不能认定桌面切换动画是原因。
+
+对照上游及微雪确认USB后台为当前Brookesia主机控制/上传/BPK安装的1ms周期RX pump，旧微雪Phone未开启；当前UART后端连接状态恒true。用户明确尚未下载BPK，要求先关闭此服务，问题定位好以后再考虑启用。已同步关闭USB自动注册及Core USB bridge，写入enable-device-config.py并扩展已有检查，避免重配自动开启。保留普通串口日志和ROM烧录、USB源码、其余线程/驱动/资源。详细记录见docs/12-startup-thread-memory.md。由用户烧录，不自动操作串口或烧录；本轮无LittleFS变更。
+
+### 2026-10-15 当前稳定基线与下一步 BPK 工作
+
+用户自行构建烧录后提供附件765896a0-e4f7-4239-9f00-fe2ee3777953（ELF前缀83e961082），明确确认桌面正常、反复重启均一次成功。日志完整到达Shell/Core启动与READY，无新增panic；setup后内部free257555、largest212980。已将这项有条件的实机验收写入COMPLETED.md。
+
+当前USB自动注册和Core USB bridge仍关闭，BPK接收/安装服务尚不可用；READY中的BPK installer是固定文字，不代表服务开启。下一步用户要安装BPK，必须先排查并恢复板端主机服务。关闭服务后稳定是重要隔离证据，但具体并发/对象生命周期或内存破坏根因仍未证实，不能只开回两个开关就宣布修复。排查依据、恢复步骤与实机验收范围见docs/12-startup-thread-memory.md末节。
+
+用户要求将当前代码与问题记录提交本地Git，作为恢复USB前的稳定基线；不推送。后续由用户构建、烧录，助手改完代码即停止，不自动构建、不操作串口、不复制产物到build/bootloader/bin。历史阶段的待验收和不提交描述由本节当前状态取代。

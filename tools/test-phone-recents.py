@@ -3,6 +3,7 @@
 Compile the real DesktopImpl methods, substituting only BackendImpl's registry
 and event routing. Verify screenshot pixels, restoration of the source scene,
 static-preview retention, disposal, light/dark UI, and gesture classification.
+Also execute Core's actual presentation method on cached LVGL content/header.
 Does not test the ESP display/touch port or its frame rate.
 """
 from pathlib import Path
@@ -35,6 +36,7 @@ prefix = r'''
 #include <iostream>
 #include <map>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -71,6 +73,45 @@ void lock_thread() {} void unlock_thread() {}
 std::expected<std::shared_ptr<BinaryImageSource>,std::string> load_image_source(std::string_view) {
     return std::unexpected("No external icon in this check");
 }
+}
+// Execute the real Core presentation method against LVGL-backed views.
+namespace presentation_check {
+using AppId=uint32_t;
+constexpr int SYSTEM_GUI_TASK_GROUP=1;
+#define BROOKESIA_LOGI(...) ((void)0)
+struct View {
+    esp_brookesia::gui::lvgl::Record *record=nullptr;
+    bool valid() const { return record!=nullptr; }
+    bool set_hidden(bool hidden) {
+        record->hidden=hidden;
+        if(hidden) lv_obj_add_flag(record->object,LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_remove_flag(record->object,LV_OBJ_FLAG_HIDDEN);
+        return true;
+    }
+};
+struct Runtime {
+    esp_brookesia::gui::lvgl::BackendImpl &backend;
+    std::map<std::string,std::string> states;
+    std::optional<std::string> get_screen_flow_state(int,const std::string &flow) {
+        auto it=states.find(flow); return it==states.end()?std::nullopt:std::optional(it->second);
+    }
+    View find_view(int,const std::string &path) { return {backend.find_record_by_absolute_path(path)}; }
+};
+struct Flow { std::string screen_flow; };
+struct AppRecord {
+    std::optional<int> document_id=1;
+    struct { std::vector<Flow> screen_flows{{"content"},{"header"}}; } gui_descriptor;
+    int info=0;
+};
+struct System {
+    struct Impl {
+        Runtime *gui_runtime_; AppRecord record;
+        std::expected<AppRecord*,std::string> get_record(AppId) { return &record; }
+        template<class T,class F> T run_task_sync(int,F task,T) { return task(); }
+    } *impl_;
+    void on_app_snapshot(int,const std::vector<std::string>&) {}
+    std::expected<void,std::string> set_app_visible(AppId,bool);
+};
 }
 '''
 header = (root / 'components/brookesia_gui_lvgl/src/private/pocket_desktop.hpp').read_text(encoding='utf-8')
@@ -122,9 +163,28 @@ int main() {
         require(desktop.snapshots_.at(2)->buffer==original,"Same-sized snapshot allocation was not reused");
         require(pixel(original,10,100)==0xffff,"Updated screenshot is stale");
         require(!desktop.capture(7,{"/missing"},false),"Missing screen accepted");
-        lv_obj_add_flag(page,LV_OBJ_FLAG_HIDDEN); lv_obj_add_flag(header,LV_OBJ_FLAG_HIDDEN);
+        presentation_check::Runtime runtime{backend,{{"content","page"},{"header","header"}}};
+        presentation_check::System::Impl core_impl{&runtime};
+        presentation_check::System core{&core_impl};
+        require(core.set_app_visible(2,false).has_value(),"Core pause presentation failed");
         require(!desktop.capture(7,{"/page","/header"},false),"Paused screens were captured");
+        // A preloaded DOM retains these flags after STOP and remount. START
+        // now uses the same Core presentation method as the successful RESUME.
+        require(core.set_app_visible(2,true).has_value(),"Core cached presentation restore failed");
+        require(!backend.records.at(1).hidden && !backend.records.at(2).hidden &&
+            !lv_obj_has_flag(page,LV_OBJ_FLAG_HIDDEN) && !lv_obj_has_flag(header,LV_OBJ_FLAG_HIDDEN),
+            "Cached content/header stayed hidden after presentation restore");
+        auto *restored=lv_snapshot_take(page,LV_COLOR_FORMAT_RGB565);
+        require(restored && pixel(restored,10,100)==0xffff,"Restored app page did not render");
+        lv_draw_buf_destroy(restored);
+        require(core.set_app_visible(2,false).has_value(),"Core second pause failed");
         auto *host=rectangle(top,0,0,320,480,0xffffff); auto *title=lv_label_create(host); lv_label_set_text(title,"Recent apps");
+        // Match the production GUI JSON: recents is a flex-column host and
+        // its heading uses absolute placement (IGNORE_LAYOUT in the backend).
+        lv_obj_set_flex_flow(host,LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_style_pad_row(host,8,0);
+        lv_obj_remove_flag(host,LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_flag(title,LV_OBJ_FLAG_IGNORE_LAYOUT);
         backend.records.emplace(4,g::Record{{4},"/overlay/recents",false,host,false});
         backend.records.emplace(5,g::Record{{5},"/overlay/recents/title",false,title,false});
         require(desktop.show({{2,"Settings",""}},2,false,false,1,false).has_value(),"Light recent task view failed");
@@ -159,29 +219,87 @@ int main() {
         lv_indev_set_read_cb(input,[](lv_indev_t*,lv_indev_data_t *data) { data->point=pointer; data->state=state; });
         auto send=[&](int x,int y,bool pressed) { pointer={static_cast<int16_t>(x),static_cast<int16_t>(y)};
             state=pressed?LV_INDEV_STATE_PRESSED:LV_INDEV_STATE_RELEASED; lv_tick_inc(20); lv_indev_read(input); };
+        desktop.snapshots_[2]=image;
+        for(bool dark : {false,true}) {
+            require(desktop.show({{2,"Settings",""}},2,dark,false,8,false).has_value(),"Theme drag setup failed");
+            send(160,200,true); lv_obj_update_layout(host);
+            auto *pressed=lv_snapshot_take(host,LV_COLOR_FORMAT_RGB565);
+            require(pressed && pixel(pressed,100,160)==0xffff,"Touching the card hid the preview");
+            lv_draw_buf_destroy(pressed);
+            send(160,190,true); lv_obj_update_layout(host);
+            auto *moving=lv_snapshot_take(host,LV_COLOR_FORMAT_RGB565);
+            require(moving && pixel(moving,100,160)==0xffff,"Small vertical drag hid the screenshot in the flex host");
+            require(lv_obj_get_y(desktop.cards_[0]->drag)-desktop.cards_[0]->drag_origin_y==-10,"Flex layout overwrote drag coordinates");
+            lv_draw_buf_destroy(moving);
+            send(160,190,false); require(events.empty(),"Short drag closed or opened the app");
+        }
         require(desktop.show({{2,"Settings",""},{3,"Player",""}},2,false,false,9,true).has_value(),"Input task view failed");
+        lv_obj_update_layout(host);
+        require(lv_obj_get_y(desktop.body_)==40,"Flex host displaced the native task surface");
         send(160,200,true); send(160,200,false);
         require(events.size()==1 && events.back().payload.at("operation").text=="open","Card tap did not resume");
         require(events.back().handle.id==4 && events.back().payload.at("generation").number==9,"Host routing identity lost");
         events.clear(); send(160,200,true); send(110,200,true); send(110,200,false);
         require(events.empty() && desktop.focus_==1,"Horizontal pointer swipe closed/resumed app instead of changing card");
         lv_tick_inc(400); lv_timer_handler();
-        send(160,200,true); send(160,155,true); send(160,155,false);
+        send(160,200,true); send(160,450,true); lv_obj_update_layout(host);
+        require(lv_obj_get_y(desktop.cards_[1]->drag)-desktop.cards_[1]->drag_origin_y==250,"Downward drag is limited to dismissal threshold");
+        send(160,450,false); lv_obj_update_layout(host);
+        require(events.empty() && lv_obj_get_y(desktop.cards_[1]->drag)==0,"Downward release closed app or failed to reset");
+        send(160,200,true); send(160,0,true); lv_obj_update_layout(host);
+        require(lv_obj_get_y(desktop.cards_[1]->drag)-desktop.cards_[1]->drag_origin_y==-200,"Upward drag is limited to dismissal threshold");
+        auto *dragged=lv_snapshot_take(host,LV_COLOR_FORMAT_RGB565);
+        require(dragged && pixel(dragged,100,60)==0xffff,"Dragged card is clipped to its original slot/table");
+        lv_draw_buf_destroy(dragged);
+        send(160,0,false);
+        require(events.empty() && desktop.cards_[1]->release_timer,"One Released sample stopped the app immediately");
+        send(160,0,true);
+        require(!desktop.cards_[1]->release_timer && !desktop.cards_[1]->closing,"Renewed contact failed to cancel pending dismissal");
+        send(160,20,true); lv_obj_update_layout(host);
+        require(lv_obj_get_y(desktop.cards_[1]->drag)-desktop.cards_[1]->drag_origin_y==-180,"Brief touch gap reset the drag anchor");
+        for(int i=0;i<15;++i) { lv_tick_inc(20); lv_timer_handler(); }
+        require(events.empty() && !desktop.cards_[1]->closing,"Held pointer closed an app before release");
+        send(160,0,true); send(160,0,false);
+        require(events.empty(),"Release skipped its confirmation/exit animation");
+        for(int i=0;i<6;++i) { lv_tick_inc(20); lv_timer_handler(); }
+        require(events.empty() && desktop.cards_[1]->closing,"Confirmed release did not start exit animation");
+        for(int i=0;i<12;++i) { lv_tick_inc(20); lv_timer_handler(); }
         require(events.size()==1 && events.back().payload.at("operation").text=="close" &&
-            events.back().payload.at("app_id").number==3,"Upward pointer swipe did not close selected app");
+            events.back().payload.at("app_id").number==3,"Confirmed upward release did not close selected app after animation");
+        lv_obj_update_layout(host);
+        require(lv_obj_get_y(desktop.cards_[1]->drag)<-lv_obj_get_height(desktop.cards_[1]->drag),"Dismissal did not finish outside the screen");
+        // Shell rebuilds the view after handling Close; emulate that refresh.
+        require(desktop.show({{2,"Settings",""},{3,"Player",""}},3,false,false,10,false).has_value(),"Post-close refresh failed");
         events.clear(); send(160,200,true); send(160,190,true); send(160,190,false);
         require(events.empty(),"Short upward swipe closed app");
         lv_area_t button_area{}; lv_obj_get_coords(lv_obj_get_child(desktop.body_,-1),&button_area);
         const int button_y=(button_area.y1+button_area.y2)/2;
         send(160,button_y,true); send(160,button_y,false);
         require(events.size()==1 && events.back().payload.at("operation").text=="close_all","Close all pointer button failed");
+        events.clear();
+        send(160,470,true);
+        require(desktop.show({{2,"Settings",""}},2,false,false,11,true).has_value(),"Opening-gesture setup failed");
+        send(160,200,true); send(160,0,true); send(160,0,false);
+        for(int i=0;i<20;++i) { lv_tick_inc(20); lv_timer_handler(); }
+        require(events.empty(),"The still-held opening gesture touched/dismissed a newly shown card");
+        events.clear();
+        require(desktop.show({{2,"Settings",""}},2,false,false,11,false).has_value(),"Pending-release lifecycle setup failed");
+        send(160,200,true); send(160,0,true); send(160,0,false);
+        require(desktop.cards_[0]->release_timer,"Pending dismissal timer was not created");
+        desktop.hide();
+        for(int i=0;i<20;++i) { lv_tick_inc(20); lv_timer_handler(); }
+        require(events.empty(),"Dismissal callback outlived its card/view");
         lv_indev_delete(input);
         desktop.hide(); desktop.clear();
-        std::cout<<"PASS: real LVGL screenshot pixels, scene restoration, static preview/reuse, card rendering/lifetime, light/dark, back hint, pointer gestures and host events\n";
+        std::cout<<"PASS: cached Core content/header visibility and rendered pixels, real LVGL screenshots, scene restoration, card lifetime/themes, back hint, pointer gestures and host events\n";
     } catch(const std::exception &error) { std::cerr<<error.what()<<'\n'; return 1; }
 }
 '''
-(output / 'recents.cpp').write_text(prefix + header + implementation + suffix, encoding='utf-8')
+core_source = (root / 'components/brookesia_system_core/src/app/manager.cpp').read_text(encoding='utf-8')
+visibility_begin = core_source.index('std::expected<void, std::string> System::set_app_visible(')
+visibility_end = core_source.index('std::expected<void, std::string> System::request_close_app(', visibility_begin)
+visibility = '\nnamespace presentation_check {\n' + core_source[visibility_begin:visibility_end] + '\n}\n'
+(output / 'recents.cpp').write_text(prefix + header + implementation + visibility + suffix, encoding='utf-8')
 lvgl = root / 'examples/brookesia-minimal/managed_components/lvgl__lvgl'
 cmake = Path('D:/Espressif/tools/cmake/4.0.3/bin/cmake.exe')
 ninja = Path('D:/Espressif/tools/ninja/1.12.1/ninja.exe')

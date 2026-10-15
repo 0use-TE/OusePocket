@@ -6,6 +6,32 @@ from pathlib import Path
 import yaml
 
 root = Path(__file__).resolve().parent.parent
+# Product setup and GUI/service workers use PSRAM stacks and can write Flash.
+# Keep XiP selected: otherwise ESP-IDF's cache-disabled stack assertion fires.
+defaults=(root/'examples/brookesia-minimal/sdkconfig.defaults').read_text(encoding='utf-8')
+for key in ['SPIRAM_XIP_FROM_PSRAM','SPIRAM_FETCH_INSTRUCTIONS','SPIRAM_RODATA']:
+    assert re.search(r'^CONFIG_'+key+r'=y$',defaults,re.M),f'PSRAM task stacks require {key}'
+# Check the effective config too: editing defaults does not update an existing sdkconfig.
+for filename in ['sdkconfig.defaults', 'sdkconfig']:
+    path=root/'examples/brookesia-minimal'/filename
+    if not path.exists():
+        continue
+    text=path.read_text(encoding='utf-8')
+    for key,value in {
+        'SPIRAM_MALLOC_ALWAYSINTERNAL':'0',
+        'SPIRAM_MALLOC_RESERVE_INTERNAL':'131072',
+        'ESP_HOSTED_DFLT_TASK_FROM_SPIRAM':'y',
+        'BROOKESIA_SERVICE_MANAGER_SECONDARY_SCHEDULER_ENABLE':'y',
+        'SPIRAM_XIP_FROM_PSRAM':'y',
+        'SPIRAM_FETCH_INSTRUCTIONS':'y',
+        'SPIRAM_RODATA':'y',
+    }.items():
+        assert re.search(r'^CONFIG_'+key+'='+value+r'$',text,re.M),(filename,key,value)
+    for key in ['BROOKESIA_SERVICE_MANAGER_WORKER_STACK_IN_EXT',
+                'BROOKESIA_UTILS_THREAD_CONFIG_STACK_IN_EXT',
+                'BROOKESIA_SERVICE_USB_ENABLE_AUTO_REGISTER',
+                'BROOKESIA_SYSTEM_CORE_ENABLE_USB_BRIDGE']:
+        assert re.search(r'^(?:CONFIG_'+key+r'=n|# CONFIG_'+key+r' is not set)$',text,re.M),(filename,key)
 app = root / 'components/brookesia_app_settings'
 resources = app / 'package/res'
 json_files = list(resources.rglob('*.json'))
@@ -16,6 +42,7 @@ shell = root / 'components/brookesia_system_super'
 for path in [app / 'idf_component.yml', shell / 'idf_component.yml',
              root / 'components/brookesia_gui_lvgl/idf_component.yml',
              root / 'components/brookesia_system_core/idf_component.yml',
+             root / 'components/brookesia_service_usb/idf_component.yml',
              root / 'components/pocket_platform/idf_component.yml',
              root / 'examples/brookesia-minimal/main/idf_component.yml']:
     manifest = yaml.safe_load(path.read_text(encoding='utf-8'))
@@ -65,7 +92,8 @@ def check_document_actions(documents):
     return len(owners)
 
 action_counts = []
-for directory in [resources, shell / 'resource/shell', root / 'examples/file-manager/src/res']:
+for directory in [resources, shell / 'resource/shell', root / 'examples/file-manager/src/res',
+                  root/'examples/music/src/res', root/'examples/log-viewer/src/res']:
     root_document = json.loads((directory / 'root.json').read_text(encoding='utf-8'))
     loaded_assets = set(root_document['assets'])
     for variant in root_document.get('variants', []):
@@ -107,7 +135,7 @@ quick_handlers = (shell / 'src/shell_quick_controls.cpp').read_text(encoding='ut
 quick_subscriptions = (shell / 'src/shell_display.cpp').read_text(encoding='utf-8')
 for action in quick_actions:
     assert action in quick_handlers and action in quick_subscriptions, action
-assert len(quick_actions) == 4
+assert len(quick_actions) == 6
 recents = next(child for child in overlay['children'] if child['id'] == 'recents')
 recent_actions = {event['action'] for node in walk(recents) for event in node.get('events', [])}
 recent_handler = (shell / 'src/shell_recent_tasks.cpp').read_text(encoding='utf-8')
@@ -179,6 +207,9 @@ for locale in ['en', 'zh_CN']:
     # These product labels use the "text" store key; official settings labels
     # usually use "labelProps.text". Validate the actual declarative target.
     for update in bundle['updates']:
+        if update['path'] == '/settings_home/page/main_list/power/title_box/title':
+            assert update['key'] == 'labelProps.text', (locale, update)
+            continue
         if not (update['path'].startswith('/power/') or
                 update['path'] == '/settings_home/page/power/title'):
             continue
@@ -187,6 +218,16 @@ for locale in ['en', 'zh_CN']:
         for part in parts[1:]:
             node = next(child for child in node['children'] if child['id'] == part)
         assert update['key'] in node.get('bindings', {}).values(), (locale, update)
+
+home = json.loads((resources / 'screens/settings_home.json').read_text(encoding='utf-8'))
+main_list = next(node for node in home['children'][0]['children'] if node['id'] == 'main_list')
+power_row = next(node for node in main_list['slots']['content'] if node['id'] == 'power')
+assert power_row['templateId'] == 'nav_menu_item'
+assert power_row['overrides']['icon']['imageProps']['src'] == '${image.home.power}'
+assert power_row['overrides']['.']['events'] == [{'type':'clicked','action':'ouse.power.open'}]
+image_set = json.loads((resources / 'images/index.json').read_text(encoding='utf-8'))
+power_image = next(image for image in image_set['images'] if image['id'] == 'home.power')
+assert (resources / 'images' / power_image['src']).is_file()
 
 config_dir = root / 'examples/brookesia-minimal'
 default_config = (config_dir / 'sdkconfig.defaults').read_text(encoding='utf-8')

@@ -54,7 +54,7 @@ std::expected<void, std::string> ShellApp::mount_overlay(core::AppContext &conte
         }
     }
 
-    for (const auto action : {"ouse.quick.close", "ouse.quick.brightness", "ouse.quick.volume", "ouse.quick.mute"}) {
+    for (const auto action : {"ouse.quick.settings", "ouse.quick.wifi", "ouse.quick.theme", "ouse.quick.brightness", "ouse.quick.volume", "ouse.quick.mute"}) {
         auto connection = context.gui().subscribe_action(action, [this](const gui::Event &event) {
             handle_quick_control_event(event);
         });
@@ -83,7 +83,13 @@ void ShellApp::unmount_overlay()
 {
     close_recent_tasks();
     if (owner_.desktop_backend_) owner_.desktop_backend_->hide_back_hint();
+    if (context_ && quick_controls_animation_id_) context_->gui().stop_animation(quick_controls_animation_id_);
+    quick_controls_animation_id_ = 0;
+    if (context_ && launcher_page_animation_id_) context_->gui().stop_animation(launcher_page_animation_id_);
+    launcher_page_animation_id_ = 0;
+    ++launcher_page_generation_;
     quick_controls_open_ = false;
+    ++status_peek_generation_;
     quick_audio_binding_.release();
     stop_debug_runtime();
     disconnect_overlay_actions();
@@ -242,7 +248,7 @@ void ShellApp::handle_display_touch_gesture(const DisplayService::TouchGestureIn
     }
     const auto environment = owner_.get_environment();
     if (info.event_type == DisplayService::TouchGestureEventType::Press)
-        edge_back_tracking_ = navigation::side_origin(info.start_x, info.start_y,
+        edge_back_tracking_ = (!foreground_is_shell_ || quick_controls_open_ || recent_tasks_open_) && navigation::side_origin(info.start_x, info.start_y,
             environment.width_px, environment.height_px, environment.density);
     const bool edge_back = info.event_type == DisplayService::TouchGestureEventType::Release && edge_back_tracking_ &&
         navigation::back_swipe(info.start_x, info.start_y, info.stop_x, info.stop_y,
@@ -271,14 +277,26 @@ void ShellApp::handle_display_touch_gesture(const DisplayService::TouchGestureIn
     }
 
     if (quick_controls_open_) {
-        if (edge_back) { close_quick_controls(); return; }
-        // Ignore panel slider movements; only upward gestures starting in its
-        // bottom handle dismiss it. The full-screen mask consumes app input.
-        if (info.event_type == DisplayService::TouchGestureEventType::Release &&
-            info.start_y >= owner_.get_environment().height_px -
-                static_cast<int32_t>(24 * owner_.get_environment().density) &&
-            info.direction == DisplayService::TouchGestureDirection::Up &&
-            info.start_y - info.stop_y > 24) close_quick_controls();
+        if (quick_controls_dragging_) {
+            if (info.event_type == DisplayService::TouchGestureEventType::Pressing) {
+                const auto delta = info.stop_y - info.start_y;
+                move_quick_controls(quick_controls_closing_ ? delta : -environment.height_px + delta);
+            } else if (info.event_type == DisplayService::TouchGestureEventType::Release) {
+                const auto delta = info.stop_y - info.start_y;
+                const int threshold = std::max<int32_t>(40, environment.height_px / 5);
+                settle_quick_controls(quick_controls_closing_ ? delta > -threshold : delta >= threshold);
+            }
+            return;
+        }
+        if (!quick_controls_ready_) return;
+        if (edge_back) { settle_quick_controls(false); return; }
+        // Only the bottom handle starts dismissal. A slider owns its whole drag.
+        if (info.event_type == DisplayService::TouchGestureEventType::Press &&
+            info.start_y >= environment.height_px - static_cast<int32_t>(32 * environment.density)) {
+            quick_controls_dragging_ = quick_controls_closing_ = true;
+            quick_controls_ready_ = false;
+            (void)context_->gui().set_binding_value("/overlay/quick_controls/input_shield", "hidden", "false");
+        }
         return;
     }
     if (recent_tasks_open_) {
@@ -301,6 +319,28 @@ void ShellApp::handle_display_touch_gesture(const DisplayService::TouchGestureIn
     }
     const bool started_from_bottom = has_gesture_area(info.start_area, SUPER_TOUCH_GESTURE_AREA_BOTTOM_EDGE);
     const bool started_from_top = has_gesture_area(info.start_area, SUPER_TOUCH_GESTURE_AREA_TOP_EDGE);
+    if (foreground_is_shell_ && !started_from_top && !started_from_bottom) {
+        const int dx = info.stop_x - info.start_x;
+        const int dy = info.stop_y - info.start_y;
+        if (info.event_type == DisplayService::TouchGestureEventType::Press) {
+            launcher_ignore_click_ = launcher_page_animation_id_ != 0;
+            launcher_swiping_ = false;
+        } else if (info.event_type == DisplayService::TouchGestureEventType::Pressing) {
+            // Even on a single page, dragging across an icon is not a click.
+            if (std::max(std::abs(dx), std::abs(dy)) > 12 * environment.density) launcher_ignore_click_ = true;
+            if (launcher_pages_ > 1 && !launcher_page_animation_id_ &&
+                (launcher_swiping_ || (std::abs(dx) > 12 * environment.density && std::abs(dx) > std::abs(dy)))) {
+                launcher_swiping_ = launcher_ignore_click_ = true;
+                move_launcher_page(std::clamp<int32_t>(-launcher_page_ * launcher_page_width_ + dx,
+                    -(launcher_pages_ - 1) * launcher_page_width_, 0));
+            }
+        } else if (info.event_type == DisplayService::TouchGestureEventType::Release && launcher_swiping_) {
+            launcher_swiping_ = false;
+            const int threshold = std::max<int32_t>(24, launcher_page_width_ / 5);
+            settle_launcher_page(launcher_page_ + (dx < -threshold ? 1 : dx > threshold ? -1 : 0));
+        }
+        return;
+    }
     if (info.event_type == DisplayService::TouchGestureEventType::Press) {
         if (started_from_top && can_start_status_peek()) {
             ++status_peek_generation_;
@@ -351,6 +391,7 @@ void ShellApp::handle_display_touch_gesture(const DisplayService::TouchGestureIn
                 (info.direction == DisplayService::TouchGestureDirection::Down ||
                  info.direction == DisplayService::TouchGestureDirection::None)) {
             trigger_status_peek();
+            if (quick_controls_open_) move_quick_controls(-environment.height_px + downward_delta);
         }
         return;
     }
@@ -524,6 +565,10 @@ void ShellApp::trigger_status_peek()
     }
 
     quick_controls_open_ = true;
+    quick_controls_dragging_ = true;
+    quick_controls_closing_ = quick_controls_ready_ = false;
+    (void)context_->gui().set_binding_value("/overlay/quick_controls/input_shield", "hidden", "false");
+    move_quick_controls(-owner_.get_environment().height_px);
     (void)context_->gui().set_binding_value("/overlay/quick_controls", "hidden", "false");
     refresh_quick_controls();
     (void)refresh_system_ui_state_bindings();

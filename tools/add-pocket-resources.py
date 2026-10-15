@@ -3,9 +3,9 @@ import json
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 def read(p): return json.loads((ROOT/p).read_text(encoding='utf-8'))
-def write(p, v):
+def write(p, v, indent=2):
     p = ROOT/p; p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(v, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')
+    p.write_text(json.dumps(v, ensure_ascii=False, indent=indent)+'\n', encoding='utf-8')
 def label(id, text, binding=False):
     v = {'type':'label','id':id,'labelProps':{'text':text},'commonProps':{'clickable':False}, 'style':{'fontSize':'16sp'}}
     if binding: v['bindings']={'labelProps.text':'text'}
@@ -33,21 +33,7 @@ recents.update({'placement':{'mode':'absolute','x':0,'y':0,'width':'${env.widthD
 recents['children'][0]['placement']={'mode':'absolute','x':0,'y':'8dp','width':'100%','height':'24dp'}
 recents['children'][0]['style'].update({'fontSize':'16sp','textAlign':'center'})
 o['children'].append(recents)
-# Add a battery value alongside the existing Wi-Fi/clock widgets.
-def find(v, id):
-    if v.get('id')==id: return v
-    for c in v.get('children',[]):
-        r=find(c,id)
-        if r: return r
-status=find(o,'status') or find(o,'status_bar')
-if status:
-    status['children']=[c for c in status['children'] if c['id']!='battery']
-    right=find(status,'status_right')
-    right['children']=[c for c in right['children'] if c['id']!='battery']
-    battery=label('battery','--%',True)
-    battery['placement']={'width':'52dp','height':'20dp'}
-    battery['style'].update({'textColor':'#ffffff','fontSize':'12sp'})
-    right['children'].append(battery)
+# Battery icon and quick controls are owned by generate-shell-controls.py.
 write(overlay,o)
 launcher_path='components/brookesia_system_super/resource/shell/screens/app_launcher.json'
 launcher=read(launcher_path)
@@ -70,8 +56,21 @@ if not any(t['action']=='ouse.power.open' for t in flow['transitions']):
 write(base+'flows/content.json',flow)
 home=read(base+'screens/settings_home.json'); page=home['children'][0]
 page['children']=[c for c in page['children'] if c['id']!='power']
-page['children'].append(button('power','Power & battery','ouse.power.open'))
+main_list=next(c for c in page['children'] if c['id']=='main_list')
+items=main_list['slots']['content']
+items[:]=[item for item in items if item['id']!='power']
+# Reuse the default navigation template, including its icon, spacing, chevron,
+# pressed feedback and theme styles instead of a separate generic button.
+items.append({'type':'templateRef','id':'power','templateId':'nav_menu_item',
+    'overrides':{'.':{'events':[{'type':'clicked','action':'ouse.power.open'}]},
+        'icon':{'imageProps':{'src':'${image.home.power}'}},
+        'title_box/title':{'labelProps':{'text':'Power & battery'}},
+        'value_box/value':{'labelProps':{'text':''}}}})
 write(base+'screens/settings_home.json',home)
+images=read(base+'images/index.json')
+images['images']=[image for image in images['images'] if image['id']!='home.power']
+images['images'].append({'id':'home.power','src':'icon/power.png','width':42,'height':42})
+write(base+'images/index.json',images,indent=4)
 # Match the binding store keys used by the generated labels and remove obsolete
 # BLE translations after the Bluetooth controls were removed from the product.
 for locale in ['en','zh_CN']:
@@ -79,7 +78,11 @@ for locale in ['en','zh_CN']:
     bundle.pop('bindings',None)
     bundle['updates']=[entry for entry in bundle.get('updates',[]) if '/ble_' not in entry.get('path','')]
     for entry in bundle['updates']:
-        if entry['path'].startswith('/power/') or entry['path']=='/settings_home/page/power/title':
+        if entry['path']=='/settings_home/page/power/title':
+            entry['path']='/settings_home/page/main_list/power/title_box/title'
+        if entry['path']=='/settings_home/page/main_list/power/title_box/title':
+            entry['key']='labelProps.text'
+        elif entry['path'].startswith('/power/'):
             entry['key']='text'
     write(base+f'i18n/{locale}.json',bundle)
 

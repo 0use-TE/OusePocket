@@ -43,6 +43,7 @@ public:
     void on_uninstall(system::core::AppContext &context) override;
     std::expected<void, std::string> on_start(system::core::AppContext &context) override;
     std::expected<void, std::string> on_stop(system::core::AppContext &context) override;
+    std::expected<void, std::string> on_resume(system::core::AppContext &context) override;
     std::expected<void, std::string> on_action(
         system::core::AppContext &context,
         std::string_view action

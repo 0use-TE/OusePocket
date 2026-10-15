@@ -21,7 +21,7 @@ dependencies:
 
   espressif/brookesia_service_usb:
     version: "0.8.*"
-    override_path: ../../.reference/esp-brookesia/service/system/brookesia_service_usb
+    override_path: ../brookesia_service_usb
     require: private
 
   espressif/brookesia_runtime_manager:

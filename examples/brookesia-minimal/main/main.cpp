@@ -10,15 +10,26 @@
 #include "esp_heap_caps.h"
 #include "esp_rom_sys.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "esp_lv_adapter.h"
 #include "brookesia/gui_lvgl.hpp"
 #include "brookesia/system_super.hpp"
 #include "brookesia/service_helper/media/display.hpp"
 #include "brookesia/service_manager/service/manager.hpp"
 #include "ouse_preferences.hpp"
+#include "pocket_logs.hpp"
+#include "src/misc/lv_text_private.h"
+
+// Setup and Brookesia workers use PSRAM stacks. Without XiP, Flash operations
+// disable the cache and IDF rejects those stacks before erasing/writing.
+#if !CONFIG_SPIRAM_XIP_FROM_PSRAM || !CONFIG_SPIRAM_FETCH_INSTRUCTIONS || !CONFIG_SPIRAM_RODATA
+#error "OusePocket PSRAM task stacks require PSRAM XiP (instructions and rodata) for Flash operations"
+#endif
 
 using namespace esp_brookesia;
 using DisplayHelper = service::helper::Display;
+static_assert(LV_TXT_ENC == LV_TXT_ENC_UTF8,
+    "OusePocket requires UTF-8 for SSIDs, translated UI and password bullets");
 
 class PocketSystem final : public system::super::System {
 public:
@@ -70,6 +81,10 @@ private:
 
 static void log_memory(const char *phase)
 {
+    if (!heap_caps_check_integrity_all(true)) {
+        ESP_LOGE("Ouse", "Heap corrupted at phase: %s", phase);
+        abort();
+    }
     constexpr uint32_t internal_caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
     ESP_LOGI("Ouse", "Memory %s: internal free=%u largest=%u; PSRAM free=%u",
         phase,
@@ -83,6 +98,12 @@ static void allocation_failed(size_t size, uint32_t caps, const char *function)
     // Do not allocate or use libc logging locks while reporting an allocation failure.
     esp_rom_printf("Ouse ALLOC FAILED: function=%s size=%u caps=0x%08lx\n",
         function, static_cast<unsigned>(size), static_cast<unsigned long>(caps));
+    constexpr uint32_t internal_caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+    esp_rom_printf("Ouse heap at failure: internal free=%u largest=%u minimum=%u; PSRAM free=%u\n",
+        static_cast<unsigned>(heap_caps_get_free_size(internal_caps)),
+        static_cast<unsigned>(heap_caps_get_largest_free_block(internal_caps)),
+        static_cast<unsigned>(heap_caps_get_minimum_free_size(internal_caps)),
+        static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)));
 }
 
 #include "pocket_platform.hpp"
@@ -103,10 +124,12 @@ static void initialize_system()
         return;
     }
     auto &source = gui::lvgl::DisplaySource::get_instance();
+    log_memory("before display start");
     if (!source.start({})) {
         ESP_LOGE("Ouse", "LVGL display source startup failed");
         return;
     }
+    log_memory("after display start");
     auto active = DisplayHelper::call_function_sync(
         DisplayHelper::FunctionId::SetActiveSourceRole,
         std::string(), std::string(gui::lvgl::DISPLAY_SOURCE_ROLE),
@@ -165,6 +188,7 @@ static void initialize_system()
     auto storage_preference = shell->set_default_install_storage(system::core::StorageInstallTarget::Internal);
     if (!storage_preference) ESP_LOGW("Ouse", "Internal install preference: %s", storage_preference.error().c_str());
     ouse::start_pocket_platform();
+    log_memory("after platform start");
     auto started = shell->start();
     if (!started) {
         shell->darken_display();
@@ -190,6 +214,10 @@ static void setup(void *)
 
 extern "C" void app_main()
 {
+    ouse::initialize_log_capture();
+    ESP_LOGI("Ouse", "Boot reset reason: %d (software=%d, panic=%d, task watchdog=%d)",
+        static_cast<int>(esp_reset_reason()), static_cast<int>(ESP_RST_SW),
+        static_cast<int>(ESP_RST_PANIC), static_cast<int>(ESP_RST_TASK_WDT));
     // GUI/resource loading needs more stack than the default app_main task.
     if (heap_caps_register_failed_alloc_callback(allocation_failed) != ESP_OK) {
         ESP_LOGW("Ouse", "Allocation failure diagnostics could not be registered");

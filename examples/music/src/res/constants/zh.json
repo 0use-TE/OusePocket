@@ -1,0 +1,28 @@
+{
+  "type": "constant",
+  "data": {
+    "ui": {
+      "title": "音乐",
+      "library": "选择歌曲",
+      "empty": "将 MP3 / PCM WAV 放入 /sdcard/music，然后刷新。",
+      "refresh": "刷新",
+      "sd": "SD 卡",
+      "internal": "内部",
+      "previous": "上一页",
+      "next": "下一页",
+      "stop": "停止",
+      "volume": "音量",
+      "ready": "就绪",
+      "playing": "播放中",
+      "paused": "已暂停",
+      "idle": "已停止",
+      "loading": "正在读取歌曲…",
+      "elapsed": "已播放",
+      "no_tracks": "没有找到歌曲",
+      "error": "播放失败",
+      "busy": "请稍候…",
+      "page": "歌曲",
+      "back": "返回"
+    }
+  }
+}

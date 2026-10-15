@@ -858,6 +858,12 @@ std::expected<void, std::string> System::start_app(AppId app_id, const AppStartO
         }
     }
 
+    if (start_result) {
+        // A preloaded DOM can still carry pause-time hidden flags after STOP.
+        // START must reveal its current roots just as RESUME does; mounting
+        // alone intentionally preserves visibility during Stack reordering.
+        start_result = set_app_visible(app_id, true);
+    }
     if (!start_result) {
         impl_->cleanup_app_transient_resources(record);
         release_runtime_dataflow_operations(record.runtime_app_id);
@@ -1171,6 +1177,8 @@ std::expected<void, std::string> System::set_app_visible(AppId app_id, bool visi
                 if (!view.valid()) return std::unexpected("App screen is missing: " + *state);
                 if (!view.set_hidden(!visible))
                     return std::unexpected("Cannot change app presentation");
+                BROOKESIA_LOGI("App screen visibility: id(%1%), screen(%2%), visible(%3%)",
+                               app_id, *state, visible);
             }
             return {};
         }, std::unexpected("Failed to post app presentation"));

@@ -1,0 +1,24 @@
+{
+  "type": "constant",
+  "data": {
+    "ui": {
+      "title": "Logs",
+      "live": "Live",
+      "saved": "Saved",
+      "filter": "Errors",
+      "all": "All",
+      "hold": "Pause",
+      "resume": "Resume",
+      "clear": "Clear",
+      "confirm": "Tap Clear again to delete saved logs",
+      "ready": "Waiting for logs…",
+      "paused": "View paused",
+      "missed": "Older entries were overwritten",
+      "saved_hint": "Persistent tail from internal Flash",
+      "cleared": "Logs cleared",
+      "not_persistent": "Flash logging unavailable",
+      "back": "Back",
+      "refresh": "Refresh"
+    }
+  }
+}

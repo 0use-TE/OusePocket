@@ -65,9 +65,6 @@
                   "icon": {
                     "imageProps": {
                       "src": "${image.home.my_device}"
-                    },
-                    "style": {
-                      "bgColor": "${color.info.soft}"
                     }
                   },
                   "title_box/title": {
@@ -117,9 +114,6 @@
                   "icon": {
                     "imageProps": {
                       "src": "${image.home.wifi}"
-                    },
-                    "style": {
-                      "bgColor": "${color.info.soft}"
                     }
                   },
                   "title_box/title": {
@@ -150,9 +144,6 @@
                   "icon": {
                     "imageProps": {
                       "src": "${image.home.sound}"
-                    },
-                    "style": {
-                      "bgColor": "${color.primary.soft}"
                     }
                   },
                   "title_box/title": {
@@ -183,9 +174,6 @@
                   "icon": {
                     "imageProps": {
                       "src": "${image.home.display}"
-                    },
-                    "style": {
-                      "bgColor": "${color.warning.soft}"
                     }
                   },
                   "title_box/title": {
@@ -229,52 +217,39 @@
                     }
                   }
                 }
+              },
+              {
+                "type": "templateRef",
+                "id": "power",
+                "templateId": "nav_menu_item",
+                "overrides": {
+                  ".": {
+                    "events": [
+                      {
+                        "type": "clicked",
+                        "action": "ouse.power.open"
+                      }
+                    ]
+                  },
+                  "icon": {
+                    "imageProps": {
+                      "src": "${image.home.power}"
+                    }
+                  },
+                  "title_box/title": {
+                    "labelProps": {
+                      "text": "Power & battery"
+                    }
+                  },
+                  "value_box/value": {
+                    "labelProps": {
+                      "text": ""
+                    }
+                  }
+                }
               }
             ]
           }
-        },
-        {
-          "type": "button",
-          "id": "power",
-          "placement": {
-            "width": "100%",
-            "height": "40dp"
-          },
-          "style": {
-            "padding": "8dp",
-            "radius": "8dp",
-            "borderWidth": "1dp",
-            "borderColor": "#687080"
-          },
-          "layout": {
-            "type": "flex",
-            "mainAlign": "center",
-            "crossAlign": "center"
-          },
-          "events": [
-            {
-              "type": "clicked",
-              "action": "ouse.power.open"
-            }
-          ],
-          "children": [
-            {
-              "type": "label",
-              "id": "title",
-              "labelProps": {
-                "text": "Power & battery"
-              },
-              "commonProps": {
-                "clickable": false
-              },
-              "style": {
-                "fontSize": "16sp"
-              },
-              "bindings": {
-                "labelProps.text": "text"
-              }
-            }
-          ]
         }
       ]
     }

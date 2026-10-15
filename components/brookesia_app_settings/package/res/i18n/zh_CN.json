@@ -428,8 +428,8 @@
       "value": "播放测试音"
     },
     {
-      "path": "/settings_home/page/power/title",
-      "key": "text",
+      "path": "/settings_home/page/main_list/power/title_box/title",
+      "key": "labelProps.text",
       "value": "电源与电池"
     },
     {

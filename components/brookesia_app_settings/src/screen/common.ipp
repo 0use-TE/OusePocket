@@ -24,6 +24,13 @@ std::expected<void, std::string> SettingsApp::refresh_header(system::core::AppCo
 
 std::expected<void, std::string> SettingsApp::refresh_theme_state(system::core::AppContext &context)
 {
+    // The quick controls can change the stored preference while Settings is
+    // suspended. Read the shared preference before updating the selection.
+    pending_theme_id_.clear();
+    if (auto stored = context.gui().get_stored_theme_preference(); stored &&
+            (*stored == THEME_LIGHT || *stored == THEME_DARK) && *stored != current_theme_id_) {
+        pending_theme_id_ = *stored;
+    }
     const bool dark = current_theme_id_ == THEME_DARK;
     auto tokens = load_selectable_theme_tokens(context, current_theme_id_);
     if (!tokens) {

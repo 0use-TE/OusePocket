@@ -4,9 +4,9 @@
         "settings": {
             "layout": {
                 "pageX": "54dp",
-                "pageY": "92dp",
+                "pageY": "82dp",
                 "pageWidth": "${expr(${env.widthDp} - 108dp)}",
-                "pageHeight": "${expr(${env.heightDp} - 126dp)}",
+                "pageHeight": "${expr(${env.heightDp} - 90dp)}",
                 "pageGap": "18dp",
                 "cardGap": "14dp",
                 "cardRadius": "24dp",

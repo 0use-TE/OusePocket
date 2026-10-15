@@ -237,6 +237,11 @@ std::expected<void, std::string> SettingsApp::on_start(system::core::AppContext 
     return {};
 }
 
+std::expected<void, std::string> SettingsApp::on_resume(system::core::AppContext &context)
+{
+    return refresh_theme_state(context);
+}
+
 std::expected<void, std::string> SettingsApp::on_stop(system::core::AppContext &context)
 {
     BROOKESIA_LOG_TRACE_GUARD_WITH_THIS();

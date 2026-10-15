@@ -1,0 +1,24 @@
+{
+  "type": "constant",
+  "data": {
+    "ui": {
+      "title": "日志",
+      "live": "实时",
+      "saved": "历史",
+      "filter": "错误",
+      "all": "全部",
+      "hold": "暂停",
+      "resume": "继续",
+      "clear": "清空",
+      "confirm": "再次点击清空，删除已保存日志",
+      "ready": "等待日志…",
+      "paused": "查看已暂停",
+      "missed": "较早日志已被环形缓冲覆盖",
+      "saved_hint": "内部 Flash 保存的最近日志",
+      "cleared": "日志已清空",
+      "not_persistent": "日志暂未写入 Flash",
+      "back": "返回",
+      "refresh": "刷新"
+    }
+  }
+}

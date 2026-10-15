@@ -1,5 +1,7 @@
 // Product service: removable storage and read-only PMIC telemetry.
 #include "pocket_platform.hpp"
+#include "pocket_logs.hpp"
+#include "pocket_media.hpp"
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -23,6 +25,11 @@ namespace fs = std::filesystem;
 using namespace esp_brookesia::service;
 std::mutex files_mutex, power_mutex;
 sdmmc_card_t *card = nullptr;
+unsigned sd_readers=0,internal_readers=0;
+bool sd_failed=false;
+std::mutex media_mutex;
+std::string media_path,media_error,media_state="Idle";
+uint64_t media_position=0,media_bytes=0;
 sd_pwr_ctrl_handle_t sd_power = nullptr;
 i2c_master_dev_handle_t pmic = nullptr;
 boost::json::object battery{{"valid", false}};
@@ -59,11 +66,14 @@ void sample_battery() {
     std::lock_guard lock(power_mutex); battery = std::move(next);
 }
 void unmount_sd() {
+    if(sd_readers) {sd_failed=true;return;}
     if (card) esp_vfs_fat_sdcard_unmount("/sdcard", card);
     card = nullptr;
+    sd_failed=false;
 }
 bool mount_sd() {
-    if (card && sdmmc_get_status(card) == ESP_OK) return true;
+    if (card && !sd_failed && sdmmc_get_status(card) == ESP_OK) return true;
+    if(sd_readers) return false;
     unmount_sd();
     if (!sd_power) {
         sd_pwr_ctrl_ldo_config_t config{.ldo_chan_id = 4};
@@ -91,7 +101,7 @@ std::optional<fs::path> resolve(std::string path) {
     const auto s = p.string();
     if (s == "/littlefs/user" || s.starts_with("/littlefs/user/")) return p;
     if (s == "/sdcard" || s.starts_with("/sdcard/")) {
-        if (!card || sdmmc_get_status(card) != ESP_OK) { unmount_sd(); return {}; }
+        if (!card || sd_failed || sdmmc_get_status(card) != ESP_OK) { unmount_sd(); return {}; }
         return p;
     }
     return {};
@@ -161,6 +171,44 @@ private:
     }
 };
 }
+std::unique_ptr<MediaReader> open_media_file(const std::string &path) {
+    std::lock_guard lock(files_mutex);
+    auto resolved=resolve(path);
+    if(!resolved || !(path.starts_with("/sdcard/") || path.starts_with("/littlefs/user/music/"))) return {};
+    std::error_code ec;
+    if(!fs::is_regular_file(*resolved,ec)) return {};
+    const auto size=fs::file_size(*resolved,ec); if(ec) return {};
+    FILE *file=fopen(resolved->c_str(),"rb"); if(!file) return {};
+    const bool sd=path.starts_with("/sdcard/");
+    if(sd) ++sd_readers; else ++internal_readers;
+    return std::unique_ptr<MediaReader>(new MediaReader(file,sd,size));
+}
+MediaReader::~MediaReader() {
+    std::lock_guard lock(files_mutex);
+    fclose(file_);
+    if(sd_) {--sd_readers;if(sd_failed && !sd_readers) unmount_sd();}
+    else --internal_readers;
+}
+size_t MediaReader::read(void *buffer,size_t size) {
+    std::lock_guard lock(files_mutex);
+    if(sd_ && sd_failed) {failed_=true;return 0;}
+    const auto count=fread(buffer,1,size,file_);
+    if(ferror(file_)) {failed_=true;if(sd_) sd_failed=true;}
+    return count;
+}
+void set_media_state(const std::string &path,const char *state,const std::string &error) {
+    std::lock_guard lock(media_mutex);
+    if(path!=media_path || (std::string_view(state)=="Playing" && media_state=="Idle")) {media_position=0;media_bytes=0;}
+    media_path=path;media_state=state;media_error=error;
+}
+void set_media_progress(uint64_t milliseconds,uint64_t bytes) {
+    std::lock_guard lock(media_mutex);media_position=milliseconds;media_bytes=bytes;
+}
+boost::json::object pocket_media_state() {
+    std::lock_guard lock(media_mutex);
+    return {{"ok",true},{"path",media_path},{"state",media_state},{"positionMs",media_position},
+        {"bytes",media_bytes},{"error",media_error}};
+}
 boost::json::object pocket_power_state() {
     std::lock_guard lock(power_mutex);
     auto result = battery;
@@ -209,13 +257,16 @@ void start_pocket_platform() {
         i2c_master_bus_add_device(bsp_i2c_get_handle(), &config, &pmic);
     sample_battery();
     last_touch = esp_timer_get_time();
-    std::error_code ec; fs::create_directories("/littlefs/user", ec);
+    std::error_code ec; fs::create_directories("/littlefs/user/music", ec);
+    start_log_writer();
     esp_brookesia::service::ServiceManager::get_instance().add_service(std::make_shared<PocketService>());
     if (xTaskCreate(monitor, "pocket_power", 4096, nullptr, 3, nullptr) != pdPASS)
         timeout_seconds = 0; // No monitoring task: leave screen on.
 }
 boost::json::object pocket_request(const boost::json::object &r) {
     const auto op = str(r, "Op");
+    if (op.starts_with("Logs")) return log_request(r);
+    if (op == "MediaState") return pocket_media_state();
     if (op == "Power") return pocket_power_state();
     if (op == "CopyStatus") {
         boost::json::object s{{"busy", copying.load()}, {"bytes", copy_bytes.load()}, {"total", copy_total.load()}};
@@ -234,7 +285,10 @@ boost::json::object pocket_request(const boost::json::object &r) {
         return result;
     }
     if (op == "Mount") return {{"ok", mount_sd()}, {"sd", card != nullptr}};
-    if (op == "Eject") { unmount_sd(); return {{"ok", true}}; }
+    if (op == "Eject") {
+        if(sd_readers) return fail("Stop music before ejecting SD");
+        unmount_sd(); return {{"ok", true}};
+    }
     auto path = resolve(str(r, "Path"));
     if (!path) return fail("Path unavailable (SD missing or protected directory)");
     std::error_code ec;
@@ -254,6 +308,10 @@ boost::json::object pocket_request(const boost::json::object &r) {
         boost::json::array entries; for (auto &row : rows) entries.push_back(std::move(row));
         return {{"ok", true}, {"entries", std::move(entries)}, {"limited", rows.size() == 512}};
     }
+    if(sd_readers && (path->string().starts_with("/sdcard/") || str(r,"To").starts_with("/sdcard/")))
+        return fail("Stop music before modifying SD files");
+    if(internal_readers && (path->string().starts_with("/littlefs/user/music/") || str(r,"To").starts_with("/littlefs/user/music/")))
+        return fail("Stop music before modifying internal music");
     if (op == "Mkdir") fs::create_directory(*path, ec);
     else if (op == "Remove") {
         if (is_root(*path)) return fail("Cannot delete volume root");

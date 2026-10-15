@@ -8,6 +8,7 @@
 #   define BROOKESIA_LOG_DISABLE_DEBUG_TRACE 1
 #endif
 
+#include <algorithm>
 #include <chrono>
 #include <ctime>
 #include <string>
@@ -73,6 +74,15 @@ WifiStatusState get_wifi_status_from_event(std::string_view event)
 std::string bool_to_binding(bool value)
 {
     return value ? "true" : "false";
+}
+
+std::string battery_image_id(int percent, bool charging, bool dark)
+{
+    const std::string suffix = dark ? ".dark" : ".light";
+    if (percent < 0) return "battery.unknown" + suffix;
+    // 0% is empty; 1-20%, 21-40%, ... 81-100% display 1..5 bars.
+    const int level = (std::clamp(percent, 0, 100) + 19) / 20;
+    return std::string(charging ? "battery.charging" : "battery.level") + std::to_string(level) + suffix;
 }
 
 std::string make_clock_text()
@@ -182,7 +192,7 @@ void ShellApp::set_status_wifi_state(bool visible, bool connected)
     wifi_connected_ = connected;
     if (context_ && quick_controls_open_) {
         const bool zh = context_->gui().get_language() == "zh_CN";
-        (void)context_->gui().set_binding_value("/overlay/quick_controls/panel/wifi", "text",
+        (void)context_->gui().set_binding_value("/overlay/quick_controls/sheet/panel/wifi/label", "text",
             connected ? (zh ? "Wi-Fi 已连接" : "Wi-Fi connected") : (zh ? "Wi-Fi 未连接" : "Wi-Fi not connected"));
     }
     if (context_ == nullptr) {
@@ -269,12 +279,17 @@ void ShellApp::refresh_status_clock()
     auto result = context_->gui().set_binding_value(SUPER_STATUS_CLOCK_PATH, "clock_text", make_clock_text());
     const auto power = ouse::pocket_power_state();
     std::string battery_text = "--%";
+    int percent_value = -1;
+    bool charging = false;
     if (auto percent = power.if_contains("percent")) {
-        battery_text = std::to_string(percent->to_number<int>()) + "%";
-        if (power.at("charging").as_bool()) battery_text += "+";
-        if (percent->to_number<int>() <= 15) battery_text += "!";
+        percent_value = std::clamp(percent->to_number<int>(), 0, 100);
+        battery_text = std::to_string(percent_value) + "%";
+        charging = power.at("charging").as_bool();
+        if (charging) battery_text += context_->gui().get_language() == "zh_CN" ? " · 充电中" : " · Charging";
     }
-    (void)context_->gui().set_binding_value("/overlay/status/status_right/battery", "text", battery_text);
+    (void)context_->gui().set_binding_value("/overlay/status/status_right/battery", "src",
+        battery_image_id(percent_value, charging, context_->gui().get_theme() == "dark"));
+    if (quick_controls_open_) (void)context_->gui().set_binding_value("/overlay/quick_controls/sheet/panel/battery", "text", battery_text);
     if (!result) {
         BROOKESIA_LOGW("Failed to refresh Shell status clock: %1%", result.error());
     }

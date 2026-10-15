@@ -4,23 +4,26 @@
     "node": {
         "type": "button",
         "events": [],
+        "commonProps": {
+            "scrollable": false
+        },
         "styleRefs": [
             "app.selectableCard"
         ],
         "style": {
-            "padding": "18dp"
+            "padding": "14dp"
         },
         "layout": {
             "type": "flex",
             "flexFlow": "column",
-            "mainAlign": "center",
+            "mainAlign": "start",
             "crossAlign": "center",
             "gap": "10dp"
         },
         "placement": {
             "mode": "flow",
             "width": "${constant.settings.layout.themeModeCardWidth}",
-            "height": "${constant.settings.layout.themeModeCardHeight}",
+            "height": "wrap",
             "alignSelf": "stretch"
         },
         "children": [
@@ -52,8 +55,14 @@
                 "labelProps": {
                     "text": "Mode"
                 },
+                "style": {
+                    "fontSize": "16sp",
+                    "textAlign": "center"
+                },
                 "placement": {
-                    "mode": "flow"
+                    "mode": "flow",
+                    "width": "match",
+                    "height": "wrap"
                 },
                 "bindings": {
                     "labelProps.text": "labelProps.text"

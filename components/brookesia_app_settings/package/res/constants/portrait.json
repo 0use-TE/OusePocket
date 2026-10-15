@@ -4,9 +4,9 @@
         "settings": {
             "layout": {
                 "pageX": "8dp",
-                "pageY": "54dp",
+                "pageY": "56dp",
                 "pageWidth": "${expr(${env.widthDp} - 16dp)}",
-                "pageHeight": "${expr(${env.heightDp} - 62dp)}",
+                "pageHeight": "${expr(${env.heightDp} - 64dp)}",
                 "pageGap": "12dp",
                 "cardGap": "10dp",
                 "rowHeight": "58dp",

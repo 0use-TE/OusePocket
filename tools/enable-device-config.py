@@ -3,6 +3,23 @@ from pathlib import Path
 
 root = Path(__file__).resolve().parent.parent
 config = {
+    # Temporarily isolate the host-control RX pump during startup diagnosis.
+    # ROM flashing and the normal UART console do not require this service.
+    'BROOKESIA_SERVICE_USB_ENABLE_AUTO_REGISTER': 'n',
+    'BROOKESIA_SYSTEM_CORE_ENABLE_USB_BRIDGE': 'n',
+    # Brookesia P4's UI creates many small objects. Keep internal RAM for
+    # libc/FreeRTOS locks and the Waveshare C6 SDIO DMA buffers.
+    'SPIRAM_MALLOC_ALWAYSINTERNAL': '0',
+    'SPIRAM_MALLOC_RESERVE_INTERNAL': '131072',
+    # Supported by Hosted 2.12.3; requires the existing PSRAM XiP policy.
+    'ESP_HOSTED_DFLT_TASK_FROM_SPIRAM': 'y',
+    # Service/Asio callbacks use native pthread/libc/FreeRTOS synchronization.
+    # Keep those worker stacks internal; large GUI/Core stacks stay in PSRAM.
+    'BROOKESIA_SERVICE_MANAGER_WORKER_STACK_IN_EXT': 'n',
+    'BROOKESIA_UTILS_THREAD_CONFIG_STACK_IN_EXT': 'n',
+    # Pocket and native media explicitly bind to this scheduler, even when the
+    # primary scheduler already has internal stacks (its upstream default is n).
+    'BROOKESIA_SERVICE_MANAGER_SECONDARY_SCHEDULER_ENABLE': 'y',
     'LV_USE_SNAPSHOT': 'y',
     'BROOKESIA_HAL_ADAPTOR_ENABLE_SYSTEM_DEVICE': 'y',
     'BROOKESIA_HAL_ADAPTOR_SYSTEM_ENABLE_RESTART_IMPL': 'y',

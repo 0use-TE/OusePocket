@@ -35,7 +35,7 @@
           "type": "container",
           "id": "grid_stage",
           "commonProps": {
-            "scrollable": true
+            "scrollable": false
           },
           "style": {
             "padding": 0
@@ -49,7 +49,7 @@
             "x": "${expr((${env.widthDp} - ${constant.ui.content.metric.launcherGridWidth}) / 2)}",
             "y": "${constant.ui.content.metric.launcherGridTop}",
             "width": "${constant.ui.content.metric.launcherGridWidth}",
-            "height": "${expr(${env.heightDp} - ${constant.ui.content.metric.y} - ${constant.ui.content.metric.launcherGridTop})}"
+            "height": "${expr(${env.heightDp} - ${constant.ui.content.metric.y} - ${constant.ui.content.metric.launcherGridTop} - 28dp)}"
           },
           "children": [
             {
@@ -89,7 +89,9 @@
                 "scrollable": false
               },
               "bindings": {
-                "placement.height": "content_height"
+                "placement.height": "content_height",
+                "placement.x": "page_x",
+                "placement.width": "pages_width"
               },
               "style": {
                 "padding": 0
@@ -127,6 +129,32 @@
               "children": []
             }
           ]
+        },
+        {
+          "type": "label",
+          "id": "page_indicator",
+          "commonProps": {
+            "clickable": false,
+            "scrollable": false
+          },
+          "placement": {
+            "mode": "absolute",
+            "x": 0,
+            "y": "${expr(${env.heightDp} - ${constant.ui.content.metric.y} - 28dp)}",
+            "width": "100%",
+            "height": "20dp"
+          },
+          "style": {
+            "fontSize": "12sp",
+            "textColor": "${color.text.default}",
+            "textAlign": "center"
+          },
+          "labelProps": {
+            "text": ""
+          },
+          "bindings": {
+            "labelProps.text": "text"
+          }
         }
       ]
     }

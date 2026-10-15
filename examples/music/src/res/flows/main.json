@@ -1,0 +1,8 @@
+{
+  "type": "screenFlow",
+  "id": "main",
+  "screens": [
+    "main"
+  ],
+  "initial": "main"
+}

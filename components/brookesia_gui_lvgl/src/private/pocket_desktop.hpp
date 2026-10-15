@@ -26,11 +26,17 @@ private:
         uint32_t id = 0;
         lv_obj_t *slot = nullptr;
         lv_obj_t *drag = nullptr;
+        int drag_origin_y = 0;
+        lv_indev_t *input = nullptr;
+        lv_timer_t *release_timer = nullptr;
+        bool closing = false;
         std::shared_ptr<Snapshot> snapshot;
         std::shared_ptr<BinaryImageSource> icon;
     };
     static void card_event(lv_event_t *event);
     static void button_event(lv_event_t *event);
+    static void confirm_card_release(lv_timer_t *timer);
+    static void complete_card_close(lv_anim_t *animation);
     void emit(std::string_view operation, uint32_t id = 0);
     void focus(size_t index, bool animate);
     BackendImpl &backend_;

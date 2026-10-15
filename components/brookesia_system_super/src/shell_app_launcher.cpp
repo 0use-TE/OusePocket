@@ -154,6 +154,11 @@ std::string ShellApp::get_app_icon_text(std::string_view name) const
 std::expected<void, std::string> ShellApp::populate_launcher(core::AppContext &context)
 {
     disconnect_launcher_actions();
+    ++launcher_page_generation_;
+    if (launcher_page_animation_id_) context.gui().stop_animation(launcher_page_animation_id_);
+    launcher_page_animation_id_ = 0;
+    launcher_swiping_ = false;
+    launcher_ignore_click_ = false;
     for (const auto &[instance_id, app_id] : launcher_instance_to_app_) {
         (void)instance_id;
         const auto instance_path = make_launcher_item_path(app_id);
@@ -184,18 +189,21 @@ std::expected<void, std::string> ShellApp::populate_launcher(core::AppContext &c
     const auto environment = owner_.get_environment();
     const auto density = std::max(environment.density, 0.001F);
     const auto fallback_width = static_cast<int32_t>(
-                                    std::max(1.0F, static_cast<float>(environment.width_px) / density)
+                                    std::max(1.0F, static_cast<float>(environment.width_px))
                                 );
     const auto content_frame = context.gui().get_view_frame(SUPER_LAUNCHER_CONTENT_PATH);
     const auto available_width = content_frame.has_value() ?
                                  std::max<int32_t>(content_frame->width, LAUNCHER_ITEM_WIDTH) :
                                  std::max<int32_t>(fallback_width, LAUNCHER_ITEM_WIDTH);
+    const int32_t item_width = std::max<int32_t>(1, static_cast<int32_t>(LAUNCHER_ITEM_WIDTH * density));
+    const int32_t item_height = std::max<int32_t>(1, static_cast<int32_t>(LAUNCHER_ITEM_HEIGHT * density));
+    const int32_t item_gap = std::max<int32_t>(1, static_cast<int32_t>(LAUNCHER_ITEM_GAP * density));
     const auto launcher_columns = std::max<int32_t>(
                                       1,
-                                      (available_width + LAUNCHER_ITEM_GAP) / (LAUNCHER_ITEM_WIDTH + LAUNCHER_ITEM_GAP)
+                                      (available_width + item_gap) / (item_width + item_gap)
                                   );
     const auto launcher_grid_width =
-        launcher_columns * LAUNCHER_ITEM_WIDTH + (launcher_columns - 1) * LAUNCHER_ITEM_GAP;
+        launcher_columns * item_width + (launcher_columns - 1) * item_gap;
     const auto launcher_grid_x = std::max<int32_t>(0, (available_width - launcher_grid_width) / 2);
     std::vector<gui::BindingValueUpdate> binding_updates;
     add_binding_update(binding_updates, SUPER_LAUNCHER_GRID_STAGE_PATH, "grid_x", std::to_string(launcher_grid_x));
@@ -208,14 +216,22 @@ std::expected<void, std::string> ShellApp::populate_launcher(core::AppContext &c
 
     launcher_slot_count_ = 0;
 
-    int32_t content_height = content_frame.has_value() ? std::max<int32_t>(content_frame->height, 1) : 1;
+    const auto stage = context.gui().get_view_frame(SUPER_LAUNCHER_GRID_STAGE_PATH);
+    const int32_t content_height = stage ? std::max<int32_t>(stage->height, 1) : item_height;
+    const int32_t rows = std::max<int32_t>(1, (content_height + item_gap) / (item_height + item_gap));
+    const size_t capacity = static_cast<size_t>(rows * launcher_columns);
+    launcher_page_width_ = launcher_grid_width;
+    launcher_pages_ = std::max<int32_t>(1, static_cast<int32_t>((visible_apps.size() + capacity - 1) / capacity));
+    launcher_page_ = std::clamp<int32_t>(launcher_page_, 0, launcher_pages_ - 1);
+    add_binding_update(binding_updates, SUPER_LAUNCHER_ITEM_LAYER_PATH, "page_x", std::to_string(-launcher_page_ * launcher_page_width_));
+    add_binding_update(binding_updates, SUPER_LAUNCHER_ITEM_LAYER_PATH, "pages_width", std::to_string(launcher_pages_ * launcher_page_width_));
     for (size_t i = 0; i < visible_apps.size(); ++i) {
         const auto &app = visible_apps[i];
-        const auto column = static_cast<int32_t>(i % static_cast<size_t>(launcher_columns));
-        const auto row = static_cast<int32_t>(i / static_cast<size_t>(launcher_columns));
-        const auto item_x = column * (LAUNCHER_ITEM_WIDTH + LAUNCHER_ITEM_GAP);
-        const auto item_y = row * (LAUNCHER_ITEM_HEIGHT + LAUNCHER_ITEM_GAP);
-        content_height = std::max(content_height, item_y + LAUNCHER_ITEM_HEIGHT);
+        const size_t slot = i % capacity;
+        const auto column = static_cast<int32_t>(slot % launcher_columns);
+        const auto row = static_cast<int32_t>(slot / launcher_columns);
+        const auto item_x = static_cast<int32_t>(i / capacity) * launcher_page_width_ + column * (item_width + item_gap);
+        const auto item_y = row * (item_height + item_gap);
 
         const auto instance_id = make_launcher_item_instance_id(app.app_id);
         const auto instance_path = make_launcher_item_path(app.app_id);
@@ -296,6 +312,7 @@ std::expected<void, std::string> ShellApp::populate_launcher(core::AppContext &c
     }
 
     launcher_populated_ = true;
+    settle_launcher_page(launcher_page_);
     return {};
 }
 
@@ -363,6 +380,32 @@ std::expected<void, std::string> ShellApp::refresh_environment()
     return {};
 }
 
+void ShellApp::move_launcher_page(int32_t x)
+{
+    if (context_) (void)context_->gui().set_binding_value(SUPER_LAUNCHER_ITEM_LAYER_PATH, "page_x", std::to_string(x));
+}
+
+void ShellApp::settle_launcher_page(int32_t page)
+{
+    if (!context_) return;
+    launcher_page_ = std::clamp<int32_t>(page, 0, launcher_pages_ - 1);
+    if (launcher_page_animation_id_) context_->gui().stop_animation(launcher_page_animation_id_);
+    const auto generation = ++launcher_page_generation_;
+    gui::Animation animation;
+    animation.property = gui::AnimationProperty::X;
+    animation.from_mode = gui::AnimationValueMode::Current;
+    animation.to = -launcher_page_ * launcher_page_width_;
+    animation.duration = 180;
+    animation.easing = gui::AnimationEasing::EaseOut;
+    auto result = context_->gui().start_view_animation_with_result(SUPER_LAUNCHER_ITEM_LAYER_PATH, animation,
+        [this, generation]() { if (generation == launcher_page_generation_) launcher_page_animation_id_ = 0; });
+    launcher_page_animation_id_ = result ? result->subscription_id : 0;
+    if (!result) move_launcher_page(animation.to);
+    std::string dots;
+    if (launcher_pages_ > 1) for (int i = 0; i < launcher_pages_; ++i) dots += i == launcher_page_ ? "● " : "○ ";
+    (void)context_->gui().set_binding_value("/launcher/content/page_indicator", "text", dots);
+}
+
 void ShellApp::disconnect_launcher_actions()
 {
     for (auto &connection : launcher_action_connections_) {
@@ -373,6 +416,7 @@ void ShellApp::disconnect_launcher_actions()
 
 void ShellApp::handle_launcher_event(const gui::Event &event)
 {
+    if (launcher_ignore_click_ || launcher_swiping_ || launcher_page_animation_id_) return;
     if (launch_overlay_active_) {
         BROOKESIA_LOGW("Ignore launcher action while app launch overlay is active");
         return;

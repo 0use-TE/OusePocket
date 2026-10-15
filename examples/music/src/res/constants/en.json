@@ -1,0 +1,28 @@
+{
+  "type": "constant",
+  "data": {
+    "ui": {
+      "title": "Music",
+      "library": "Choose a song",
+      "empty": "Put MP3 / PCM WAV in /sdcard/music, then refresh.",
+      "refresh": "Refresh",
+      "sd": "SD card",
+      "internal": "Internal",
+      "previous": "Previous",
+      "next": "Next",
+      "stop": "Stop",
+      "volume": "Volume",
+      "ready": "Ready",
+      "playing": "Playing",
+      "paused": "Paused",
+      "idle": "Stopped",
+      "loading": "Loading songs…",
+      "elapsed": "Elapsed",
+      "no_tracks": "No songs found",
+      "error": "Playback error",
+      "busy": "Please wait…",
+      "page": "Songs",
+      "back": "Back"
+    }
+  }
+}

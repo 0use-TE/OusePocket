@@ -178,6 +178,8 @@ private:
     void trigger_status_peek();
     void show_status_peek();
     void close_quick_controls();
+    void move_quick_controls(int32_t y);
+    void settle_quick_controls(bool open);
     void refresh_quick_controls();
     void handle_quick_control_event(const gui::Event &event);
     void collapse_status_peek(bool restore_display);
@@ -223,6 +225,11 @@ private:
     bool status_peek_visible_ = false;
     bool quick_controls_open_ = false;
     bool quick_controls_syncing_ = false;
+    bool quick_controls_dragging_ = false;
+    bool quick_controls_closing_ = false;
+    bool quick_controls_ready_ = false;
+    int32_t quick_controls_y_ = 0;
+    gui::SubscriptionId quick_controls_animation_id_ = 0;
     int quick_brightness_ = 70;
     int quick_volume_ = 40;
     bool quick_muted_ = false;
@@ -259,6 +266,15 @@ private:
     std::vector<core::AppId> launcher_order_;
     std::unordered_map<std::string, core::AppId> launcher_instance_to_app_;
     size_t launcher_slot_count_ = 0;
+    int32_t launcher_page_ = 0;
+    int32_t launcher_pages_ = 1;
+    int32_t launcher_page_width_ = 1;
+    bool launcher_swiping_ = false;
+    bool launcher_ignore_click_ = false;
+    gui::SubscriptionId launcher_page_animation_id_ = 0;
+    uint64_t launcher_page_generation_ = 0;
+    void move_launcher_page(int32_t x);
+    void settle_launcher_page(int32_t page);
     std::vector<DisplaySourceRestoreRecord> display_source_restore_records_;
     bool launcher_populated_ = false;
     std::string applied_i18n_locale_;

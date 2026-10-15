@@ -1,0 +1,17 @@
+{
+  "version": "0.1.0",
+  "assets": [
+    "constants/en.json",
+    "images/index.json",
+    "screens/main.json",
+    "flows/main.json"
+  ],
+  "variants": [
+    {
+      "when": "${expr(${env.language} == \"zh_CN\")}",
+      "assets": [
+        "constants/zh.json"
+      ]
+    }
+  ]
+}

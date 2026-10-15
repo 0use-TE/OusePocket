@@ -284,11 +284,11 @@ dependencies:
   espressif/brookesia_service_usb:
     dependencies:
     - name: espressif/brookesia_service_helper
-      override_path: ../../framework/brookesia_service_helper
+      override_path: ../../.reference/esp-brookesia/service/framework/brookesia_service_helper
       require: public
       version: '>=0.8.5'
     source:
-      path: ../../.reference/esp-brookesia/service/system/brookesia_service_usb
+      path: ../../components/brookesia_service_usb
       type: local
     version: 0.8.1
   espressif/brookesia_service_wifi:
@@ -315,7 +315,7 @@ dependencies:
       require: public
       version: 0.8.*
     - name: espressif/brookesia_service_usb
-      override_path: ../../.reference/esp-brookesia/service/system/brookesia_service_usb
+      override_path: ../brookesia_service_usb
       require: private
       version: 0.8.*
     - name: espressif/brookesia_runtime_manager
@@ -332,6 +332,10 @@ dependencies:
     version: 0.8.4
   espressif/brookesia_system_super:
     dependencies:
+    - name: espressif/brookesia_gui_lvgl
+      override_path: ../brookesia_gui_lvgl
+      require: public
+      version: 0.8.*
     - name: espressif/brookesia_system_core
       override_path: ../../.reference/esp-brookesia/system/brookesia_system_core
       require: public
@@ -408,6 +412,16 @@ dependencies:
       registry_url: https://components.espressif.com/
       type: service
     version: 0.6.0
+  espressif/esp_audio_codec:
+    component_hash: 16e2880dbdd5a72264051f750f33a6e5a38fd25621c83e3a32a85a152d2d2643
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.4'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 2.5.0
   espressif/esp_board_manager:
     component_hash: cd823baf12c50fb94703b5b2ee36aa7bd5a256f16744fcc63eaf3cf995e6fe3e
     dependencies:
@@ -842,12 +856,14 @@ direct_dependencies:
 - espressif/brookesia_service_audio
 - espressif/brookesia_service_display
 - espressif/brookesia_service_manager
+- espressif/brookesia_service_usb
 - espressif/brookesia_system_core
 - espressif/brookesia_system_super
+- espressif/esp_audio_codec
 - espressif/esp_hosted
 - idf
 - joltwallet/littlefs
 - waveshare/esp32_p4_wifi6_touch_lcd_3_5
-manifest_hash: e6d8e16a52c5455ad98c7204eefbef7e0ce885605a740f32221ddf73127bd6a0
+manifest_hash: 14ca4e119219b427c626015089042e4d55af52569f4d40d77fc0823583ff1120
 target: esp32p4
 version: 3.0.0
