@@ -1,0 +1,7 @@
+version: "0.3.0"
+description: Minimal OusePocket native desktop core
+dependencies:
+  idf: "==6.1.0"
+  lvgl/lvgl:
+    version: "==9.5.0"
+    public: true

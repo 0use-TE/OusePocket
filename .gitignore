@@ -12,3 +12,13 @@ examples/**/sdkconfig.old
 examples/**/sdkconfig.rev*
 examples/**/littlefs/
 **/__pycache__/
+
+# Active root ESP-IDF project and portable firmware backups
+/build/
+/managed_components/
+/sdkconfig
+/sdkconfig.old
+/sdkconfig.rev*
+/tmp/
+# Preserve downloaded vendor archive locally without adding it to Git
+/legacy/ESP32-P4-WIFI6-Touch-LCD-3.5/

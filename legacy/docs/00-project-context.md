@@ -2,6 +2,21 @@
 
 更新日期：2026-10-15。此文件是长期交接入口，不依赖聊天历史。
 
+## 当前进行中的轻量核心分支
+
+用户明确要求另开分支，并将首版范围收敛为“先确保烧录后能启动默认桌面”。
+已创建并进入 `codex/lightweight-core-v0.1`，基于ee5a367，保留原工程。
+核心独立版本0.1.0/API1；新工程入口 `examples/ouse-core`，主程序名称 `ouse_core_desktop`。
+首版仅微雪BSP显示/触摸/背光、内置中文桌面和原生设置亮度/返回，不接JS、BPK、无线或音频。
+核心在components/ouse_core，板级实现在boards/waveshare_lcd35，不依赖Brookesia Core/Super/ServiceManager。
+使用内置约10KiB中文字形位图，无外部字体/桌面资源依赖；亮度只在本次启动生效。
+分区地址/大小与旧工程一致，不生成LittleFS烧录镜像、不挂载或格式化文件系统。
+IDF6.1、LVGL9.5.0、BSP2.0.2、Adapter0.6.4，CPU400/PSRAM200/XiP保持原参数。
+真实IDF Kconfig解析通过；核心C源与真实LVGL9.5在主机编译运行通过，含中文覆盖、设置/返回、
+亮度失败回退和200次导航对象数稳定，已人工检查桌面/设置截图。
+未编译ESP固件、未操作串口或烧录、未提交Git，板上实际启动与触摸方向待用户验证。
+构建、烧录及验收见[首版说明](../examples/ouse-core/README.md)。后续不要误在旧brookesia-minimal入口构建新核心。
+
 ## 用户目标与背景
 
 - 已购买 ESP32-P4-WIFI6-Touch-LCD-3.5；当前仓库提供微雪示例。
