@@ -93,6 +93,11 @@
       "value": "我的设备"
     },
     {
+      "path": "/settings_home/page/device_card/my_device/value_box/value",
+      "key": "labelProps.text",
+      "value": "型号与系统信息"
+    },
+    {
       "path": "/settings_home/page/main_list/wifi/title_box/title",
       "key": "labelProps.text",
       "value": "Wi-Fi"
@@ -125,7 +130,7 @@
     {
       "path": "/settings_home/page/main_list/more/value_box/value",
       "key": "labelProps.text",
-      "value": "语言"
+      "value": "语言与时区"
     },
     {
       "path": "/my_device/page/hero/brand",
@@ -431,6 +436,11 @@
       "path": "/settings_home/page/main_list/power/title_box/title",
       "key": "labelProps.text",
       "value": "电源与电池"
+    },
+    {
+      "path": "/settings_home/page/main_list/power/value_box/value",
+      "key": "labelProps.text",
+      "value": "电池状态与自动息屏"
     },
     {
       "path": "/power/page/timeout0/title",

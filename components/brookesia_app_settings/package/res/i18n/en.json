@@ -93,6 +93,11 @@
       "value": "My device"
     },
     {
+      "path": "/settings_home/page/device_card/my_device/value_box/value",
+      "key": "labelProps.text",
+      "value": "Model & system info"
+    },
+    {
       "path": "/settings_home/page/main_list/wifi/title_box/title",
       "key": "labelProps.text",
       "value": "Wi-Fi"
@@ -125,7 +130,7 @@
     {
       "path": "/settings_home/page/main_list/more/value_box/value",
       "key": "labelProps.text",
-      "value": "Language"
+      "value": "Language & time zone"
     },
     {
       "path": "/my_device/page/hero/brand",
@@ -431,6 +436,11 @@
       "path": "/settings_home/page/main_list/power/title_box/title",
       "key": "labelProps.text",
       "value": "Power & battery"
+    },
+    {
+      "path": "/settings_home/page/main_list/power/value_box/value",
+      "key": "labelProps.text",
+      "value": "Battery & screen timeout"
     },
     {
       "path": "/power/page/timeout0/title",

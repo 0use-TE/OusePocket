@@ -1,5 +1,7 @@
 # OusePocket Settings 分支
 
+2026-10-15：首页“我的设备”“更多设置”“电源与电池”明确显示固定中英文摘要：型号与系统信息、语言与时区、电池状态与自动息屏。补全首页默认文本及语言包对应节点，避免留空；Wi-Fi、音量及主题仍由原有状态更新。电源入口资源生成脚本同步默认摘要。此项修改涉及 LittleFS 资源，用户构建后需更新 littlefs_data 分区才能在设备生效；待实机确认。
+
 来源：Espressif esp-brookesia `e937455b0db1a3e873b1da61d6d13652f3dcc7e2` 的 `app/brookesia_app_settings`，保留原许可证。该目录是产品维护的完整组件，不会由 prepare 脚本覆盖。
 
 本分支当前用于ESP-IDF设备固件，新增NVS实现未维护上游PC构建路径。

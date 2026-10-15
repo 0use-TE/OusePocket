@@ -65,7 +65,7 @@ items.append({'type':'templateRef','id':'power','templateId':'nav_menu_item',
     'overrides':{'.':{'events':[{'type':'clicked','action':'ouse.power.open'}]},
         'icon':{'imageProps':{'src':'${image.home.power}'}},
         'title_box/title':{'labelProps':{'text':'Power & battery'}},
-        'value_box/value':{'labelProps':{'text':''}}}})
+        'value_box/value':{'labelProps':{'text':'Battery & screen timeout'}}}})
 write(base+'screens/settings_home.json',home)
 images=read(base+'images/index.json')
 images['images']=[image for image in images['images'] if image['id']!='home.power']

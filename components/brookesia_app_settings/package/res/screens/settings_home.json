@@ -74,7 +74,7 @@
                   },
                   "value_box/value": {
                     "labelProps": {
-                      "text": ""
+                      "text": "Model & system info"
                     }
                   }
                 }
@@ -213,7 +213,7 @@
                   },
                   "value_box/value": {
                     "labelProps": {
-                      "text": ""
+                      "text": "Language & time zone"
                     }
                   }
                 }
@@ -243,7 +243,7 @@
                   },
                   "value_box/value": {
                     "labelProps": {
-                      "text": ""
+                      "text": "Battery & screen timeout"
                     }
                   }
                 }
