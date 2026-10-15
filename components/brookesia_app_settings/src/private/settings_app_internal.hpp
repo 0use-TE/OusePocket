@@ -19,6 +19,7 @@
 #include "boost/json/value.hpp"
 
 #include "brookesia/app_settings.hpp"
+#include "brookesia/app_settings/wifi_preferences.hpp"
 #include "brookesia/hal_interface.hpp"
 #include "brookesia/hal_interface/interfaces/system/general.hpp"
 #include "brookesia/lib_utils/function_guard.hpp"
@@ -289,8 +290,8 @@ inline constexpr int MESSAGE_DIALOG_FAILED_AUTO_CLOSE_MS = 3000;
 inline constexpr bool SETTINGS_HARDWARE_OPERATIONS_ENABLED = true;
 inline constexpr const char *MY_DEVICE_FALLBACK_SYSTEM_NAME = "System";
 inline constexpr const char *MY_DEVICE_FALLBACK_SYSTEM_VERSION = "--";
-inline constexpr const char *SETTINGS_STORAGE_NAMESPACE = "app.settings";
-inline constexpr const char *WIFI_ENABLED_STORAGE_KEY = "WifiEnabled";
+inline constexpr const char *SETTINGS_STORAGE_NAMESPACE = WIFI_PREFERENCE_STORAGE_NAMESPACE.data();
+inline constexpr const char *WIFI_ENABLED_STORAGE_KEY = WIFI_PREFERENCE_STORAGE_KEY.data();
 inline constexpr const char *DEBUG_KEY_MEMORY_ENABLED = "Debug.MemoryEnabled";
 inline constexpr const char *DEBUG_KEY_THREAD_ENABLED = "Debug.ThreadEnabled";
 inline constexpr const char *DEBUG_KEY_GUI_VIEW_DEBUG_ENABLED = "Debug.GuiViewDebugEnabled";

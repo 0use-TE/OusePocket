@@ -17,7 +17,10 @@ namespace {
 LogRing<> ring;
 portMUX_TYPE ring_lock=portMUX_INITIALIZER_UNLOCKED;
 std::mutex disk_mutex;
-vprintf_like_t previous=nullptr;
+std::once_flag capture_initialized;
+std::atomic<vprintf_like_t> previous{nullptr};
+std::atomic<bool> console_suppressed{false};
+std::atomic<int> console_writers{0};
 uint64_t persisted=0;
 constexpr const char *DIRECTORY="/littlefs/user/logs";
 constexpr size_t FILE_LIMIT=64*1024;
@@ -25,7 +28,8 @@ std::atomic<bool> writer_started{false};
 std::atomic<bool> disk_ok{true};
 int capture(const char *format,va_list args) {
     va_list copy; va_copy(copy,args);
-    char text[384]; const int formatted=vsnprintf(text,sizeof(text),format,copy); va_end(copy);
+    char text[384]{}; const int formatted=vsnprintf(text,sizeof(text),format,copy); va_end(copy);
+    if(formatted<0) text[0]=0;
     // The UART keeps its colors; JSON/LVGL receives plain text.
     size_t out=0;
     for(size_t i=0;text[i];) {
@@ -40,7 +44,14 @@ int capture(const char *format,va_list args) {
         std::memcpy(text+cut,"...\n",5); // Keep truncated records readable and line-separated.
     }
     portENTER_CRITICAL(&ring_lock); ring.append(text); portEXIT_CRITICAL(&ring_lock);
-    return previous ? previous(format,args) : 0;
+    // Every task logs through here; a blocking lock would serialize them all
+    // behind the UART. Writers are counted instead so suppression can drain them.
+    const auto console=previous.load();
+    if(!console || console_suppressed.load()) return formatted;
+    console_writers.fetch_add(1);
+    const int written=console_suppressed.load() ? formatted : console(format,args);
+    console_writers.fetch_sub(1);
+    return written;
 }
 void flush_logs() {
     // Copy one entry at a time; never call a filesystem or JSON allocator under
@@ -87,12 +98,23 @@ void flush_logs() {
 void writer(void*) { for(;;) { flush_logs(); vTaskDelay(pdMS_TO_TICKS(2000)); } }
 }
 void initialize_log_capture() {
-    if(!previous) previous=esp_log_set_vprintf(capture);
+    // Reinstalling capture would save itself as the console sink and recurse.
+    std::call_once(capture_initialized,[] {previous.store(esp_log_set_vprintf(capture));});
+}
+void set_console_output_suppressed(bool suppressed) {
+    // Finish any already-running console write before the USB hello reply.
+    // Later logs are still captured above, but cannot enter the UART stream.
+    console_suppressed.store(suppressed);
+    if(!suppressed) return;
+    for(int waited=0;console_writers.load()>0 && waited<50;++waited) vTaskDelay(pdMS_TO_TICKS(2));
 }
 void start_log_writer() {
+    std::lock_guard lock(disk_mutex);
     if(writer_started) return;
     std::error_code ec; std::filesystem::create_directories(DIRECTORY,ec);
-    if(!ec && xTaskCreate(writer,"pocket_logs",4096,nullptr,2,nullptr)==pdPASS) writer_started=true;
+    const bool started=!ec && xTaskCreate(writer,"pocket_logs",4096,nullptr,2,nullptr)==pdPASS;
+    writer_started=started;
+    disk_ok=started;
 }
 boost::json::object log_request(const boost::json::object &request) {
     auto op=request.if_contains("Op");
@@ -105,8 +127,9 @@ boost::json::object log_request(const boost::json::object &request) {
         std::error_code ec;
         for(const auto *name:{"current.log","previous-1.log","previous-2.log"}) {
             std::filesystem::remove(std::string(DIRECTORY)+"/"+name,ec);
-            if(ec) return {{"ok",false},{"error",ec.message()}};
+            if(ec) {disk_ok=false;return {{"ok",false},{"error",ec.message()}};}
         }
+        disk_ok=true;
         return {{"ok",true}};
     }
     if(op->as_string()=="LogsSaved") {

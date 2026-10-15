@@ -5,6 +5,7 @@
  */
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cerrno>
 #include <cctype>
 #include <chrono>
@@ -13,6 +14,7 @@
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
+#include <exception>
 #include <fcntl.h>
 #include <limits>
 #include <memory>
@@ -30,6 +32,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
+#include "freertos/task.h"
 #include "esp_memory_utils.h"
 #include "esp_heap_caps.h"
 #include "mbedtls/md.h"
@@ -53,10 +56,12 @@ using BinaryFrame = usb_internal::BinaryFrame;
 constexpr size_t COMMAND_BUFFER_LIMIT = 4096;
 constexpr size_t TRANSPORT_READ_SIZE = 512;
 constexpr size_t TRANSPORT_READ_BUDGET = 8;
+constexpr uint32_t RX_WAIT_MS = 50;
+constexpr uint32_t RX_STACK_BYTES = 16 * 1024;
+constexpr uint32_t OPERATION_STACK_BYTES = 24 * 1024;
 
-// The USB pump runs concurrently with startup/storage work. Keep its locks
-// eagerly allocated in internal RAM, without the PSRAM-allocated pthread
-// wrapper used by std::mutex. Invalid handles fail before entering the kernel.
+// Short locks protect published snapshots, bridge handles and API commands.
+// Protocol parsing and storage operations never run while holding them.
 class InternalMutex {
 public:
     InternalMutex() : handle_(xSemaphoreCreateMutex())
@@ -79,11 +84,6 @@ public:
     }
 private:
     SemaphoreHandle_t handle_;
-};
-
-struct RxMessage {
-    size_t size = 0;
-    uint8_t data[TRANSPORT_READ_SIZE] = {};
 };
 
 std::optional<std::string> get_string(const boost::json::object &object, std::string_view name)
@@ -230,13 +230,26 @@ public:
         stop();
     }
 
-    bool start(std::shared_ptr<lib_utils::TaskScheduler> scheduler)
+    bool start()
     {
         BROOKESIA_LOG_TRACE_GUARD_WITH_THIS();
-        BROOKESIA_CHECK_NULL_RETURN(scheduler, false, "Task scheduler is unavailable");
-
-        rx_queue_ = xQueueCreate(BROOKESIA_SERVICE_USB_RX_QUEUE_LENGTH, sizeof(RxMessage));
-        BROOKESIA_CHECK_NULL_RETURN(rx_queue_, false, "Failed to create USB RX queue");
+        // A previous timed-out stop must complete before restarting. These
+        // lifecycle calls are serialized by ServiceBase (or Core's lifecycle).
+        if (rx_exited_ || operation_exited_) {
+            BROOKESIA_LOGE("USB workers have not been reaped");
+            return false;
+        }
+        stop_requested_.store(false);
+        operation_stop_sent_ = false;
+        abort_queue_ = xQueueCreate(4, sizeof(uint32_t));
+        operation_queue_ = xQueueCreate(1, sizeof(Operation *));
+        completion_queue_ = xQueueCreate(1, sizeof(Operation *));
+        rx_exited_ = xSemaphoreCreateBinary();
+        operation_exited_ = xSemaphoreCreateBinary();
+        if (!abort_queue_ || !operation_queue_ || !completion_queue_ || !rx_exited_ || !operation_exited_) {
+            stop();
+            return false;
+        }
 
         if (auto err = transport_->install(); err != ESP_OK) {
             BROOKESIA_LOGE("Failed to install transport: %s", esp_err_to_name(err));
@@ -244,63 +257,89 @@ public:
             return false;
         }
 
-        scheduler_ = std::move(scheduler);
-        auto pump_task = [this]() -> bool {
-            pump_rx_queue();
-            return true;
-        };
-        if (!scheduler_->post_periodic(
-                    std::move(pump_task),
-                    1,
-                    &pump_task_id_,
-                    owner_.get_call_task_group()
-                )) {
-            BROOKESIA_LOGE("Failed to schedule USB RX pump");
+        status_ = {};
+        transfer_status_ = {};
+        status_.port_state = Helper::PortState::Ready;
+        // On UART this means transport available, not USB cable detection.
+        status_.serial_jtag_connected = transport_->is_connected();
+        status_.session_state = Helper::SessionState::Idle;
+        status_.max_frame_payload = BROOKESIA_SERVICE_USB_FRAME_PAYLOAD_SIZE;
+        status_.transport = transport_->name();
+        publish_port_state();
+
+        // IDF xTaskCreate allocates both stack and TCB in internal RAM.
+        if (xTaskCreate(operation_entry, "bpk_operation", OPERATION_STACK_BYTES, this, 4,
+                        &operation_task_) != pdPASS) {
             stop();
             return false;
         }
-
         {
             std::lock_guard lock(mutex_);
-            status_.port_state = Helper::PortState::Ready;
-            status_.serial_jtag_connected = transport_->is_connected();
-            status_.session_state = Helper::SessionState::Idle;
-            status_.logs_suppressed = false;
-            status_.max_frame_payload = BROOKESIA_SERVICE_USB_FRAME_PAYLOAD_SIZE;
-            status_.transport = transport_->name();
+            accepting_ = true;
         }
-        publish_port_state();
-        BROOKESIA_LOGI("USB service ready");
+        if (xTaskCreate(rx_entry, "bpk_receive", RX_STACK_BYTES, this, 4, &rx_task_) != pdPASS) {
+            stop();
+            return false;
+        }
+        BROOKESIA_LOGI("USB service ready: blocking RX, internal stacks RX=%1% operation=%2%",
+                       RX_STACK_BYTES, OPERATION_STACK_BYTES);
         return true;
     }
 
-    void stop()
+    bool stop(TickType_t timeout = portMAX_DELAY)
     {
         BROOKESIA_LOG_TRACE_GUARD_WITH_THIS();
-        if (scheduler_ && pump_task_id_ != 0) {
-            scheduler_->cancel(pump_task_id_);
+        if (xTaskGetCurrentTaskHandle() == rx_task_ || xTaskGetCurrentTaskHandle() == operation_task_) {
+            BROOKESIA_LOGE("Cannot join USB from its own worker");
+            return false;
         }
-        pump_task_id_ = 0;
-        scheduler_.reset();
-
-        (void)abort_transfer_internal(0, "service stopped", false);
-        if (rx_queue_ != nullptr) {
-            vQueueDelete(rx_queue_);
-            rx_queue_ = nullptr;
-        }
-
-        transport_->uninstall();
-
-        release_log_suppression();
+        std::lock_guard lifecycle_lock(stop_mutex_);
         {
             std::lock_guard lock(mutex_);
-            status_.port_state = Helper::PortState::Disabled;
-            status_.serial_jtag_connected = false;
-            status_.session_state = Helper::SessionState::Idle;
-            status_.logs_suppressed = false;
-            status_.active_request_id = 0;
-            transfer_status_ = {};
+            accepting_ = false;
         }
+        stop_requested_.store(true);
+        // The RX worker retains a transfer until an in-flight installation or
+        // service call has returned. A timeout does NOT free its resources.
+        if (rx_task_) {
+            if (xSemaphoreTake(rx_exited_, timeout) != pdTRUE) return false;
+            rx_task_ = nullptr;
+        }
+        if (operation_task_) {
+            if (!operation_stop_sent_) {
+                Operation *shutdown = nullptr;
+                if (xQueueSend(operation_queue_, &shutdown, 0) != pdTRUE) return false;
+                operation_stop_sent_ = true;
+            }
+            if (xSemaphoreTake(operation_exited_, timeout) != pdTRUE) return false;
+            operation_task_ = nullptr;
+        }
+        // No worker or external queue producer can now access these handles.
+        {
+            std::lock_guard lock(mutex_);
+            if (abort_queue_) vQueueDelete(abort_queue_);
+            abort_queue_ = nullptr;
+        }
+        if (operation_queue_) vQueueDelete(operation_queue_);
+        if (completion_queue_) vQueueDelete(completion_queue_);
+        if (rx_exited_) vSemaphoreDelete(rx_exited_);
+        if (operation_exited_) vSemaphoreDelete(operation_exited_);
+        operation_queue_ = completion_queue_ = nullptr;
+        rx_exited_ = operation_exited_ = nullptr;
+        (void)abort_transfer_internal(0, "service stopped", false);
+        request_ids_.clear();
+        rx_buffer_.clear();
+        frame_parser_.clear();
+        transport_->uninstall();
+        release_log_suppression();
+        status_.port_state = Helper::PortState::Disabled;
+        status_.serial_jtag_connected = false;
+        status_.session_state = Helper::SessionState::Idle;
+        status_.logs_suppressed = false;
+        status_.active_request_id = 0;
+        transfer_status_ = {};
+        update_snapshot();
+        return true;
     }
 
     bool register_bridge(Usb::HostCommandHandler handler)
@@ -333,30 +372,175 @@ public:
         service_call_bridge_ = {};
     }
 
-    void mark_starting()
+    void set_console_quiet_handler(std::function<void(bool)> handler)
     {
         std::lock_guard lock(mutex_);
+        // Fixed for one run; replacing a hook mid-session could leave it muted.
+        if (!accepting_) console_quiet_handler_ = std::move(handler);
+    }
+
+    void mark_starting()
+    {
         status_.port_state = Helper::PortState::Starting;
+        update_snapshot();
     }
 
     Helper::Status get_status() const
     {
         std::lock_guard lock(mutex_);
-        return status_;
+        return status_snapshot_;
     }
 
     Helper::TransferStatus get_transfer_status() const
     {
         std::lock_guard lock(mutex_);
-        return transfer_status_;
+        return transfer_snapshot_;
     }
 
     std::expected<void, std::string> abort_transfer(uint32_t request_id)
     {
-        return abort_transfer_internal(request_id, "aborted", true);
+        std::lock_guard lock(mutex_);
+        if (!accepting_ || !abort_queue_) return std::unexpected("USB service is stopping");
+        if (transfer_snapshot_.state == Helper::TransferState::Handling) {
+            return std::unexpected("installation is already committing");
+        }
+        if (request_id != 0 && status_snapshot_.active_request_id != request_id) {
+            return std::unexpected("request id does not match active transfer");
+        }
+        if (xQueueSend(abort_queue_, &request_id, 0) != pdTRUE) {
+            return std::unexpected("USB command queue is full");
+        }
+        return {}; // Accepted; RX cancels after the current read/processing finishes.
     }
 
 private:
+    struct Operation {
+        uint32_t request_id = 0;
+        bool install = false;
+        std::function<void(Operation &)> execute;
+        std::expected<void, std::string> install_result;
+        Usb::ServiceCallResult call_result;
+    };
+
+    // Only the RX worker touches live protocol state. API callers get copies.
+    void update_snapshot()
+    {
+        std::lock_guard lock(mutex_);
+        status_snapshot_ = status_;
+        transfer_snapshot_ = transfer_status_;
+    }
+
+    static void rx_entry(void *argument)
+    {
+        auto *self = static_cast<Impl *>(argument);
+        // Copy before acknowledging exit: no access to self after the give.
+        auto exited = self->rx_exited_;
+        self->run_rx();
+        xSemaphoreGive(exited);
+        vTaskDelete(nullptr);
+    }
+
+    static void operation_entry(void *argument)
+    {
+        auto *self = static_cast<Impl *>(argument);
+        auto exited = self->operation_exited_;
+        for (;;) {
+            Operation *operation = nullptr;
+            if (xQueueReceive(self->operation_queue_, &operation, portMAX_DELAY) != pdTRUE) continue;
+            if (!operation) break;
+#if CONFIG_COMPILER_CXX_EXCEPTIONS
+            try {
+                operation->execute(*operation);
+            } catch (const std::exception &error) {
+                operation->install_result = std::unexpected(std::string(error.what()));
+                operation->call_result = std::unexpected(Usb::ServiceCallError{"call_failed", error.what()});
+            } catch (...) {
+                operation->install_result = std::unexpected("operation threw an unknown exception");
+                operation->call_result = std::unexpected(Usb::ServiceCallError{"call_failed", "unknown exception"});
+            }
+#else
+            operation->execute(*operation);
+#endif
+            BROOKESIA_LOGI("USB operation finished: minimum free stack=%1% bytes",
+                           uxTaskGetStackHighWaterMark(nullptr));
+            // One outstanding job; RX owns and frees its result after delivery.
+            const auto delivered = xQueueSend(self->completion_queue_, &operation, 0);
+            configASSERT(delivered == pdTRUE);
+            (void)delivered;
+        }
+        xSemaphoreGive(exited);
+        vTaskDelete(nullptr);
+    }
+
+    bool submit_operation(std::unique_ptr<Operation> operation)
+    {
+        if (operation_pending_ || stop_requested_.load()) return false;
+        auto *pointer = operation.get();
+        if (xQueueSend(operation_queue_, &pointer, 0) != pdTRUE) return false;
+        operation_pending_ = true;
+        operation.release();
+        return true;
+    }
+
+    void finish_operation()
+    {
+        Operation *pointer = nullptr;
+        if (xQueueReceive(completion_queue_, &pointer, 0) != pdTRUE) return;
+        std::unique_ptr<Operation> operation(pointer);
+        operation_pending_ = false;
+        session_last_activity_ = std::chrono::steady_clock::now();
+        if (operation->install) {
+            if (!operation->install_result) {
+                fail_transfer("install_failed", operation->install_result.error());
+                return;
+            }
+            // Installation has returned; the artifact is no longer being read.
+            std::error_code error_code;
+            std::filesystem::remove(transfer_->temporary_path, error_code);
+            transfer_status_.state = Helper::TransferState::Completed;
+            transfer_status_.error.clear();
+            publish_transfer_finished();
+            auto response = make_response("done", operation->request_id, true);
+            response["size"] = transfer_->expected_size;
+            response["sha256"] = transfer_->expected_sha256;
+            send_json(response);
+            transfer_.reset();
+            status_.active_request_id = 0;
+            status_.port_state = Helper::PortState::Ready;
+            frame_parser_.clear();
+            rx_buffer_.clear();
+            publish_port_state();
+        } else {
+            auto response = make_response("call", operation->request_id, operation->call_result.has_value());
+            if (operation->call_result) response["result"] = *operation->call_result;
+            else {
+                response["error_code"] = operation->call_result.error().code;
+                response["error"] = operation->call_result.error().message;
+            }
+            send_json(response);
+        }
+    }
+
+    void run_rx()
+    {
+        for (;;) {
+            finish_operation();
+            if (stop_requested_.load()) {
+                if (!operation_pending_) break;
+                vTaskDelay(std::max<TickType_t>(1, pdMS_TO_TICKS(RX_WAIT_MS)));
+                continue;
+            }
+            uint32_t request_id = 0;
+            while (xQueueReceive(abort_queue_, &request_id, 0) == pdTRUE) {
+                auto result = abort_transfer_internal(request_id, "aborted", true);
+                if (!result) send_error(request_id, "busy", result.error());
+            }
+            receive_cycle();
+        }
+        (void)abort_transfer_internal(0, "service stopped", false);
+        release_log_suppression();
+    }
+
     struct Transfer {
         Helper::HostCommand command = Helper::HostCommand::PutFile;
         uint32_t request_id = 0;
@@ -397,21 +581,24 @@ private:
 
     bool is_control_session_active() const
     {
-        std::lock_guard lock(mutex_);
         return status_.session_state == Helper::SessionState::Active;
     }
 
     void activate_control_session()
     {
         if (!log_suppression_active_) {
-            previous_vprintf_ = esp_log_set_vprintf(&Impl::suppress_log_vprintf);
+            {
+                std::lock_guard lock(mutex_);
+                active_console_quiet_handler_ = console_quiet_handler_;
+            }
+            if (active_console_quiet_handler_) active_console_quiet_handler_(true);
+            else previous_vprintf_ = esp_log_set_vprintf(&Impl::suppress_log_vprintf);
             log_suppression_active_ = true;
         }
-        {
-            std::lock_guard lock(mutex_);
-            status_.session_state = Helper::SessionState::Active;
-            status_.logs_suppressed = true;
-        }
+        status_.session_state = Helper::SessionState::Active;
+        status_.logs_suppressed = true;
+        BROOKESIA_LOGI("USB session active: minimum free RX stack=%1% bytes",
+                       uxTaskGetStackHighWaterMark(nullptr));
         publish_port_state();
     }
 
@@ -420,7 +607,9 @@ private:
         if (!log_suppression_active_) {
             return;
         }
-        (void)esp_log_set_vprintf(previous_vprintf_);
+        if (active_console_quiet_handler_) active_console_quiet_handler_(false);
+        else (void)esp_log_set_vprintf(previous_vprintf_);
+        active_console_quiet_handler_ = {};
         previous_vprintf_ = nullptr;
         log_suppression_active_ = false;
     }
@@ -428,32 +617,24 @@ private:
     void release_control_session()
     {
         release_log_suppression();
-        {
-            std::lock_guard lock(mutex_);
-            status_.session_state = Helper::SessionState::Idle;
-            status_.logs_suppressed = false;
-        }
+        status_.session_state = Helper::SessionState::Idle;
+        status_.logs_suppressed = false;
         publish_port_state();
     }
 
     void poll_transport()
     {
-        if (rx_queue_ == nullptr) {
-            return;
-        }
+        std::array<uint8_t, TRANSPORT_READ_SIZE> buffer;
         for (size_t read_count = 0; read_count < TRANSPORT_READ_BUDGET; ++read_count) {
-            RxMessage message;
-            const int rx_size = transport_->read(message.data, sizeof(message.data));
+            // Block only on the dedicated receiver, never a shared scheduler.
+            const int rx_size = transport_->read(buffer.data(), buffer.size(), read_count == 0 ? RX_WAIT_MS : 0);
             if (rx_size <= 0) {
+                if (rx_size < 0) vTaskDelay(std::max<TickType_t>(1, pdMS_TO_TICKS(RX_WAIT_MS)));
                 return;
             }
-            message.size = static_cast<size_t>(rx_size);
-            if (xQueueSend(rx_queue_, &message, 0) != pdTRUE) {
-                if (transfer_) {
-                    fail_transfer("bad_frame", "Transport RX queue is full");
-                }
-                return;
-            }
+            rx_buffer_.insert(rx_buffer_.end(), buffer.data(), buffer.data() + rx_size);
+            process_rx_buffer();
+            if (stop_requested_.load()) return;
         }
     }
 
@@ -461,28 +642,22 @@ private:
     {
         const bool connected = transport_->is_connected();
         bool changed = false;
-        {
-            std::lock_guard lock(mutex_);
-            changed = status_.serial_jtag_connected != connected;
-            status_.serial_jtag_connected = connected;
-            if (!connected && status_.session_state == Helper::SessionState::Active) {
-                disconnect_pending_ = true;
-            }
+        changed = status_.serial_jtag_connected != connected;
+        status_.serial_jtag_connected = connected;
+        if (!connected && status_.session_state == Helper::SessionState::Active) {
+            disconnect_pending_ = true;
         }
         if (changed) {
             publish_port_state();
         }
     }
 
-    void pump_rx_queue()
+    void receive_cycle()
     {
         update_connection_state();
         bool disconnected = false;
-        {
-            std::lock_guard lock(mutex_);
-            disconnected = disconnect_pending_;
-            disconnect_pending_ = false;
-        }
+        disconnected = disconnect_pending_ && !operation_pending_;
+        if (disconnected) disconnect_pending_ = false;
         if (disconnected) {
             (void)abort_transfer_internal(0, "USB control port disconnected", false);
             request_ids_.clear();
@@ -493,19 +668,11 @@ private:
         check_transfer_timeout();
         check_session_timeout();
         poll_transport();
-        if (rx_queue_ == nullptr) {
-            return;
-        }
-        RxMessage message;
-        while (xQueueReceive(rx_queue_, &message, 0) == pdTRUE) {
-            rx_buffer_.insert(rx_buffer_.end(), message.data, message.data + message.size);
-            process_rx_buffer();
-        }
     }
 
     void check_transfer_timeout()
     {
-        if (!transfer_) {
+        if (!transfer_ || operation_pending_) {
             return;
         }
         const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -522,7 +689,7 @@ private:
 
     void check_session_timeout()
     {
-        if (!is_control_session_active()) {
+        if (!is_control_session_active() || operation_pending_) {
             return;
         }
         const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -531,7 +698,7 @@ private:
         if (elapsed <= BROOKESIA_SERVICE_USB_COMMAND_TIMEOUT_MS) {
             return;
         }
-        if (transfer_) {
+        if (transfer_ && !operation_pending_) {
             fail_transfer("timeout", "USB control session timed out");
         } else {
             send_error(0, "timeout", "USB control session timed out");
@@ -544,7 +711,7 @@ private:
 
     void process_rx_buffer()
     {
-        if (transfer_) {
+        if (transfer_ && !operation_pending_) {
             // Keep a small out-of-band escape hatch for the standalone
             // `brookesia-usb abort` command. Binary payloads are never
             // inspected as text while a partial frame is buffered.
@@ -566,7 +733,7 @@ private:
             }
             frame_parser_.append(rx_buffer_);
             rx_buffer_.clear();
-            while (transfer_) {
+            while (transfer_ && !operation_pending_) {
                 auto frame_result = frame_parser_.next(BROOKESIA_SERVICE_USB_FRAME_PAYLOAD_SIZE);
                 if (!frame_result) {
                     fail_transfer("bad_frame", frame_result.error());
@@ -605,7 +772,7 @@ private:
                 continue;
             }
             handle_command(*command);
-            if (transfer_) {
+            if (transfer_ && !operation_pending_) {
                 if (!rx_buffer_.empty()) {
                     frame_parser_.append(rx_buffer_);
                     rx_buffer_.clear();
@@ -632,6 +799,12 @@ private:
             send_error(static_cast<uint32_t>(*request_id), "invalid_command", "unsupported protocol version");
             return;
         }
+        // Once submitted, an installer owns a copied artifact until it returns.
+        // Do not allow goodbye/abort or another command to release that file.
+        if (operation_pending_) {
+            send_error(static_cast<uint32_t>(*request_id), "busy", "an operation is still running");
+            return;
+        }
         if (*op != "abort" && !request_ids_.insert(static_cast<uint32_t>(*request_id)).second) {
             send_error(static_cast<uint32_t>(*request_id), "invalid_command", "request_id has already been used");
             return;
@@ -654,9 +827,14 @@ private:
             return;
         }
         if (*op == "abort") {
-            auto result = abort_transfer(static_cast<uint32_t>(*request_id));
+            auto result = abort_transfer_internal(static_cast<uint32_t>(*request_id), "aborted", false);
             if (!result) {
-                send_error(static_cast<uint32_t>(*request_id), "aborted", result.error());
+                send_error(static_cast<uint32_t>(*request_id), "invalid_command", result.error());
+            } else {
+                // Acknowledge the caller's ID, including wildcard 0 and no-op abort.
+                auto response = make_response("done", static_cast<uint32_t>(*request_id), true);
+                response["command"] = "abort";
+                send_json(response);
             }
             return;
         }
@@ -728,15 +906,15 @@ private:
             send_error(static_cast<uint32_t>(request_id), "path_denied", "service call bridge is not registered");
             return;
         }
-        auto result = service_call_bridge(*service_name, *function_name, args_value->as_object(), timeout_ms);
-        auto response = make_response("call", static_cast<uint32_t>(request_id), result.has_value());
-        if (result) {
-            response["result"] = *result;
-        } else {
-            response["error_code"] = result.error().code;
-            response["error"] = result.error().message;
+        auto operation = std::make_unique<Operation>();
+        operation->request_id = static_cast<uint32_t>(request_id);
+        operation->execute = [bridge = std::move(service_call_bridge), service = *service_name,
+                              function = *function_name, args = args_value->as_object(), timeout_ms](Operation &job) {
+            job.call_result = bridge(service, function, args, timeout_ms);
+        };
+        if (!submit_operation(std::move(operation))) {
+            send_error(static_cast<uint32_t>(request_id), "busy", "operation worker is unavailable");
         }
-        send_json(response);
     }
 
     void begin_transfer(uint32_t request_id, Helper::HostCommand command, const boost::json::object &params)
@@ -937,7 +1115,6 @@ private:
 
         const auto command = transfer_->command;
         const auto destination = transfer_->destination;
-        const auto request_id = transfer_->request_id;
         const Helper::TransferArtifact artifact{
             .command = command,
             .request_id = transfer_->request_id,
@@ -946,25 +1123,15 @@ private:
             .sha256 = actual_sha256,
             .overwrite = transfer_->overwrite,
         };
-        auto result = bridge(command, artifact, destination);
-        if (!result) {
-            fail_transfer("install_failed", result.error());
-            return;
+        auto operation = std::make_unique<Operation>();
+        operation->request_id = transfer_->request_id;
+        operation->install = true;
+        operation->execute = [bridge = std::move(bridge), command, artifact, destination](Operation &job) {
+            job.install_result = bridge(command, artifact, destination);
+        };
+        if (!submit_operation(std::move(operation))) {
+            fail_transfer("install_failed", "operation worker is unavailable");
         }
-
-        std::error_code error_code;
-        std::filesystem::remove(transfer_->temporary_path, error_code);
-        transfer_status_.state = Helper::TransferState::Completed;
-        transfer_status_.error.clear();
-        publish_transfer_finished();
-        auto response = make_response("done", request_id, true);
-        response["size"] = transfer_->expected_size;
-        response["sha256"] = actual_sha256;
-        send_json(response);
-        transfer_.reset();
-        status_.active_request_id = 0;
-        status_.port_state = Helper::PortState::Ready;
-        publish_port_state();
         (void)frame;
     }
 
@@ -972,6 +1139,7 @@ private:
         uint32_t request_id, std::string_view reason, bool notify_host
     )
     {
+        if (operation_pending_) return std::unexpected("an operation is already committing");
         if (!transfer_) {
             if (request_id == 0) {
                 return {};
@@ -1086,6 +1254,7 @@ private:
 
     void publish_port_state()
     {
+        update_snapshot();
         const boost::json::object event_data = {
             {"Status", BROOKESIA_DESCRIBE_TO_JSON(get_status()).as_object()}
         };
@@ -1098,6 +1267,7 @@ private:
 
     void publish_transfer_progress()
     {
+        update_snapshot();
         const boost::json::object event_data = {
             {"Status", BROOKESIA_DESCRIBE_TO_JSON(get_transfer_status()).as_object()}
         };
@@ -1110,6 +1280,7 @@ private:
 
     void publish_transfer_finished()
     {
+        update_snapshot();
         const boost::json::object event_data = {
             {"Status", BROOKESIA_DESCRIBE_TO_JSON(get_transfer_status()).as_object()}
         };
@@ -1123,9 +1294,18 @@ private:
     Usb &owner_;
     mutable InternalMutex mutex_;
     InternalMutex transport_tx_mutex_;
-    std::shared_ptr<lib_utils::TaskScheduler> scheduler_;
-    lib_utils::TaskScheduler::TaskId pump_task_id_ = 0;
-    QueueHandle_t rx_queue_ = nullptr;
+    InternalMutex stop_mutex_;
+    QueueHandle_t abort_queue_ = nullptr;
+    QueueHandle_t operation_queue_ = nullptr;
+    QueueHandle_t completion_queue_ = nullptr;
+    SemaphoreHandle_t rx_exited_ = nullptr;
+    SemaphoreHandle_t operation_exited_ = nullptr;
+    TaskHandle_t rx_task_ = nullptr;
+    TaskHandle_t operation_task_ = nullptr;
+    std::atomic<bool> stop_requested_{true};
+    bool operation_stop_sent_ = false; // Protected by stop_mutex_; reset before start.
+    bool accepting_ = false; // Protected by mutex_, including queue destruction.
+    bool operation_pending_ = false; // Owned by RX.
     std::unique_ptr<usb_internal::Transport> transport_;
     bool log_suppression_active_ = false;
     vprintf_like_t previous_vprintf_ = nullptr;
@@ -1136,8 +1316,12 @@ private:
     std::unique_ptr<Transfer> transfer_;
     Helper::Status status_;
     Helper::TransferStatus transfer_status_;
+    Helper::Status status_snapshot_;
+    Helper::TransferStatus transfer_snapshot_;
     Usb::HostCommandHandler bridge_;
     Usb::ServiceCallHandler service_call_bridge_;
+    std::function<void(bool)> console_quiet_handler_;
+    std::function<void(bool)> active_console_quiet_handler_; // RX-owned for the session.
     std::unordered_set<uint32_t> request_ids_;
 };
 
@@ -1192,6 +1376,19 @@ void Usb::clear_service_call_bridge()
     impl_->clear_service_call_bridge();
 }
 
+std::expected<void, std::string> Usb::quiesce(uint32_t timeout_ms)
+{
+    const TickType_t wait = timeout_ms == UINT32_MAX ? portMAX_DELAY :
+        std::max<TickType_t>(1, pdMS_TO_TICKS(timeout_ms));
+    if (!impl_->stop(wait)) return std::unexpected("USB operation has not exited; resources retained");
+    return {};
+}
+
+void Usb::set_console_quiet_handler(std::function<void(bool)> handler)
+{
+    impl_->set_console_quiet_handler(std::move(handler));
+}
+
 bool Usb::on_init()
 {
     BROOKESIA_LOG_TRACE_GUARD_WITH_THIS();
@@ -1215,7 +1412,7 @@ bool Usb::on_start()
 {
     BROOKESIA_LOG_TRACE_GUARD_WITH_THIS();
     impl_->mark_starting();
-    return impl_->start(get_task_scheduler());
+    return impl_->start();
 }
 
 void Usb::on_stop()

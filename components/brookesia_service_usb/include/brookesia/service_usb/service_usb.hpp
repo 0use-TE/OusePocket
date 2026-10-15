@@ -69,6 +69,17 @@ public:
      */
     void clear_service_call_bridge();
 
+    /** Optional board hook: mute only the console while retaining log capture.
+     * Set before starting the receiver; the callback must outlive the service.
+     */
+    void set_console_quiet_handler(std::function<void(bool)> handler);
+
+    /** Stop accepting work and join both workers before Core tears down its bridges.
+     * A timeout retains all resources; call again after the pending operation finishes.
+     * Call from the system lifecycle thread, never from a USB bridge callback.
+     */
+    std::expected<void, std::string> quiesce(uint32_t timeout_ms = 10000);
+
 private:
     static std::string get_component_version();
 

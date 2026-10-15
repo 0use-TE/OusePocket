@@ -2,7 +2,7 @@
 from pathlib import Path
 import json,zipfile,hashlib
 ROOT=Path(__file__).resolve().parents[1]
-for name in ['music','log-viewer']:
+for name in ['music','log-viewer','resource-monitor']:
     source=ROOT/'examples'/name/'src'
     package=json.loads((source/'manifest.json').read_text(encoding='utf-8'))['package']
     target=source.parent/'dist'/f"{package['id']}-{package['version']}.bpk"

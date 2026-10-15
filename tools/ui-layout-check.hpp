@@ -210,17 +210,40 @@ inline void check_app(const Document &doc,const ThemeAsset &theme,const Environm
  for(const auto &asset:doc.images) scene.assets[asset.id]=asset;
  scene.root=lv_obj_create(lv_screen_active());lv_obj_remove_style_all(scene.root);lv_obj_set_size(scene.root,320,480);
  for(const auto &node:doc.screens) {auto *obj=scene.create(node,scene.root);lv_obj_set_size(obj,320,480);}
- lv_obj_update_layout(scene.root);
- for(const auto &[path,obj]:scene.objects) {
+ const std::vector<std::string> pages=name=="music"?std::vector<std::string>{"player","library"}:
+  name=="resource-monitor"?std::vector<std::string>{"overview","memory","storage","system"}:std::vector<std::string>{""};
+ for(const auto &page:pages) {
+  if(!page.empty()) for(const auto &candidate:pages) {
+   auto *obj=scene.objects.at("/main/"+candidate);
+   if(candidate==page) lv_obj_remove_flag(obj,LV_OBJ_FLAG_HIDDEN);
+   else lv_obj_add_flag(obj,LV_OBJ_FLAG_HIDDEN);
+  }
+  lv_obj_update_layout(scene.root);
+  for(const auto &[path,obj]:scene.objects) {
+   bool hidden=false;
+   for(auto *ancestor=obj;ancestor;ancestor=lv_obj_get_parent(ancestor))
+    if(lv_obj_has_flag(ancestor,LV_OBJ_FLAG_HIDDEN)) {hidden=true;break;}
+   if(hidden) continue; // Every switchable page is checked in its visible pass.
   lv_area_t a{},parent{};lv_obj_get_coords(obj,&a);lv_obj_get_coords(lv_obj_get_parent(obj),&parent);
   require(a.x1>=0 && a.x2<320,"App content exceeds screen width: "+name+path);
   require(a.x1>=parent.x1 && a.x2<=parent.x2,"App control overflows parent horizontally: "+name+path);
+  if(name=="music") {
+   require(a.y1>=0 && a.y2<480,"Music control exceeds screen height: "+path);
+   require(a.y1>=parent.y1 && a.y2<=parent.y2,"Music control overflows parent vertically: "+path);
+  }
   if(lv_obj_check_type(obj,&lv_label_class)) {
    require(a.x1>=parent.x1 && a.x2<=parent.x2,"App label overflows parent: "+name+path);
    require(lv_obj_get_self_height(obj)<=lv_obj_get_height(obj),"App text clipped: "+name+path);
   }
  }
- scene.save(name+"_"+env.theme_id+"_"+env.language+"_"+std::to_string(int(env.density*100)));
+  const auto fixture=name+(page.empty()?"":"_"+page)+"_"+env.theme_id+"_"+env.language+"_"+std::to_string(int(env.density*100));
+  scene.save(fixture);
+  auto *screen=scene.objects.at("/main");
+  if(lv_obj_get_scroll_bottom(screen)>0) {
+   lv_obj_scroll_to_y(screen,LV_COORD_MAX,LV_ANIM_OFF);lv_obj_update_layout(scene.root);
+   scene.save(fixture+"_bottom");lv_obj_scroll_to_y(screen,0,LV_ANIM_OFF);
+  }
+ }
 }
 inline void check(const Document &doc,const ThemeAsset &theme,const Environment &env,
  const std::string &project,const std::string &output,bool shell) {

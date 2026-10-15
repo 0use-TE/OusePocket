@@ -12,3 +12,5 @@
 - START 生命周期成功后，显式恢复当前内容页及标题栏可见性；预加载DOM曾在PAUSE时隐藏、STOP后继续缓存，不会再因重新挂载保留hidden而显示空白。恢复失败走现有启动回滚。输出应用ID、当前screen及visible诊断日志。
 
 不提供进程隔离，也不强制暂停应用自建任务。详细契约见 docs/08-files-power-navigation.md。
+
+2026-10-15 USB恢复（待实机）：Config新增defer_usb_start，开启时init仅注册桥、不绑定USB；板级代码在System::start及屏幕显示成功后显式调用start_usb_host_service。停止/卸载Core前先排空USB执行者，再释放绑定，防止桥捕获的Core及应用数据先销毁。BPK安装在Core的SystemApp任务域执行，与应用启动/停止/输入回调串行；USB专门作业任务等待结果，不阻塞接收。相关生命周期API由板级生命周期线程调用，不能从USB作业或Core应用回调内部调用。

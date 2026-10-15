@@ -103,6 +103,8 @@ public:
         std::string system_type = BROOKESIA_SYSTEM_CORE_DEFAULT_SYSTEM_TYPE;
         /** Whether the service manager should be started by System::start(). */
         bool start_service_manager = true;
+        /** Register bridges during init, but let the board start USB after revealing its desktop. */
+        bool defer_usb_start = false;
         /** Whether statically registered native app providers should be installed. */
         bool install_registered_apps = true;
         /** Whether package apps should be discovered from configured package roots. */
@@ -139,6 +141,9 @@ public:
      * @return Empty result on success, or an error string.
      */
     std::expected<void, std::string> start();
+
+    /** Start the deferred host service from the board lifecycle thread after start(). */
+    std::expected<void, std::string> start_usb_host_service();
 
     /**
      * @brief Stop running apps and services.

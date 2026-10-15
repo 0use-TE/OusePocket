@@ -4,9 +4,9 @@
     "ui": {
       "title": "Music",
       "library": "Choose a song",
-      "empty": "Put MP3 / PCM WAV in /sdcard/music, then refresh.",
+      "empty": "No songs in this folder.",
       "refresh": "Refresh",
-      "sd": "SD card",
+      "sd": "SD",
       "internal": "Internal",
       "previous": "Previous",
       "next": "Next",
@@ -21,8 +21,12 @@
       "no_tracks": "No songs found",
       "error": "Playback error",
       "busy": "Please wait…",
-      "page": "Songs",
-      "back": "Back"
+      "page": "songs",
+      "back": "Back",
+      "swipe_songs": "Swipe left for songs",
+      "swipe_back": "Swipe right to return",
+      "sd_fallback": "SD card unavailable. Showing internal songs.",
+      "layout": "No audio service. Showing the layout only."
     }
   }
 }

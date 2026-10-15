@@ -6,27 +6,29 @@ ROOT=Path(__file__).resolve().parents[1]
 def write(path,obj):
     path.parent.mkdir(parents=True,exist_ok=True)
     path.write_text(json.dumps(obj,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
-def label(id,text,size=14):
-    return {'type':'label','id':id,'placement':{'width':'100%','height':'wrap'},
-        'styleRefs':['app.body'],'style':{'fontSize':f'{size}sp'},'commonProps':{'clickable':False},
+def label(id,text,size=14,height='wrap',align='left'):
+    style={'fontSize':f'{size}sp'}
+    if align!='left':style['textAlign']=align
+    return {'type':'label','id':id,'placement':{'width':'100%','height':height},
+        'styleRefs':['app.body'],'style':style,'commonProps':{'clickable':False},
         'labelProps':{'text':text},'bindings':{'labelProps.text':'text'}}
-def row(id,children):
+def row(id,children,gap='8dp'):
     for child in children:
         if child['type']=='label':child['placement'].update(width='match',flexGrow=1)
     return {'type':'container','id':id,'placement':{'width':'100%','height':'wrap'},
         'style':{'padding':'0dp','bgColor':'','borderWidth':'0dp'},'commonProps':{'scrollable':False},
-        'layout':{'type':'flex','flexFlow':'row','gap':'8dp','mainAlign':'center','crossAlign':'center'},'children':children}
-def button(id,action,text=None,icon=None,primary=False,width='match'):
-    node={'type':'button','id':id,'placement':{'width':width,'height':'44dp','flexGrow':1 if width=='match' else 0},
+        'layout':{'type':'flex','flexFlow':'row','gap':gap,'mainAlign':'center','crossAlign':'center'},'children':children}
+def button(id,action,text=None,icon=None,primary=False,width='match',height='44dp',icon_size='26dp',font=13):
+    node={'type':'button','id':id,'placement':{'width':width,'height':height,'flexGrow':1 if width=='match' else 0},
         'styleRefs':['app.buttonPrimary' if primary else 'app.buttonSecondary'],
         'style':{'padding':'6dp','borderWidth':'0dp','radius':'16dp'},'commonProps':{'scrollable':False},
         'layout':{'type':'flex','mainAlign':'center','crossAlign':'center'},'events':[{'type':'clicked','action':action}]}
     if icon:
-        node['children']=[{'type':'image','id':'icon','placement':{'width':'26dp','height':'26dp'},
+        node['children']=[{'type':'image','id':'icon','placement':{'width':icon_size,'height':icon_size},
             'imageProps':{'src':'${image.'+icon+'}','innerAlign':'contain'},'style':{'imageRecolor':'${color.primary.on}' if primary else '${color.text.default}','imageRecolorOpacity':255},
             'commonProps':{'clickable':False},'bindings':{'imageProps.src':'src'}}]
     else:
-        child=label('title',text,13);child['placement']['width']='match';child['style']['textAlign']='center';node['children']=[child]
+        child=label('title',text,font,align='center');child['placement']['width']='match';node['children']=[child]
     return node
 def glyph(kind,path):
     im=Image.new('RGBA',(192,192));d=ImageDraw.Draw(im);white='white'
@@ -39,23 +41,29 @@ def glyph(kind,path):
         d.polygon([(51,45),(51,147),(122,96)],fill=white);d.rectangle((132,45,145,147),fill=white)
         if kind=='previous':im=im.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
     elif kind=='cover':
-        d.ellipse((4,4,188,188),fill='#252d40');d.ellipse((28,28,164,164),outline='#455168',width=2)
-        d.ellipse((43,43,149,149),outline='#455168',width=2);d.ellipse((64,64,128,128),fill='#ff746b')
-        d.ellipse((89,89,103,103),fill='#252d40')
+        d.ellipse((4,4,188,188),fill='#252d40');d.ellipse((28,28,164,164),outline='#d7dbe3',width=3)
+        d.ellipse((48,48,144,144),outline='#6d7688',width=2);d.ellipse((70,70,122,122),fill='#ff746b')
+        d.ellipse((90,90,102,102),fill='#252d40')
     elif kind=='logs':
         d.rounded_rectangle((0,0,191,191),radius=46,fill='#3184d1')
         for y in [56,94,132]:d.rounded_rectangle((43,y,145,y+10),radius=5,fill=white)
     path.parent.mkdir(parents=True,exist_ok=True)
     im.resize((92,92) if kind in ['launcher','logs'] else (128,128) if kind=='cover' else (48,48),Image.Resampling.LANCZOS).save(path)
 
-music_en={'title':'Music','library':'Choose a song','empty':'Put MP3 / PCM WAV in /sdcard/music, then refresh.',
-    'refresh':'Refresh','sd':'SD card','internal':'Internal','previous':'Previous','next':'Next','stop':'Stop','volume':'Volume',
+music_en={'title':'Music','library':'Choose a song','empty':'No songs in this folder.',
+    'refresh':'Refresh','sd':'SD','internal':'Internal','previous':'Previous','next':'Next','stop':'Stop','volume':'Volume',
     'ready':'Ready','playing':'Playing','paused':'Paused','idle':'Stopped','loading':'Loading songs…','elapsed':'Elapsed',
-    'no_tracks':'No songs found','error':'Playback error','busy':'Please wait…','page':'Songs','back':'Back'}
-music_zh={'title':'音乐','library':'选择歌曲','empty':'将 MP3 / PCM WAV 放入 /sdcard/music，然后刷新。',
-    'refresh':'刷新','sd':'SD 卡','internal':'内部','previous':'上一页','next':'下一页','stop':'停止','volume':'音量',
+    'no_tracks':'No songs found','error':'Playback error','busy':'Please wait…','page':'songs','back':'Back',
+    'swipe_songs':'Swipe left for songs','swipe_back':'Swipe right to return',
+    'sd_fallback':'SD card unavailable. Showing internal songs.',
+    'layout':'No audio service. Showing the layout only.'}
+music_zh={'title':'音乐','library':'选择歌曲','empty':'这个目录里没有歌曲。',
+    'refresh':'刷新','sd':'SD卡','internal':'内部','previous':'上一页','next':'下一页','stop':'停止','volume':'音量',
     'ready':'就绪','playing':'播放中','paused':'已暂停','idle':'已停止','loading':'正在读取歌曲…','elapsed':'已播放',
-    'no_tracks':'没有找到歌曲','error':'播放失败','busy':'请稍候…','page':'歌曲','back':'返回'}
+    'no_tracks':'没有找到歌曲','error':'播放失败','busy':'请稍候…','page':'首','back':'返回',
+    'swipe_songs':'向左滑动查看歌曲','swipe_back':'向右滑动返回播放',
+    'sd_fallback':'SD 卡不可用，已显示内部歌曲。',
+    'layout':'没有音频服务，只显示界面。'}
 logs_en={'title':'Logs','live':'Live','saved':'Saved','filter':'Errors','all':'All','hold':'Pause','resume':'Resume',
     'clear':'Clear','confirm':'Tap Clear again to delete saved logs','ready':'Waiting for logs…','paused':'View paused',
     'missed':'Older entries were overwritten','saved_hint':'Persistent tail from internal Flash','cleared':'Logs cleared',
@@ -67,7 +75,7 @@ logs_zh={'title':'日志','live':'实时','saved':'历史','filter':'错误','al
 for name,strings,zh in [('music',music_en,music_zh),('log-viewer',logs_en,logs_zh)]:
     src=ROOT/'examples'/name/'src';res=src/'res'
     write(src/'manifest.json',{'package':{'id':'net.0use.'+('music' if name=='music' else 'logs'),
-        'name':{'en':strings['title'],'zh_CN':zh['title']},'version':'1.0.0','visible':True,'systems':['super']},
+        'name':{'en':strings['title'],'zh_CN':zh['title']},'version':'1.1.1' if name=='music' else '1.0.0','visible':True,'systems':['super']},
         'runtime':{'type':'JavaScript','entry':'app/main.js','resource_dir':'res','arguments':[]},
         'services':[{'name':'Pocket','version':'1.0.0'}]+([{'name':'AudioPlayback','version':'0.8.2'}] if name=='music' else [])})
     write(res/'constants/en.json',{'type':'constant','data':{'ui':strings}})
@@ -84,30 +92,65 @@ for name,strings,zh in [('music',music_en,music_zh),('log-viewer',logs_en,logs_z
             glyph(kind,res/f'images/music_{kind}.png');size=128 if kind=='cover' else 48
             images.append({'id':kind,'src':'music_'+kind+'.png','width':size,'height':size})
     write(res/'images/index.json',{'type':'imageSet','images':images})
-    screen={'type':'viewScreen','id':'main','styleRefs':['app.page'],
-        'style':{'padding':'12dp','paddingTop':'30dp','paddingBottom':'28dp','borderWidth':'0dp'},
-        'placement':{'width':'${env.widthDp}','height':'${env.heightDp}'},'commonProps':{'scrollable':True},
-        'layout':{'type':'flex','flexFlow':'column','gap':'8dp','crossAlign':'center'},'children':[]}
-    c=screen['children'];c.append(label('title','${constant.ui.title}',22))
+    def page(id,hidden,down,up,swipe,children):
+        return {'type':'container','id':id,'placement':{'mode':'absolute','x':'0dp','y':'0dp','width':'${env.widthDp}','height':'${env.heightDp}'},
+            'style':{'padding':'24dp' if id=='player' else '14dp','paddingTop':'28dp','paddingBottom':'8dp','borderWidth':'0dp','bgColor':''},
+            'commonProps':{'scrollable':False,'clickable':True,'hidden':hidden},
+            'bindings':{'commonProps.hidden':'hidden'},
+            'layout':{'type':'flex','flexFlow':'column','gap':'5dp','crossAlign':'stretch'},
+            'events':[{'type':'pressed','action':down},{'type':'released','action':up},{'type':'gesture','action':swipe}],
+            'children':children}
     if name=='music':
-        c.append({'type':'image','id':'cover','placement':{'width':'120dp','height':'120dp'},
-            'imageProps':{'src':'${image.cover}','innerAlign':'contain'},'commonProps':{'clickable':False}})
-        c.extend([label('song','${constant.ui.library}',18),label('status','${constant.ui.ready}',12),label('elapsed','00:00',12)])
-        c.append({'type':'progressBar','id':'progress','placement':{'width':'100%','height':'4dp'},
+        # Theme colors follow the system light/dark palette. Swipe left opens the library.
+        cover={'type':'image','id':'cover','placement':{'width':'100%','height':'0dp','flexGrow':1},
+            'imageProps':{'src':'${image.cover}','innerAlign':'contain'},
+            'style':{'radius':'56dp','clipCorner':True},'commonProps':{'clickable':False}}
+        progress={'type':'progressBar','id':'progress','placement':{'width':'100%','height':'8dp'},
             'rangeProps':{'min':0,'max':1000,'value':0},'commonProps':{'clickable':False},
-            'style':{'bgColor':'${color.surface.base}','radius':'2dp'},
-            'partStyles':{'indicator':{'bgColor':'${color.primary.fill}','radius':'2dp'}},
-            'bindings':{'rangeProps.value':'value'}})
-        c.append(row('controls',[button('previous','music.previous',icon='previous'),
-            button('play','music.play',icon='play',primary=True),button('next','music.next',icon='next'),
-            button('stop','music.stop','${constant.ui.stop}')]))
-        c.append(row('volume',[button('less','music.volume_down','-',width='44dp'),label('value','${constant.ui.volume}',13),button('more','music.volume_up','+',width='44dp')]))
-        c.append(row('sources',[button('sd','music.sd','${constant.ui.sd}'),button('internal','music.internal','${constant.ui.internal}'),button('refresh','music.refresh','${constant.ui.refresh}')]))
-        c.append(label('library','${constant.ui.empty}',12))
+            'style':{'bgColor':'${color.surface.base}','radius':'4dp'},
+            'partStyles':{'indicator':{'bgColor':'${color.primary.fill}','radius':'4dp'}},
+            'bindings':{'rangeProps.value':'value'}}
+        slider={'type':'slider','id':'slider','commonProps':{'clickable':True,'scrollable':False,'pressLock':True},
+            'placement':{'width':'100%','height':'44dp'},
+            'style':{'padding':'0dp','bgColor':'${color.border.default}','radius':'22dp'},
+            'rangeProps':{'min':0,'max':100,'value':40},
+            'events':[{'type':'valueChanged','action':'music.volume'}],
+            'partStyles':{'indicator':{'bgColor':'${color.primary.fill}','radius':'22dp'},
+                'knob':{'style':{'bgColor':'${color.surface.raised}','borderColor':'${color.primary.fill}',
+                    'borderWidth':'2dp','radius':'20dp','padding':'0dp'}}},
+            'bindings':{'rangeProps.value':'value'}}
+        sources=[]
+        for sid,action,text in [('sd','music.sd','${constant.ui.sd}'),('internal','music.internal','${constant.ui.internal}'),('refresh','music.refresh','${constant.ui.refresh}')]:
+            item=button(sid,action,text);item['bindings']={'style.bgColor':'bg'};sources.append(item)
+        tracks=[]
         for i in range(4):
-            item=button('track'+str(i),'music.track'+str(i),'',width='100%');item['bindings']={'commonProps.hidden':'hidden'};c.append(item)
-        c.append(row('pages',[button('previous','music.page_previous','${constant.ui.previous}'),label('number','1 / 1',12),button('next','music.page_next','${constant.ui.next}')]))
+            item=button('track'+str(i),'music.track'+str(i),'',width='100%')
+            item['bindings']={'commonProps.hidden':'hidden','style.bgColor':'bg'};tracks.append(item)
+        screen={'type':'viewScreen','id':'main','styleRefs':['app.page'],
+            'style':{'padding':'0dp','borderWidth':'0dp'},
+            'placement':{'width':'${env.widthDp}','height':'${env.heightDp}'},'commonProps':{'scrollable':False},'children':[
+                page('player',False,'music.player_down','music.player_up','music.swipe_player',[
+                    cover,label('song','${constant.ui.library}',18,'wrap','center'),
+                    label('status','${constant.ui.ready}',14,'wrap','center'),label('elapsed','00:00',14,'wrap','center'),
+                    progress,
+                    row('transport',[button('previous','music.previous',icon='previous'),
+                        button('play','music.play',icon='play',primary=True),
+                        button('next','music.next',icon='next')]),
+                    button('stop','music.stop','${constant.ui.stop}',width='100%'),
+                    label('volume_value','${constant.ui.volume}',15,'wrap','center'),slider,
+                    label('hint','${constant.ui.swipe_songs}',13,'wrap','center')]),
+                page('library',True,'music.library_down','music.library_up','music.swipe_library',[
+                    label('hint','${constant.ui.swipe_back}',13,'wrap','center'),
+                    row('sources',sources),label('summary','${constant.ui.empty}',14,'wrap','center'),*tracks,
+                    row('pages',[button('previous','music.page_previous','${constant.ui.previous}'),
+                        label('number','1 / 1',13,'wrap','center'),
+                        button('next','music.page_next','${constant.ui.next}')])])]}
     else:
+        screen={'type':'viewScreen','id':'main','styleRefs':['app.page'],
+            'style':{'padding':'12dp','paddingTop':'30dp','paddingBottom':'28dp','borderWidth':'0dp'},
+            'placement':{'width':'${env.widthDp}','height':'${env.heightDp}'},'commonProps':{'scrollable':True},
+            'layout':{'type':'flex','flexFlow':'column','gap':'8dp','crossAlign':'center'},'children':[]}
+        c=screen['children'];c.append(label('title','${constant.ui.title}',22))
         c.append(row('modes',[button('live','logs.live','${constant.ui.live}'),button('saved','logs.saved','${constant.ui.saved}'),button('filter','logs.filter','${constant.ui.filter}')]))
         c.append(row('actions',[button('hold','logs.hold','${constant.ui.hold}'),button('refresh','logs.refresh','${constant.ui.refresh}'),button('clear','logs.clear','${constant.ui.clear}')]))
         c.append(label('status','${constant.ui.ready}',12))

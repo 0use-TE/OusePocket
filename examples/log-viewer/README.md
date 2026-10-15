@@ -10,7 +10,7 @@
 
 ```powershell
 python -m pip install .\.reference\esp-brookesia\tools\brookesia_usb
-python -m brookesia_usb.cli --port COM10 --baudrate 115200 install .\examples\log-viewer\dist\net.0use.logs-1.0.0.bpk
+python .\tools\install-bpk.py --port COM10 .\examples\log-viewer\dist\net.0use.logs-1.0.1.bpk
 ```
 
 打开桌面的“日志 / Logs”：
@@ -39,6 +39,6 @@ RPC 返回包装为 `{success, data, error}`；`data` 包含 `ok`、`entries`、
 python .\tools\package-runtime-apps.py
 ```
 
-输出 `dist/net.0use.logs-1.0.0.bpk`，该应用不预装。
+输出 `dist/net.0use.logs-1.0.1.bpk`，该应用不预装。1.0.1 修复原生服务以字符串拒绝请求时错误显示为 undefined 的问题；切换实时/历史、返回前台时合并读取请求，暂停后已发出的响应也不会刷新界面。
 
 ROM 启动输出、`esp_rom_printf` 和 panic 的底层寄存器转储不经过 `ESP_LOG` 捕获；断电或崩溃前最后约两秒记录可能尚未落盘。这是日常诊断日志，不替代串口日志或 core dump。LittleFS 未挂载前的记录只能暂存在环形缓冲；重烧 LittleFS 镜像会替换内部日志及已安装应用，先备份有用的数据。

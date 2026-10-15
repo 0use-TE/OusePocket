@@ -11,6 +11,8 @@
 #include <filesystem>
 
 #include "brookesia/lib_utils/function_guard.hpp"
+#include "brookesia/service_helper/network/sntp.hpp"
+#include "brookesia/service_helper/network/wifi.hpp"
 #include "private/shell_app.hpp"
 #include "private/system_constants.hpp"
 #include "private/utils.hpp"
@@ -194,6 +196,12 @@ std::expected<void, std::string> ShellApp::on_timer(
     }
     if (name == SUPER_STATUS_CLOCK_TIMER_NAME && timer_id == status_clock_timer_id_) {
         status_clock_timer_id_ = core::INVALID_TIMER_ID;
+        if (!wifi_event_connection_.connected() && service::helper::Wifi::is_available()) {
+            refresh_wifi_status();
+        }
+        if (!sntp_event_connection_.connected() && service::helper::SNTP::is_available()) {
+            subscribe_sntp_events();
+        }
         refresh_status_clock();
         schedule_status_clock_timer();
         return {};

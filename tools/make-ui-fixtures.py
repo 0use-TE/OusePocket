@@ -8,7 +8,8 @@ output.mkdir(parents=True, exist_ok=True)
 seen = set()
 for directory in ['components/brookesia_app_settings/package/res/images',
                   'components/brookesia_system_super/resource/shell/images',
-                  'examples/music/src/res/images', 'examples/log-viewer/src/res/images']:
+                  'examples/music/src/res/images', 'examples/log-viewer/src/res/images',
+                  'examples/resource-monitor/src/res/images']:
     for path in (root / directory).rglob('*'):
         if path.suffix.lower() not in {'.png', '.jpg', '.jpeg'}:
             continue

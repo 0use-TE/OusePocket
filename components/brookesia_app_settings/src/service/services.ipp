@@ -6,7 +6,7 @@
 
 void SettingsApp::bind_wifi_service()
 {
-    if (wifi_service_binding_.is_valid() || !WifiHelper::is_available()) {
+    if (is_wifi_preference_restore_pending() || wifi_service_binding_.is_valid() || !WifiHelper::is_available()) {
         return;
     }
 
@@ -50,6 +50,50 @@ void SettingsApp::bind_sntp_service()
 void SettingsApp::release_sntp_service()
 {
     sntp_service_binding_.release();
+}
+
+void SettingsApp::refresh_deferred_network_services(system::core::AppContext &context)
+{
+    if (!is_wifi_preference_restore_pending() && !wifi_service_binding_.is_valid() && WifiHelper::is_available()) {
+        bind_wifi_service();
+    }
+    const bool wifi_became_ready = !wifi_ui_state_.service_ready &&
+                                   !is_wifi_preference_restore_pending() &&
+                                   wifi_service_binding_.is_valid() && WifiHelper::is_running();
+    wifi_ui_state_.service_ready = !is_wifi_preference_restore_pending() &&
+                                   wifi_service_binding_.is_valid() && WifiHelper::is_running();
+    if (wifi_became_ready) {
+        // Keep the current switch intent. A user action may have changed it
+        // since Settings opened while the wireless service was unavailable.
+        apply_wifi_enabled_preference_to_service();
+        if (wifi_ui_state_.enabled) {
+            if (auto result = refresh_wifi_service_state(context); !result) {
+                BROOKESIA_LOGW("Failed to refresh deferred Wi-Fi state: %1%", result.error());
+            }
+        } else {
+            if (auto result = refresh_wifi_page_state(context); !result) {
+                BROOKESIA_LOGW("Failed to refresh deferred Wi-Fi page: %1%", result.error());
+            }
+            if (auto result = refresh_wifi_summary_state(context); !result) {
+                BROOKESIA_LOGW("Failed to refresh deferred Wi-Fi summary: %1%", result.error());
+            }
+        }
+    }
+    if (wifi_ui_state_.service_ready && wifi_event_connections_.empty()) {
+        subscribe_wifi_events();
+    }
+
+    if (!sntp_service_binding_.is_valid() && SNTPHelper::is_available()) {
+        bind_sntp_service();
+    }
+    if (!time_zone_ui_state_.service_ready && sntp_service_binding_.is_valid() && SNTPHelper::is_running()) {
+        if (auto result = refresh_time_zone_state(context); !result) {
+            BROOKESIA_LOGW("Failed to refresh deferred time zone state: %1%", result.error());
+        }
+    }
+    if (time_zone_ui_state_.service_ready && sntp_event_connections_.empty()) {
+        subscribe_sntp_events();
+    }
 }
 
 void SettingsApp::subscribe_sntp_events()
@@ -201,17 +245,7 @@ bool SettingsApp::load_wifi_enabled_preference()
         return false;
     }
 
-    auto kv_name = make_settings_kv_name(SETTINGS_STORAGE_NAMESPACE, WIFI_ENABLED_STORAGE_KEY);
-    if (!kv_name) {
-        BROOKESIA_LOGW("Failed to resolve Settings Wi-Fi switch preference key: %1%", kv_name.error());
-        return false;
-    }
-
-    auto result = StorageHelper::get_key_value<bool>(
-                      kv_name->nspace,
-                      kv_name->key,
-                      SETTINGS_STORAGE_TIMEOUT_MS
-                  );
+    auto result = read_wifi_enabled_preference(SETTINGS_STORAGE_TIMEOUT_MS);
     if (!result) {
         BROOKESIA_LOGD(
             "Settings Wi-Fi switch preference is not stored yet; default to off: %1%",
@@ -248,8 +282,11 @@ std::expected<void, std::string> SettingsApp::submit_wifi_enabled_preference_sav
     return {};
 }
 
-void SettingsApp::apply_wifi_enabled_preference_to_service()
+void SettingsApp::apply_wifi_enabled_preference_to_service(bool force_action)
 {
+    if (is_wifi_preference_restore_pending()) {
+        return;
+    }
     bind_wifi_service();
     if (!wifi_service_binding_.is_valid() || !WifiHelper::is_running()) {
         return;
@@ -257,8 +294,9 @@ void SettingsApp::apply_wifi_enabled_preference_to_service()
 
     const auto preferred_enabled = wifi_ui_state_.enabled;
     const auto generation = wifi_operation_generation_;
-    const auto state_handler = [this, preferred_enabled, generation](service::FunctionResult && result) {
-        if (generation != wifi_operation_generation_ || preferred_enabled != wifi_ui_state_.enabled) {
+    const auto state_handler = [this, preferred_enabled, generation, force_action](service::FunctionResult && result) {
+        if (is_wifi_preference_restore_pending() || generation != wifi_operation_generation_ ||
+                preferred_enabled != wifi_ui_state_.enabled) {
             return;
         }
         if (!result.success) {
@@ -272,7 +310,9 @@ void SettingsApp::apply_wifi_enabled_preference_to_service()
 
         const auto &state = result.get_data<std::string>();
         const bool service_started = is_wifi_started_state(state);
-        if (preferred_enabled == service_started) {
+        // An unchanged restored preference needs no action. Explicit rollbacks
+        // must follow any queued opposite action even while the state is stale.
+        if (!force_action && preferred_enabled == service_started) {
             return;
         }
 
@@ -307,7 +347,7 @@ void SettingsApp::apply_wifi_enabled_preference_to_service()
 void SettingsApp::subscribe_wifi_events()
 {
     disconnect_wifi_events();
-    if (!wifi_ui_state_.service_ready) {
+    if (is_wifi_preference_restore_pending() || !wifi_ui_state_.service_ready) {
         return;
     }
 
@@ -665,7 +705,8 @@ std::expected<void, std::string> SettingsApp::scroll_wifi_connected_card_to_top(
 
 std::expected<void, std::string> SettingsApp::refresh_wifi_service_state(system::core::AppContext &context)
 {
-    wifi_ui_state_.service_ready = wifi_service_binding_.is_valid() && WifiHelper::is_running();
+    wifi_ui_state_.service_ready = !is_wifi_preference_restore_pending() &&
+                                   wifi_service_binding_.is_valid() && WifiHelper::is_running();
     wifi_ui_state_.connecting = false;
 
     if (!wifi_ui_state_.service_ready) {

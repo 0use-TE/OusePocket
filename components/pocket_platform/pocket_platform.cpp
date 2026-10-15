@@ -2,6 +2,7 @@
 #include "pocket_platform.hpp"
 #include "pocket_logs.hpp"
 #include "pocket_media.hpp"
+#include "pocket_resources.hpp"
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -12,6 +13,7 @@
 #include "bsp/esp-bsp.h"
 #include "driver/i2c_master.h"
 #include "esp_littlefs.h"
+#include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_vfs_fat.h"
 #include "sd_pwr_ctrl_by_on_chip_ldo.h"
@@ -23,6 +25,36 @@ namespace ouse {
 namespace {
 namespace fs = std::filesystem;
 using namespace esp_brookesia::service;
+extern const uint8_t test_music_start[] asm("_binary_pocket_test_wav_start");
+extern const uint8_t test_music_end[] asm("_binary_pocket_test_wav_end");
+
+void ensure_test_music() {
+    constexpr char path[] = "/littlefs/user/music/pocket-test.wav";
+    constexpr char temporary_path[] = "/littlefs/user/music/.pocket-test.tmp";
+    const size_t size = static_cast<size_t>(test_music_end - test_music_start);
+    std::error_code error;
+    // Replace only this built-in file when the embedded melody changes size.
+    if (fs::exists(path, error) && !error && fs::file_size(path, error) == size && !error) return;
+    if (error) {
+        ESP_LOGW("Pocket", "Cannot check built-in test music: %s", error.message().c_str());
+        return;
+    }
+    FILE *output = fopen(temporary_path, "wb");
+    if (!output) {
+        ESP_LOGW("Pocket", "Cannot create built-in test music (storage unavailable/full)");
+        return;
+    }
+    const bool written = fwrite(test_music_start, 1, size, output) == size;
+    const bool closed = fclose(output) == 0;
+    if (written && closed) remove(path);
+    if (!written || !closed || rename(temporary_path, path) != 0) {
+        remove(temporary_path);
+        ESP_LOGW("Pocket", "Cannot save built-in test music; will retry next boot");
+        return;
+    }
+    ESP_LOGI("Pocket", "Built-in test music ready: %s (%u bytes)", path, static_cast<unsigned>(size));
+}
+
 std::mutex files_mutex, power_mutex;
 sdmmc_card_t *card = nullptr;
 unsigned sd_readers=0,internal_readers=0;
@@ -258,13 +290,26 @@ void start_pocket_platform() {
     sample_battery();
     last_touch = esp_timer_get_time();
     std::error_code ec; fs::create_directories("/littlefs/user/music", ec);
+    if (ec) ESP_LOGW("Pocket", "Cannot create internal music directory: %s", ec.message().c_str());
+    else ensure_test_music();
     start_log_writer();
-    esp_brookesia::service::ServiceManager::get_instance().add_service(std::make_shared<PocketService>());
+    if (esp_brookesia::service::ServiceManager::get_instance().add_service(std::make_shared<PocketService>())) {
+        ESP_LOGI("Pocket", "Resource API registered: ResourceSnapshot / ResourceStorage, schema=1");
+    } else {
+        ESP_LOGE("Pocket", "Pocket service registration failed; resource API unavailable");
+    }
     if (xTaskCreate(monitor, "pocket_power", 4096, nullptr, 3, nullptr) != pdPASS)
         timeout_seconds = 0; // No monitoring task: leave screen on.
 }
 boost::json::object pocket_request(const boost::json::object &r) {
     const auto op = str(r, "Op");
+    if (op == "ResourceSnapshot") return resource_snapshot();
+    if (op == "ResourceStorage") {
+        // Nonblocking against a long file copy; return a retryable error to the UI.
+        std::unique_lock lock(files_mutex, std::try_to_lock);
+        if (!lock.owns_lock()) return fail("Storage busy; retry later");
+        return resource_storage(card != nullptr && !sd_failed, sd_readers > 0);
+    }
     if (op.starts_with("Logs")) return log_request(r);
     if (op == "MediaState") return pocket_media_state();
     if (op == "Power") return pocket_power_state();

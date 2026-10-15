@@ -301,3 +301,61 @@ tools/test-scheduler-wait.py已通过真实主机CMake生成（替换源、移�
 当前USB自动注册和Core USB bridge仍关闭，BPK接收/安装服务尚不可用；READY中的BPK installer是固定文字，不代表服务开启。下一步用户要安装BPK，必须先排查并恢复板端主机服务。关闭服务后稳定是重要隔离证据，但具体并发/对象生命周期或内存破坏根因仍未证实，不能只开回两个开关就宣布修复。排查依据、恢复步骤与实机验收范围见docs/12-startup-thread-memory.md末节。
 
 用户要求将当前代码与问题记录提交本地Git，作为恢复USB前的稳定基线；不推送。后续由用户构建、烧录，助手改完代码即停止，不自动构建、不操作串口、不复制产物到build/bootloader/bin。历史阶段的待验收和不提交描述由本节当前状态取代。
+
+### 2026-10-15 USB恢复代码已实施，待用户编译烧录
+
+用户授权实施恢复方案。代码已同步打开USB自动注册和Core bridge；产品显式defer_usb_start，桌面start和reveal成功后才绑定USB。移除1ms主调度器pump，16KiB内部栈RX任务等待数据（50ms超时），24KiB内部栈作业任务阻塞等待安装/call；协议状态单任务拥有，对外有锁快照，abort走队列。安装在SystemApp任务域串行执行，提交期间busy，临时文件保留至回调返回。Core先排空USB再销毁应用/GUI，等待退出后释放队列和驱动。上传会话仅静音串口，设备日志捕获保留。
+
+现有静态集成检查通过，未进行固件编译、串口操作、烧录或BPK安装验收。新增40KiB内部任务栈须随实机日志观察，不将历史根因宣称已证实。完整实施状态、停止等待限制和验收顺序见docs/13-usb-service-recovery.md末节。设置副标题提交fe11938，分析文档提交28a57d4；本轮恢复代码保留工作区供用户编译。
+
+### 2026-10-15 音乐安装验收与内置测试旋律（待用户烧录）
+
+用户授权通过 COM10 安装音乐 BPK。停止占用串口的 ESP-IDF 监视器后，使用不切换 DTR/RTS 的连接成功安装 net.0use.music 1.0.0（24287字节，SHA256 bbec46c9e71f755b8a77a38b40537a438b27419e3b4e93e89a21dbdb114e2d41）；SystemCore 列表确认 Installed，StartApp 后确认 Running、last_error 为空。串口已关闭，未恢复监视器，声音和触摸未验收。最初普通 CLI 连接曾超时，随后捕获一次启动阶段 Core1 Load access fault，匹配 ELF ac22f6e31 解码到 tlsf_walk_pool / heap_caps_get_largest_free_block；不能把此次安装成功作为启动稳定性已解决的证据。
+
+用户随后要求内置测试音乐并由自己烧录。新增原创六秒、16kHz/单声道/PCM16 的 pocket-test.wav，随 pocket_platform 的 EMBED_FILES 链入主程序。Core 挂载后，platform 初始化仅在内部音乐文件缺失时经临时文件写入及关闭成功后 rename；存在则保留，失败警告并在下次启动重试，不自动播放或改音量。用户只更新主程序即可保留刚装好的 Music，进入“内部”点击测试曲播放。该轮不操作串口、不编译固件、不烧录，不把尚未听音的结果加入完成清单。
+
+音频检查通过：192044字节，96000个采样，非静音且无削波，首尾留静音；SHA256 6b11daca65b52a0d2089aaea9925122d014b07f608cd3832e9ad43d040b6351d。嵌入符号与挂载后初始化顺序、现有静态集成检查及差异空白检查通过。以当前已有主程序大小估算，加入音频后factory分区还余327988字节（未计新代码/对齐，最终以用户构建结果为准）。
+
+### 2026-10-15 资源监视独立BPK与原生只读统计（待用户编译烧录）
+
+用户要求参照官方完成资源监视软件。已新增 net.0use.resources 1.0.0：总览/内存/存储/系统四页、中英文/明暗主题、双核CPU、60秒趋势、内部/PSRAM堆、Flash/分区/镜像/LittleFS/SD、频率/运行时间/复位原因。Pocket新增ResourceSnapshot/ResourceStorage；官方每核idle计数配ESP Timer与64位运行统计，首次/长间隔预热不伪装0%。采样请求驱动且有缓存，无新增后台任务；最大连续块5秒、文件存储10秒，SD音频占用时暂缓容量扫描。配置脚本同步defaults与sdkconfig，使用真实IDF Kconfig独立副本核对已生效；原build文件不是本轮编译产物。
+
+Node实际应用/资源回归、现有Music/Logs回归、静态集成/中文字体检查通过；BPK由源码打包。没有编译固件、串口操作、烧录或Git提交，不记入COMPLETED.md。首次由用户只更新主程序，然后安装资源监视BPK即可，无需重烧LittleFS；后续UI改动可单独更新BPK。实现/口径/实机待验收范围见docs/14-resource-monitor.md，安装见examples/resource-monitor/README.md。
+
+### 2026-10-15 用户要求单独记录RAM访问异常
+
+已将安装音乐前捕获的ac22f6e31故障原始关键行、寄存器、当时完整匹配ELF哈希及解析结果写入docs/15-core1-ram-access-fault.md。报错为Core1 Load access fault，MEPC4857daa4，MTVAL4ff771a4；实际lw读取内部RAM堆块字段，发生于堆统计，不等同内存不足或已证实堆损坏。现有build ELF已被替换为937b7f9c...，不能用它解码旧地址；临时两份音乐日志均0字节，原始证据来自会话工具输出。同步纠正docs13“不是USB”的过强标题和200MHz完全稳定的表述，保留看门狗警告及基线源码未核实边界。本轮只改记录，没有构建、串口操作或代码修复。
+
+### 2026-10-15 新附件三次启动异常与资源监视无数据
+
+附件a7e3dc3b-0aa9-46f8-80ca-b507b7a66521为三次Core1启动阶段Load access fault，前两次读内部RAM的信号量/队列字段，第三次pthread mutex解引用且日志截断；均未到桌面/USB READY，未证明应用使用时发生故障。ELF937b7f9ce完整匹配，原附件/ELF/map/旧配置头已备份.tools/diagnostics/937b7f9ce并忽略Git。
+
+确认匹配固件无ResourceSnapshot/ResourceStorage后端及CPU运行统计，而当前待编译源码已包含；用户需重新构建更新主程序。用户确认资源监视有按钮但一直等待；同时修复BPK的字符串Promise拒绝丢失、旧Pocket真实路径错误识别及默认无限等待，版本1.0.1，并补对应回归；Pocket成功注册增加资源API启动标记。启动访问异常仍未确定根因，本轮不改CPU/PSRAM/同步策略，不编译/串口/烧录。详细证据与边界见docs/16-usage-log-and-monitor-waiting.md。
+
+### 2026-10-15 Core1异常下一步诊断：补齐异步总线现场
+
+核对官方P4 TRM和本地IDF：总线错误可异步报告，SDK在BUS_ERR置位时用历史LDPC改写MEPC，未同步回滚普通寄存器/MTVAL。因此此前“合法内部RAM读取失败”的说法证据不足，旧MTVAL范围和反汇编只作线索；真正失败的历史访存地址需LDTVAL/STTVAL确认。下一步方案先保持400MHz/PSRAM/XiP/服务不变，在Core1异常入口保存MEXSTATUS、原始PC及全部load/store历史PC/地址，配合UART core dump，再按总线、权限或对象破坏证据分流。详见docs/17-core1-fault-diagnostic-plan.md；同步补充docs15/16解释边界。本轮只分析与记录，未实施诊断代码、编译、串口或烧录。
+
+### 2026-10-15 用户授权实施Core1故障诊断 v1
+
+已增加产品侧CMake覆盖，在异常入口、SDK使能缓存与改写MEPC前保存每核首次现场；728字节固定内部DRAM保存错误类别、原始PC、历史失败PC/实际访存地址以及PMP/PMA权限。后续标准panic打印阶段输出OuseFault v1。同步启用IRAM panic、UART内部DRAM core dump与4096字节内部dump栈，逐48字节转储进度喂SDK看门狗，避免完整转储超过原10秒时限；不禁用看门狗。保持CPU400/PSRAM200/XiP/USB配置，不改SDK安装目录或分区/LittleFS。真实主机CMake和实际捕获/打印/分块写入回归、隔离Kconfig解析及设备静态集成检查通过。由用户构建、烧录，助手未编译ESP固件、串口操作或Git提交。此为诊断而非根因修复，构建标记、日志保存及实机验证见docs/17-core1-fault-diagnostic-plan.md末节。
+
+### 2026-10-15 修复用户编译遇到的ThreadProfiler计数宽度冲突
+
+启用FreeRTOS U64统计后，上游ThreadProfiler仍把uint32_t*传给uxTaskGetSystemState导致编译失败。新增产品源覆盖，以configRUN_TIME_COUNTER_TYPE本地变量接收后显式转换为旧32位公开样本，保留ABI与短窗口模差值语义；Pocket资源监视继续完整64位计数。旧分析器百分比中间运算扩展为64位。真实CMake与实际采样/快照代码的32/64位主机回归、回绕/长运行/大中间值/零窗口及原错误反向复现通过，不改.reference。设备配置检查允许IDF省略不可见CPU_CLK=false项，仍强制ESP_TIMER/U64。由用户再次构建烧录，本轮无ESP固件构建或串口操作，详见docs/14-resource-monitor.md兼容节。
+
+### 2026-10-15 完整dump与微雪对照，随后延迟无线启动（待实机）
+
+已从用户原生Temp找回两组校验通过的完整dump，与f253686e5 ELF/map/config及用户附件一并归档到`.tools/diagnostics/f253686e5`。Core1在pocket_logs→LittleFS→Flash中转分配→TLSF块头读取时BUS_ERR；Core0在调度器前填充Timer新栈时STORE BUS_ERR。10449/444个识别出的分配块首尾canary完整，日志栈仍有1484字节A5，尚未锁定根因。特别更正：本机IDF6.1的CAPTURE_DRAM会捕获PSRAM已用堆块，并非仅内部RAM，故UART转储可达数MB。
+
+用户以出厂固件为参照。微雪仓库旧bin为IDF5.5.2、版本上限199，不能自动等同用户v3.2板实际出厂映像；其完整源码/config未公开。源码Phone为0.6 beta2、缓存256KiB/128B，当前0.8系列+IDF6.1、缓存128KiB/64B；另当前Hosted constructor在调度器前初始化SDMMC并建6任务。对照证据和边界见docs/18-waveshare-startup-comparison.md。
+
+用户提出无线等系统启动后初始化，已按桌面就绪后启动实现：产品CMake移除Hosted自动ctor/dtor源而不写官方组件；关闭Wi-Fi/SNTP自动注册；桌面/USB流程完成后，通过临时16KiB内部RAM任务显式初始化Hosted，再加入Wi-Fi/SNTP并恢复保存开关/AP/时区；Settings与Shell补齐晚到服务恢复。CPU400、PSRAM200、XiP和缓存参数保留用于时序隔离。Hosted内部ESP_ERROR_CHECK/assert未改，不能保证所有无线错误只影响网络。构建与实机步骤见docs/19-deferred-wireless-startup.md；不把此次时序调整直接记为BUS_ERR已修复。
+
+### 2026-10-15 用户回家后授权本地构建与应用全面复核
+
+无线启动补齐初次偏好恢复门与Settings保存失败双向回滚顺序，避免旧排队动作覆盖最新开关意图。音乐1.1.1修复错误字符串、后台首次曲库恢复、音量队列与关闭生命周期，并修正双页高密度布局。日志1.0.1修复错误显示、读取单飞、暂停跨前后台与关闭后排队刷新；后端补齐并发初始化/启动、创建失败重试、格式化与UTF-8边界。资源监视1.0.1未发现新确定性缺陷，新增完整实际C++后端主机回归，未盲目改统计公式。
+
+首次完整构建超8MiB应用分区，map比对确认最大增长为20秒测试WAV（640044B）；保留20秒旋律改8kHz PCM16为320044B，不改分区或用户音频播放能力。最终ESP-IDF6.1构建通过，主程序0x7dabc0，余152640B约1.82%；BIN SHA256 69804a933ecf5cba4f693a4ac38d830e7ec5fc52779d10c14d42c9ecf60ac4cf，ELF SHA256 9294266bfb385cbc01c94c6e01991e69b8ad9ed18578fa4bfcdfa084db9685ee。保留标准build产物，未复制bootloader/bin、烧录或占用串口。
+
+音乐/日志/资源三个BPK已重打并逐条目对照源码；真实JS、C++后端、LVGL多密度主题语言、中文字体、安装模拟及最终LittleFS181文件校验均通过。仅更新主程序可保留现有用户文件，再装音乐1.1.1/日志1.0.1；实机冷/软重启、真实声音/SD/触摸仍待用户复测。完整检查、hash和限制见docs/20-local-build-and-app-review.md，不记为随机BUS_ERR已根治。

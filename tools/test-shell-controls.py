@@ -297,7 +297,7 @@ int main(int argc, char **argv) {
    if (!validation.errors.empty()) return 2;
    layout_check::check(*result,*tokens,environment,argv[2],argv[3],shell);
   }
-  for(auto app:{"music","log-viewer"}) {
+  for(auto app:{"music","log-viewer","resource-monitor"}) {
    auto result=parse_document_file(std::string(argv[2])+"/examples/"+app+"/src/res/root.json",environment);
    if(!result) throw std::runtime_error(result.error());
    auto validation=validate_document(*result);

@@ -229,11 +229,17 @@ std::expected<void, std::string> System::init(Config config)
         }
         if (command == service::Usb::HostCommand::InstallBpk)
         {
-            auto install_result = install_runtime_app_package(artifact.temporary_path, true);
-            if (!install_result) {
-                return std::unexpected(install_result.error());
-            }
-            return {};
+            // Serialize app registry changes with launch/stop/input callbacks.
+            // The USB operation worker waits here; the RX worker stays free.
+            return impl_->run_task_sync<std::expected<void, std::string>>(
+                SYSTEM_APP_TASK_GROUP,
+                [this, path = artifact.temporary_path]() -> std::expected<void, std::string> {
+                    auto result = install_runtime_app_package(path, true);
+                    if (!result) return std::unexpected(result.error());
+                    return {};
+                },
+                std::unexpected("Failed to schedule BPK installation")
+            );
         }
         return std::unexpected("Unsupported USB host command");
     };
@@ -312,9 +318,11 @@ std::expected<void, std::string> System::init(Config config)
     lib_utils::FunctionGuard usb_binding_cleanup([this]() {
         impl_->usb_service_binding_.release();
     });
-    impl_->usb_service_binding_ = service_manager.bind(service::Usb::Helper::get_name().data());
-    if (!impl_->usb_service_binding_.is_valid()) {
-        return std::unexpected("Failed to bind USB service");
+    if (!impl_->config_.defer_usb_start) {
+        impl_->usb_service_binding_ = service_manager.bind(service::Usb::Helper::get_name().data());
+        if (!impl_->usb_service_binding_.is_valid()) {
+            return std::unexpected("Failed to bind USB service");
+        }
     }
 #endif
     impl_->system_service_binding_ = service_manager.bind(BROOKESIA_SYSTEM_CORE_SERVICE_NAME);
@@ -391,12 +399,39 @@ std::expected<void, std::string> System::start()
     return {};
 }
 
+std::expected<void, std::string> System::start_usb_host_service()
+{
+#if defined(ESP_PLATFORM) && CONFIG_BROOKESIA_SYSTEM_CORE_ENABLE_USB_BRIDGE
+    if (!impl_->initialized_ || !impl_->started_) {
+        return std::unexpected("Desktop must be started before enabling USB host service");
+    }
+    if (impl_->usb_service_binding_.is_valid()) return {};
+    impl_->usb_service_binding_ = service::ServiceManager::get_instance().bind(service::Usb::Helper::get_name().data());
+    if (!impl_->usb_service_binding_.is_valid()) return std::unexpected("Failed to start USB host service");
+    return {};
+#else
+    return std::unexpected("USB host bridge is disabled in this build");
+#endif
+}
+
 void System::stop()
 {
     BROOKESIA_LOG_TRACE_GUARD_WITH_THIS();
     if (!impl_->started_) {
         return;
     }
+#if defined(ESP_PLATFORM) && CONFIG_BROOKESIA_SYSTEM_CORE_ENABLE_USB_BRIDGE
+    // Drain installer/service calls while Core, GUI and apps are still alive.
+    // This lifecycle API must be called outside a USB bridge callback.
+    if (impl_->usb_service_binding_.is_valid()) {
+        auto quiet = service::Usb::get_instance().quiesce(UINT32_MAX);
+        if (!quiet) {
+            BROOKESIA_LOGE("Cannot stop Core while USB is active: %1%", quiet.error());
+            return;
+        }
+        impl_->usb_service_binding_.release();
+    }
+#endif
     on_stop();
     impl_->started_ = false;
     BROOKESIA_LOGI("System core stopped");
@@ -409,6 +444,18 @@ void System::deinit()
         return;
     }
     stop();
+    if (impl_->started_) return; // stop() refused to tear down a live USB bridge.
+#if defined(ESP_PLATFORM) && CONFIG_BROOKESIA_SYSTEM_CORE_ENABLE_USB_BRIDGE
+    // Also covers a service bound during init when start() never succeeded.
+    if (impl_->usb_service_binding_.is_valid()) {
+        auto quiet = service::Usb::get_instance().quiesce(UINT32_MAX);
+        if (!quiet) {
+            BROOKESIA_LOGE("Cannot deinitialize Core while USB is active: %1%", quiet.error());
+            return;
+        }
+        impl_->usb_service_binding_.release();
+    }
+#endif
     impl_->hide_startup_overlay();
     for (auto &[_, record] : impl_->apps_) {
         if (record.info.state == AppState::Running || record.info.state == AppState::Paused) {

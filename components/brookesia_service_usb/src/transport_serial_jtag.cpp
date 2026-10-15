@@ -9,6 +9,8 @@
 
 #include "transport.hpp"
 
+#include <algorithm>
+
 #include "driver/usb_serial_jtag.h"
 #include "esp_private/periph_ctrl.h"
 #include "freertos/FreeRTOS.h"
@@ -67,9 +69,10 @@ public:
         }
     }
 
-    int read(uint8_t *buffer, size_t size) override
+    int read(uint8_t *buffer, size_t size, uint32_t timeout_ms) override
     {
-        return usb_serial_jtag_read_bytes(buffer, size, 0);
+        const TickType_t wait = timeout_ms ? std::max<TickType_t>(1, pdMS_TO_TICKS(timeout_ms)) : 0;
+        return usb_serial_jtag_read_bytes(buffer, size, wait);
     }
 
     int write(const uint8_t *buffer, size_t size, uint32_t timeout_ms) override

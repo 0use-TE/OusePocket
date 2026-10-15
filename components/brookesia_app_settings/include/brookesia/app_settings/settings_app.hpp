@@ -155,6 +155,7 @@ private:
     void release_wifi_service();
     void bind_sntp_service();
     void release_sntp_service();
+    void refresh_deferred_network_services(system::core::AppContext &context);
     void bind_utils_debug_service();
     void release_utils_debug_service();
     void refresh_utils_debug_capabilities();
@@ -180,7 +181,7 @@ private:
         bool enabled,
         service::ServiceBase::FunctionResultHandler handler = nullptr
     );
-    void apply_wifi_enabled_preference_to_service();
+    void apply_wifi_enabled_preference_to_service(bool force_action = false);
     void subscribe_wifi_events();
     void disconnect_wifi_events();
     void request_saved_wifi_networks_refresh();

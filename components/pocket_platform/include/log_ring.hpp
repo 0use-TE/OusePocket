@@ -12,6 +12,12 @@ inline size_t utf8_prefix(const char *text, size_t size) {
         if(!width || cursor+width>size) break;
         bool correct=true;
         for(size_t i=1;i<width;++i) if((static_cast<unsigned char>(text[cursor+i]) & 0xC0)!=0x80) correct=false;
+        // Exclude overlong encodings, UTF-16 surrogates and values above U+10FFFF.
+        if(width>=3) {
+            const auto second=static_cast<unsigned char>(text[cursor+1]);
+            if((c==0xE0 && second<0xA0) || (c==0xED && second>=0xA0) ||
+               (c==0xF0 && second<0x90) || (c==0xF4 && second>=0x90)) correct=false;
+        }
         if(!correct) break;
         cursor+=width; valid=cursor;
     }

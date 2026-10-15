@@ -4,9 +4,9 @@
     "ui": {
       "title": "音乐",
       "library": "选择歌曲",
-      "empty": "将 MP3 / PCM WAV 放入 /sdcard/music，然后刷新。",
+      "empty": "这个目录里没有歌曲。",
       "refresh": "刷新",
-      "sd": "SD 卡",
+      "sd": "SD卡",
       "internal": "内部",
       "previous": "上一页",
       "next": "下一页",
@@ -21,8 +21,12 @@
       "no_tracks": "没有找到歌曲",
       "error": "播放失败",
       "busy": "请稍候…",
-      "page": "歌曲",
-      "back": "返回"
+      "page": "首",
+      "back": "返回",
+      "swipe_songs": "向左滑动查看歌曲",
+      "swipe_back": "向右滑动返回播放",
+      "sd_fallback": "SD 卡不可用，已显示内部歌曲。",
+      "layout": "没有音频服务，只显示界面。"
     }
   }
 }

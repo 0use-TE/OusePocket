@@ -3,10 +3,36 @@ from pathlib import Path
 
 root = Path(__file__).resolve().parent.parent
 config = {
-    # Temporarily isolate the host-control RX pump during startup diagnosis.
-    # ROM flashing and the normal UART console do not require this service.
-    'BROOKESIA_SERVICE_USB_ENABLE_AUTO_REGISTER': 'n',
-    'BROOKESIA_SYSTEM_CORE_ENABLE_USB_BRIDGE': 'n',
+    # First-fault diagnostics: snapshot before IDF rewrites asynchronous MEPC,
+    # then preserve internal heap/task data over UART without writing Flash.
+    'ESP_PANIC_HANDLER_IRAM': 'y',
+    'ESP_SYSTEM_PANIC_PRINT_REBOOT': 'y',
+    'ESP_SYSTEM_PANIC_PRINT_HALT': 'n',
+    'ESP_SYSTEM_PANIC_SILENT_REBOOT': 'n',
+    'ESP_SYSTEM_PANIC_GDBSTUB': 'n',
+    'ESP_COREDUMP_ENABLE_TO_UART': 'y',
+    'ESP_COREDUMP_ENABLE_TO_FLASH': 'n',
+    'ESP_COREDUMP_ENABLE_TO_NONE': 'n',
+    'ESP_COREDUMP_CAPTURE_DRAM': 'y',
+    'ESP_COREDUMP_STACK_SIZE': '4096',
+    'ESP_COREDUMP_MAX_TASKS_NUM': '64',
+    'ESP_COREDUMP_UART_DELAY': '0',
+    # Keep the complete base64 payload in the serial log for later decoding.
+    'ESP_COREDUMP_DECODE_DISABLE': 'y',
+    'ESP_COREDUMP_DECODE_INFO': 'n',
+    # Official per-core idle runtime counters: timer-based so CPU frequency
+    # changes do not turn cycles into misleading utilization; 64-bit avoids wrap.
+    'FREERTOS_GENERATE_RUN_TIME_STATS': 'y',
+    'FREERTOS_USE_TRACE_FACILITY': 'y',
+    'FREERTOS_USE_STATS_FORMATTING_FUNCTIONS': 'y',
+    'FREERTOS_RUN_TIME_STATS_USING_ESP_TIMER': 'y',
+    'FREERTOS_RUN_TIME_STATS_USING_CPU_CLK': 'n',
+    'FREERTOS_RUN_TIME_COUNTER_TYPE_U64': 'y',
+    'FREERTOS_RUN_TIME_COUNTER_TYPE_U32': 'n',
+    # Registration exposes the service; the board binds it only after desktop
+    # startup through Core's explicit deferred-start API.
+    'BROOKESIA_SERVICE_USB_ENABLE_AUTO_REGISTER': 'y',
+    'BROOKESIA_SYSTEM_CORE_ENABLE_USB_BRIDGE': 'y',
     # Brookesia P4's UI creates many small objects. Keep internal RAM for
     # libc/FreeRTOS locks and the Waveshare C6 SDIO DMA buffers.
     'SPIRAM_MALLOC_ALWAYSINTERNAL': '0',
@@ -30,10 +56,12 @@ config = {
     'BROOKESIA_SERVICE_AUDIO_ENABLE_AUTO_REGISTER': 'y',
     'BROOKESIA_SERVICE_AUDIO_PLAYBACK_VOLUME_DEFAULT': '40',
     'BROOKESIA_HAL_ADAPTOR_ENABLE_WIFI_DEVICE': 'y',
-    'BROOKESIA_SERVICE_WIFI_ENABLE_AUTO_REGISTER': 'y',
+    # Register network services after the desktop, so Settings/Shell cannot
+    # bind them and start the C6 transport during Core initialization.
+    'BROOKESIA_SERVICE_WIFI_ENABLE_AUTO_REGISTER': 'n',
     'BROOKESIA_HAL_ADAPTOR_ENABLE_NETWORK_DEVICE': 'y',
     'BROOKESIA_HAL_ADAPTOR_NETWORK_ENABLE_SNTP_CLIENT_IMPL': 'y',
-    'BROOKESIA_SERVICE_SNTP_ENABLE_AUTO_REGISTER': 'y',
+    'BROOKESIA_SERVICE_SNTP_ENABLE_AUTO_REGISTER': 'n',
     'ESP_SYSTEM_EVENT_TASK_STACK_SIZE': '4096',
     'ESP_WIFI_REMOTE_ENABLED': 'y',
     'ESP_WIFI_REMOTE_LIBRARY_HOSTED': 'y',

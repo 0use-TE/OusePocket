@@ -22,7 +22,7 @@ public:
     virtual esp_err_t install() = 0;
     virtual void uninstall() = 0;
 
-    virtual int read(uint8_t *buffer, size_t size) = 0;
+    virtual int read(uint8_t *buffer, size_t size, uint32_t timeout_ms) = 0;
     virtual int write(const uint8_t *buffer, size_t size, uint32_t timeout_ms) = 0;
     virtual esp_err_t wait_tx_done(uint32_t timeout_ms) = 0;
 

@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #include "brookesia/app_settings.hpp"
+#include "brookesia/app_settings/wifi_preferences.hpp"
 #include "pocket_platform.hpp"
 
 #include <algorithm>
@@ -279,8 +280,8 @@ static constexpr int MESSAGE_DIALOG_FAILED_AUTO_CLOSE_MS = 3000;
 static constexpr bool SETTINGS_HARDWARE_OPERATIONS_ENABLED = true;
 static constexpr const char *MY_DEVICE_FALLBACK_SYSTEM_NAME = "System";
 static constexpr const char *MY_DEVICE_FALLBACK_SYSTEM_VERSION = "--";
-static constexpr const char *SETTINGS_STORAGE_NAMESPACE = "app.settings";
-static constexpr const char *WIFI_ENABLED_STORAGE_KEY = "WifiEnabled";
+static constexpr const char *SETTINGS_STORAGE_NAMESPACE = WIFI_PREFERENCE_STORAGE_NAMESPACE.data();
+static constexpr const char *WIFI_ENABLED_STORAGE_KEY = WIFI_PREFERENCE_STORAGE_KEY.data();
 static constexpr const char *DEBUG_KEY_MEMORY_ENABLED = "Debug.MemoryEnabled";
 static constexpr const char *DEBUG_KEY_THREAD_ENABLED = "Debug.ThreadEnabled";
 static constexpr const char *DEBUG_KEY_GUI_VIEW_DEBUG_ENABLED = "Debug.GuiViewDebugEnabled";

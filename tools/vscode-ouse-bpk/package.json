@@ -1,0 +1,65 @@
+{
+  "name": "ouse-bpk",
+  "displayName": "Ouse BPK",
+  "description": "列出工作区 BPK 应用，编辑名称和版本，并一键打包、串口安装。",
+  "version": "0.1.0",
+  "publisher": "ouse",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onView:ouseBpk.apps"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ouse-bpk",
+          "title": "BPK",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "ouse-bpk": [
+        {
+          "type": "webview",
+          "id": "ouseBpk.apps",
+          "name": "应用"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "ouseBpk.refresh",
+        "title": "刷新 BPK 应用",
+        "icon": "$(refresh)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "ouseBpk.refresh",
+          "when": "view == ouseBpk.apps",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package --allow-missing-repository"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.2.1",
+    "typescript": "^5.4.5"
+  }
+}

@@ -2,7 +2,7 @@
 
 适用于当前 OusePocket：Windows + PowerShell、ESP32-P4、320×480 屏幕、JSON UI + JavaScript 应用。以已有计数器为例，也说明音乐和日志包的使用方式。
 
-当前设备稳定基线暂时关闭USB/BPK接收服务，以下安装命令须在服务修复并恢复后使用。源码风险、恢复方案和验收步骤见 [USB服务恢复分析](13-usb-service-recovery.md)。本地应用开发与打包可先进行。
+当前代码已实现桌面就绪后开启USB/BPK接收，采用专门任务等待数据；等待用户编译烧录和实机验收。此前关闭服务的稳定固件无法接收BPK；先确认新固件出现 `READY: desktop + BPK receiver (UART0, 115200)`，再使用以下安装命令。改动、恢复方案和验收步骤见 [USB服务恢复分析](13-usb-service-recovery.md)。本地应用开发与打包可先进行。
 
 ## 1. 先区分两个项目
 
@@ -214,9 +214,17 @@ python -m brookesia_usb.cli --port COM10 --baudrate 115200 install .\examples\mu
 python -m brookesia_usb.cli --port COM10 --baudrate 115200 install .\examples\log-viewer\dist\net.0use.logs-1.0.0.bpk
 ```
 
-这条脚本输出的是当前开发固件接受的未签名开发包，不代替 Toolkit 的所有检查或 release 签名。音乐/日志目录目前没有 Toolkit 项目配置，不能直接照计数器执行 `npm run simulate`；可用官方 `simulate --package <绝对BPK路径>` 加载包，但完整功能仍受 Pocket 模拟服务缺失的限制。
+这条脚本输出的是当前开发固件接受的未签名开发包，不代替 Toolkit 的所有检查或 release 签名。音乐/日志目录目前没有 Toolkit 项目配置，不能直接照计数器执行 `npm run simulate`；可用官方 `simulate --package <绝对BPK路径>` 加载包。模拟器没有 Pocket 和音频服务：音乐仍打开界面，曲库显示示例曲目，不能真正播放。
 
 音乐放入 SD 卡 `/music` 目录。更多操作见[音乐说明](../examples/music/README.md)与[日志说明](../examples/log-viewer/README.md)。两者需要固件包含相应原生服务；仅安装 BPK 不会给旧固件补上 MP3 解码器或日志后端。
+
+资源监视同样独立打包，需先更新带资源统计接口的主程序，再安装：
+
+```powershell
+python -m brookesia_usb.cli --port COM10 --baudrate 115200 install .\examples\resource-monitor\dist\net.0use.resources-1.0.1.bpk
+```
+
+功能、刷新策略和官方统计来源见[资源监视说明](../examples/resource-monitor/README.md)及[实现记录](14-resource-monitor.md)。
 
 ## 9. 什么时候才烧录系统固件
 

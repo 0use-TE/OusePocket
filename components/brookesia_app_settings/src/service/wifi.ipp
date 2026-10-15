@@ -207,7 +207,7 @@ void SettingsApp::update_wifi_refresh_animation(system::core::AppContext &contex
 
 std::expected<void, std::string> SettingsApp::refresh_wifi_page_state(system::core::AppContext &context)
 {
-    const bool service_ready = wifi_ui_state_.service_ready;
+    const bool service_ready = wifi_ui_state_.service_ready && !is_wifi_preference_restore_pending();
     const bool wifi_content_hidden = !service_ready || !wifi_ui_state_.enabled;
     const bool connected_card_visible = is_wifi_connected_card_visible();
     auto connected_card_detail = localized_text(current_locale_, "wifi_not_connected");
@@ -439,7 +439,7 @@ std::expected<void, std::string> SettingsApp::start_wifi_scan(
     bool allow_interrupted_retry
 )
 {
-    if (!wifi_ui_state_.service_ready) {
+    if (is_wifi_preference_restore_pending() || !wifi_ui_state_.service_ready) {
         return refresh_wifi_page_state(context);
     }
     if (!wifi_ui_state_.enabled) {
@@ -620,7 +620,7 @@ std::expected<void, std::string> SettingsApp::connect_wifi_network(
     std::string_view password
 )
 {
-    if (!wifi_ui_state_.service_ready) {
+    if (is_wifi_preference_restore_pending() || !wifi_ui_state_.service_ready) {
         return std::unexpected(localized_text(current_locale_, "wifi_service_unavailable"));
     }
     if (network.ssid.empty()) {
@@ -720,6 +720,9 @@ std::expected<void, std::string> SettingsApp::connect_wifi_network(
 
 std::expected<void, std::string> SettingsApp::disconnect_wifi(system::core::AppContext &context)
 {
+    if (is_wifi_preference_restore_pending()) {
+        return refresh_wifi_page_state(context);
+    }
     const auto generation = ++wifi_operation_generation_;
     cancel_wifi_scan_retry_timer(context);
     wifi_scan_retry_remaining_ = 0;
@@ -749,7 +752,7 @@ std::expected<void, std::string> SettingsApp::disconnect_wifi(system::core::AppC
                 summary_result.error()
             );
         }
-        apply_wifi_enabled_preference_to_service();
+        apply_wifi_enabled_preference_to_service(true);
     };
     auto save_result = submit_wifi_enabled_preference_save(false, save_handler);
     if (!save_result) {
@@ -816,7 +819,7 @@ std::expected<void, std::string> SettingsApp::disconnect_wifi(system::core::AppC
 
 std::expected<void, std::string> SettingsApp::disconnect_current_wifi(system::core::AppContext &context)
 {
-    if (!wifi_ui_state_.service_ready || !wifi_ui_state_.enabled) {
+    if (is_wifi_preference_restore_pending() || !wifi_ui_state_.service_ready || !wifi_ui_state_.enabled) {
         return refresh_wifi_page_state(context);
     }
 
@@ -871,7 +874,7 @@ std::expected<void, std::string> SettingsApp::disconnect_current_wifi(system::co
 
 void SettingsApp::handle_wifi_select_event(const gui::Event &event)
 {
-    if (context_ == nullptr) {
+    if (context_ == nullptr || is_wifi_preference_restore_pending()) {
         return;
     }
 
@@ -920,7 +923,7 @@ void SettingsApp::handle_wifi_select_event(const gui::Event &event)
 
 void SettingsApp::handle_wifi_forget_event(const gui::Event &event)
 {
-    if (context_ == nullptr) {
+    if (context_ == nullptr || is_wifi_preference_restore_pending()) {
         return;
     }
     if (!event.path.starts_with(SAVED_NETWORK_PARENT)) {

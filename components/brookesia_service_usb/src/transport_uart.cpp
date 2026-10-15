@@ -9,6 +9,8 @@
 
 #include "transport.hpp"
 
+#include <algorithm>
+
 #include "driver/uart.h"
 #include "freertos/FreeRTOS.h"
 
@@ -74,9 +76,10 @@ public:
         }
     }
 
-    int read(uint8_t *buffer, size_t size) override
+    int read(uint8_t *buffer, size_t size, uint32_t timeout_ms) override
     {
-        return uart_read_bytes(port_, buffer, size, 0);
+        const TickType_t wait = timeout_ms ? std::max<TickType_t>(1, pdMS_TO_TICKS(timeout_ms)) : 0;
+        return uart_read_bytes(port_, buffer, size, wait);
     }
 
     int write(const uint8_t *buffer, size_t size, uint32_t) override

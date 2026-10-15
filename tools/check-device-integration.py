@@ -25,13 +25,33 @@ for filename in ['sdkconfig.defaults', 'sdkconfig']:
         'SPIRAM_XIP_FROM_PSRAM':'y',
         'SPIRAM_FETCH_INSTRUCTIONS':'y',
         'SPIRAM_RODATA':'y',
+        'FREERTOS_GENERATE_RUN_TIME_STATS':'y',
+        'FREERTOS_USE_TRACE_FACILITY':'y',
+        'FREERTOS_USE_STATS_FORMATTING_FUNCTIONS':'y',
+        'FREERTOS_RUN_TIME_STATS_USING_ESP_TIMER':'y',
+        'FREERTOS_RUN_TIME_COUNTER_TYPE_U64':'y',
     }.items():
         assert re.search(r'^CONFIG_'+key+'='+value+r'$',text,re.M),(filename,key,value)
+    for key in ['BROOKESIA_SERVICE_USB_ENABLE_AUTO_REGISTER',
+                'BROOKESIA_SYSTEM_CORE_ENABLE_USB_BRIDGE']:
+        assert re.search(r'^CONFIG_'+key+r'=y$',text,re.M),(filename,key)
     for key in ['BROOKESIA_SERVICE_MANAGER_WORKER_STACK_IN_EXT',
                 'BROOKESIA_UTILS_THREAD_CONFIG_STACK_IN_EXT',
-                'BROOKESIA_SERVICE_USB_ENABLE_AUTO_REGISTER',
-                'BROOKESIA_SYSTEM_CORE_ENABLE_USB_BRIDGE']:
+                'FREERTOS_RUN_TIME_COUNTER_TYPE_U32',
+                'BROOKESIA_SERVICE_WIFI_ENABLE_AUTO_REGISTER',
+                'BROOKESIA_SERVICE_SNTP_ENABLE_AUTO_REGISTER']:
         assert re.search(r'^(?:CONFIG_'+key+r'=n|# CONFIG_'+key+r' is not set)$',text,re.M),(filename,key)
+    # IDF omits this invisible choice when FREERTOS_SYSTICK_USES_CCOUNT is off.
+    # The positive ESP_TIMER assertion above already requires the wanted source.
+    assert not re.search(r'^CONFIG_FREERTOS_RUN_TIME_STATS_USING_CPU_CLK=y$',text,re.M),filename
+# Network services must stay absent until the product has initialized Hosted
+# after desktop startup; their automatic registration would bypass that order.
+wireless=(root/'examples/brookesia-minimal/main/wireless_startup.cpp').read_text(encoding='utf-8')
+assert wireless.index('esp_hosted_init()') < wireless.index('manager.add_service(')
+main=(root/'examples/brookesia-minimal/main/main.cpp').read_text(encoding='utf-8')
+assert 'const bool desktop_ready = initialize_system();' in main
+assert 'desktop_ready && !ouse::start_deferred_wireless()' in main
+assert 'hosted_deferred_init.cmake' in (root/'examples/brookesia-minimal/main/CMakeLists.txt').read_text(encoding='utf-8')
 app = root / 'components/brookesia_app_settings'
 resources = app / 'package/res'
 json_files = list(resources.rglob('*.json'))
@@ -93,7 +113,8 @@ def check_document_actions(documents):
 
 action_counts = []
 for directory in [resources, shell / 'resource/shell', root / 'examples/file-manager/src/res',
-                  root/'examples/music/src/res', root/'examples/log-viewer/src/res']:
+                  root/'examples/music/src/res', root/'examples/log-viewer/src/res',
+                  root/'examples/resource-monitor/src/res']:
     root_document = json.loads((directory / 'root.json').read_text(encoding='utf-8'))
     loaded_assets = set(root_document['assets'])
     for variant in root_document.get('variants', []):
@@ -157,6 +178,11 @@ def camel_case(name):
     first, *rest = name.split('_')
     return first + ''.join(part.capitalize() for part in rest)
 supported_styles = {camel_case(key) for key in style_keys}
+monitor_screen = json.loads((root/'examples/resource-monitor/src/res/screens/main.json').read_text(encoding='utf-8'))
+for node in walk(monitor_screen):
+    assert set(node.get('style', {})) <= supported_styles, ('resource-monitor', node.get('id'))
+    for style in node.get('partStyles', {}).values():
+        assert set(style) <= supported_styles, ('resource-monitor part', node.get('id'))
 for node in walk(quick):
     assert set(node.get('style', {})) <= supported_styles, node.get('id')
 
@@ -169,7 +195,7 @@ assert '.version="1.0.0"' in (root / 'components/pocket_platform/pocket_platform
 # resolved by Brookesia before parsing and are excluded from this literal check.
 font_fields = {'fontSize', 'font_size', 'imageFontSize', 'image_font_size'}
 font_count = 0
-for directory in [resources, shell / 'resource', file_resources]:
+for directory in [resources, shell / 'resource', file_resources, root/'examples/resource-monitor/src/res']:
     for path in directory.rglob('*.json'):
         for node in walk(json.loads(path.read_text(encoding='utf-8'))):
             for field in font_fields & node.keys():

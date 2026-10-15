@@ -21,10 +21,17 @@ cpp=r'''
 #include <string>
 #include <iostream>
 #include <filesystem>
+#include <atomic>
+#include <thread>
+#include <vector>
+#include <chrono>
+#include <cstring>
 using vprintf_like_t=int(*)(const char*,va_list);
-int uart(const char *format,va_list a){return vsnprintf(nullptr,0,format,a);}
-vprintf_like_t output=uart;
-vprintf_like_t esp_log_set_vprintf(vprintf_like_t fn){auto old=output;output=fn;return old;}
+std::atomic<int> uart_calls{0};
+int uart(const char *format,va_list a){++uart_calls;return vsnprintf(nullptr,0,format,a);}
+std::atomic<vprintf_like_t> output{uart};
+std::atomic<int> hook_calls{0},task_calls{0},task_result{1};
+vprintf_like_t esp_log_set_vprintf(vprintf_like_t fn){++hook_calls;std::this_thread::sleep_for(std::chrono::milliseconds(2));return output.exchange(fn);}
 using portMUX_TYPE=std::mutex;
 #define portMUX_INITIALIZER_UNLOCKED {}
 void portENTER_CRITICAL(std::mutex *m){m->lock();}
@@ -32,10 +39,22 @@ void portEXIT_CRITICAL(std::mutex *m){m->unlock();}
 void vTaskDelay(int){}
 int pdMS_TO_TICKS(int ms){return ms;}
 constexpr int pdPASS=1;
-int xTaskCreate(void(*)(void*),const char*,int,void*,int,void*){return pdPASS;}
-void print_log(const char *format,...) {va_list a;va_start(a,format);output(format,a);va_end(a);}
+int xTaskCreate(void(*)(void*),const char*,int,void*,int,void*){++task_calls;std::this_thread::sleep_for(std::chrono::milliseconds(2));return task_result.load();}
+void print_log(const char *format,...) {va_list a;va_start(a,format);output.load()(format,a);va_end(a);}
 void require(bool b,const char *s){if(!b) throw std::runtime_error(s);}
+template<class Function> void simultaneous(Function fn) {
+ std::atomic<int> ready{0};std::atomic<bool> start{false};std::vector<std::thread> threads;
+ for(int i=0;i<24;++i) threads.emplace_back([&]{++ready;while(!start.load()) std::this_thread::yield();fn();});
+ while(ready.load()!=24) std::this_thread::yield();start=true;
+ for(auto &thread:threads) thread.join();
+}
+int checked_vsnprintf(char *buffer,size_t size,const char *format,va_list args) {
+ if(std::strcmp(format,"__format_failure__")==0) {std::memset(buffer,'X',size);return -1;}
+ return vsnprintf(buffer,size,format,args);
+}
+#define vsnprintf checked_vsnprintf
 '''+source+r'''
+#undef vsnprintf
 namespace bj=boost::json;
 int main(int argc,char**){
  if(argc>1) {
@@ -43,11 +62,28 @@ int main(int argc,char**){
   require(std::string(saved.at("text").as_string()).find("reboot-marker")!=std::string::npos,"Fresh process could not read persistent logs");
   std::cout<<"PASS saved logs survive a fresh process with an empty RAM ring\n";return 0;
  }
- ouse::initialize_log_capture();ouse::start_log_writer();ouse::log_request({{"Op","LogsClear"}});
+ simultaneous([]{ouse::initialize_log_capture();});
+ require(hook_calls==1,"Concurrent capture initialization installed the hook more than once");
+ task_result=0;ouse::start_log_writer();
+ require(!ouse::log_request({{"Op","LogsRead"}}).at("persistent").as_bool(),"Writer creation failure was hidden");
+ require(ouse::log_request({{"Op","LogsClear"}}).at("ok").as_bool(),"Clear after failed writer startup failed");
+ require(!ouse::log_request({{"Op","LogsRead"}}).at("persistent").as_bool(),"Clear falsely advertised an absent writer");
+ task_result=pdPASS;simultaneous([]{ouse::start_log_writer();});
+ require(task_calls==2,"Concurrent startup created duplicate writers or failed to retry");
+ require(ouse::log_request({{"Op","LogsRead"}}).at("persistent").as_bool(),"Writer retry did not recover");
+ ouse::log_request({{"Op","LogsClear"}});
  print_log("\x1b[31mE (1) test: 中文错误 %d\x1b[0m\n",8);
  auto read=ouse::log_request({{"Op","LogsRead"}});auto entries=read.at("entries").as_array();
  require(entries.size()==1,"Capture missing");std::string text(entries[0].as_object().at("text").as_string());
  require(text=="E (1) test: 中文错误 8\n","ANSI or UTF8 capture corrupted");
+ print_log("__format_failure__");
+ read=ouse::log_request({{"Op","LogsRead"}});entries=read.at("entries").as_array();
+ require(entries.back().as_object().at("text").as_string().empty(),"Failed formatting captured uninitialized bytes");
+ require(ouse::utf8_prefix("a\xE0\x80\x80",4)==1,"Overlong UTF8 accepted");
+ require(ouse::utf8_prefix("a\xED\xA0\x80",4)==1,"UTF8 surrogate accepted");
+ require(ouse::utf8_prefix("a\xF0\x80\x80\x80",5)==1,"Overlong four-byte UTF8 accepted");
+ require(ouse::utf8_prefix("a\xF4\x90\x80\x80",5)==1,"Out-of-range UTF8 accepted");
+ require(ouse::utf8_prefix("\xF4\x8F\xBF\xBF",4)==4,"Largest valid UTF8 codepoint rejected");
  const auto cursor=read.at("last").as_uint64();
  print_log("I (2) next\n");require(ouse::log_request({{"Op","LogsRead"},{"After",cursor}}).at("entries").as_array().size()==1,"Cursor duplicated entries");
  require(!ouse::log_request({{"Op","LogsRead"},{"After",-1}}).at("ok").as_bool(),"Negative cursor accepted");
@@ -85,8 +121,20 @@ int main(int argc,char**){
  require(std::filesystem::file_size(directory/"current.log")==before_failure,"File kept growing after rotation failure");
  require(!ouse::log_request({{"Op","LogsRead"}}).at("persistent").as_bool(),"Disk failure not reported");
  std::filesystem::remove(directory/"previous-2.log/block");std::filesystem::remove(directory/"previous-2.log");
- print_log("I (100) reboot-marker\n");require(ouse::log_request({{"Op","LogsFlush"}}).at("ok").as_bool(),"Rotation recovery failed");
- std::cout<<"PASS real log backend: ANSI stripping, UTF8, cursor validation/wrap/clear, disk flush, rotation bounds/failure/recovery, saved tail\n";
+ print_log("I (100) recovery\n");require(ouse::log_request({{"Op","LogsFlush"}}).at("ok").as_bool(),"Rotation recovery failed");
+ std::filesystem::remove(directory/"current.log");std::filesystem::create_directory(directory/"current.log");
+ print_log("E (101) write failure\n");require(!ouse::log_request({{"Op","LogsFlush"}}).at("ok").as_bool(),"Write failure was ignored");
+ require(ouse::log_request({{"Op","LogsClear"}}).at("ok").as_bool(),"Clear recovery failed");
+ require(ouse::log_request({{"Op","LogsRead"}}).at("persistent").as_bool(),"Successful clear did not reset disk failure");
+ const auto console_before=uart_calls.load();ouse::set_console_output_suppressed(true);
+ print_log("I (102) console suppressed\n");
+ require(uart_calls==console_before,"Suppressed logs still reached the UART");
+ read=ouse::log_request({{"Op","LogsRead"}});entries=read.at("entries").as_array();
+ require(entries.size()==1 && entries.back().as_object().at("text").as_string()=="I (102) console suppressed\n","Console suppression lost the RAM log");
+ ouse::set_console_output_suppressed(false);print_log("I (103) console resumed\n");
+ require(uart_calls==console_before+1,"Console output did not resume");
+ print_log("I (104) reboot-marker\n");require(ouse::log_request({{"Op","LogsFlush"}}).at("ok").as_bool(),"Flush after clear failed");
+ std::cout<<"PASS real log backend: concurrent capture/writer startup, failed formatting, UTF8 validation, ANSI stripping, cursor validation/wrap/clear, disk flush, rotation bounds/failure/recovery, console suppression, saved tail\n";
 }
 '''
 (OUT/'check.cpp').write_text(cpp,encoding='utf-8')

@@ -5,7 +5,7 @@
       "en": "Logs",
       "zh_CN": "日志"
     },
-    "version": "1.0.0",
+    "version": "1.0.1",
     "visible": true,
     "systems": [
       "super"

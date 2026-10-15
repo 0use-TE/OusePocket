@@ -185,7 +185,8 @@ std::expected<void, std::string> SettingsApp::on_start(system::core::AppContext 
     if (!result) {
         BROOKESIA_LOGW("Failed to refresh Device service state: %1%", result.error());
     }
-    wifi_ui_state_.service_ready = wifi_service_binding_.is_valid() && WifiHelper::is_running();
+    wifi_ui_state_.service_ready = !is_wifi_preference_restore_pending() &&
+                                   wifi_service_binding_.is_valid() && WifiHelper::is_running();
     if (wifi_ui_state_.enabled) {
         stage_started_at = SteadyClock::now();
         result = refresh_wifi_service_state(context);
@@ -315,6 +316,7 @@ std::expected<void, std::string> SettingsApp::on_timer(
 {
     BROOKESIA_LOG_TRACE_GUARD_WITH_THIS();
     if (name == "ouse.power.poll") {
+        refresh_deferred_network_services(context);
         if (current_page_ == "power") return on_action(context, "ouse.power.refresh");
         return {};
     }
@@ -459,6 +461,9 @@ std::expected<void, std::string> SettingsApp::on_action(
         return {};
     }
     if (effective_action == WIFI_TOGGLE_ACTION) {
+        if (is_wifi_preference_restore_pending() || !wifi_ui_state_.service_ready) {
+            return refresh_wifi_page_state(context);
+        }
         if (wifi_ui_state_.enabled) {
             return disconnect_wifi(context);
         }
@@ -492,7 +497,7 @@ std::expected<void, std::string> SettingsApp::on_action(
                     summary_result.error()
                 );
             }
-            apply_wifi_enabled_preference_to_service();
+            apply_wifi_enabled_preference_to_service(true);
         };
         auto save_result = submit_wifi_enabled_preference_save(true, save_handler);
         if (!save_result) {
@@ -576,7 +581,9 @@ std::expected<void, std::string> SettingsApp::on_action(
             update_wifi_refresh_animation(context);
         }
         if (effective_action == "settings.open.wifi") {
-            wifi_ui_state_.service_ready = wifi_service_binding_.is_valid() && WifiHelper::is_running();
+            refresh_deferred_network_services(context);
+            wifi_ui_state_.service_ready = !is_wifi_preference_restore_pending() &&
+                                           wifi_service_binding_.is_valid() && WifiHelper::is_running();
             if (wifi_ui_state_.enabled) {
                 if (auto wifi_result = refresh_wifi_service_state(context); !wifi_result) {
                     BROOKESIA_LOGW("Failed to refresh Wi-Fi state: %1%", wifi_result.error());
@@ -628,6 +635,7 @@ std::expected<void, std::string> SettingsApp::on_action(
             }
         }
         if (current_page_ == PAGE_TIME_ZONE) {
+            refresh_deferred_network_services(context);
             if (auto time_zone_result = refresh_time_zone_state(context); !time_zone_result) {
                 BROOKESIA_LOGW("Failed to refresh Time zone page: %1%", time_zone_result.error());
             }
