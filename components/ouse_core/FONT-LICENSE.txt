@@ -1,4 +1,4 @@
-Ouse UI bitmap subset, derived from Noto Sans SC.
+Ouse UI bitmap subsets and shared CJK 14/16/20px fallbacks, derived from Noto Sans SC.
 Source font copyright: (c) 2014-2021 Adobe (http://www.adobe.com/),
 with Reserved Font Name 'Source'. The modified font is named Ouse UI.
 Source: assets/fonts/NotoSansSC-Regular.subset.ttf

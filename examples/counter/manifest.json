@@ -1,0 +1,11 @@
+{
+  "runtime": "ouse-core",
+  "api": 1,
+  "id": "user.counter",
+  "name": "Counter",
+  "names": {
+    "zh_CN": "计数器",
+    "en": "Counter"
+  },
+  "icon": "icon.bin"
+}

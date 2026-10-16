@@ -1,0 +1,8 @@
+{
+  "runtime": "ouse-core",
+  "api": 1,
+  "id": "user.resources",
+  "name": "Resources",
+  "names": {"zh_CN": "资源监视", "en": "Resources"},
+  "icon": "icon.bin"
+}

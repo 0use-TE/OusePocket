@@ -1,0 +1,388 @@
+body {
+  margin: 0;
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 24px 16px;
+  display: flex;
+  align-items: safe center;
+  justify-content: safe center;
+  overflow: auto;
+  color: var(--vscode-foreground);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  background: var(--vscode-editor-background);
+}
+button, input, select { font: inherit; color: inherit; }
+.frame {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  max-width: 100%;
+}
+.toolbar {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+}
+.toolbar strong {
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+}
+.toolbar-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  align-items: center;
+  justify-content: center;
+}
+.field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+  white-space: nowrap;
+}
+select {
+  background: var(--vscode-dropdown-background);
+  color: var(--vscode-dropdown-foreground);
+  border: 1px solid var(--vscode-dropdown-border, transparent);
+  border-radius: 4px;
+  padding: 3px 6px;
+  min-width: 7.5em;
+}
+button {
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+  border: none;
+  border-radius: 2px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+.toolbar button {
+  background: var(--vscode-dropdown-background);
+  color: var(--vscode-dropdown-foreground);
+  border: 1px solid var(--vscode-dropdown-border, transparent);
+  border-radius: 4px;
+  padding: 3px 10px;
+}
+.stage {
+  --scale: 1;
+  width: calc(320px * var(--scale));
+  height: calc(416px * var(--scale));
+  flex: 0 0 auto;
+}
+.phone {
+  width: 320px;
+  height: 416px;
+  position: relative;
+  transform: scale(var(--scale));
+  transform-origin: top left;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+.screen {
+  width: 320px;
+  height: 416px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+}
+.w { box-sizing: border-box; min-width: 0; }
+.column, .row { display: flex; min-height: 0; }
+.column { flex-direction: column; }
+.row { flex-direction: row; align-items: center; }
+.fill-w { width: 100%; }
+.fill-h { flex: 1 1 auto; min-height: 0; }
+.content-h { flex: 0 0 auto; height: auto; }
+.scroll { overflow-x: hidden; overflow-y: auto; }
+.label {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}
+.button {
+  min-height: 48px;
+  border: none;
+  border-radius: 14px;
+  padding: 10px;
+  background: var(--button);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+.button:active { background: var(--pressed); }
+.button span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  line-height: 1;
+  font-size: inherit;
+  margin: 0;
+  padding: 0;
+}
+.button.is-circle {
+  padding: 0;
+  min-height: 0;
+  flex: 0 0 auto;
+}
+.button.is-circle span {
+  /* Optical center for "+" / symbol glyphs */
+  transform: translateY(0.04em);
+}
+.slider { accent-color: var(--accent); width: 100%; height: 28px; }
+.list {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface);
+}
+.listItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  min-height: 56px;
+  box-sizing: border-box;
+  cursor: pointer;
+  background: var(--surface);
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+}
+.listItem:last-child { border-bottom: none; }
+.listItem:active { background: var(--pressed); }
+.listItem-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.listItem-title { font-weight: 600; }
+.listItem-subtitle { color: var(--muted); font-size: 12px; }
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px;
+  gap: 6px;
+}
+.card-title, .toolbar-title { font-weight: 600; }
+.toolbar {
+  align-items: center;
+  min-height: 44px;
+  font-weight: 600;
+}
+.divider {
+  width: 100%;
+  height: 1px;
+  background: var(--border);
+  flex: 0 0 auto;
+}
+.switch, .checkbox {
+  width: 48px;
+  height: 28px;
+  accent-color: var(--accent);
+}
+.dropdown {
+  min-width: 5em;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  padding: 6px 8px;
+}
+[hidden] { display: none !important; }
+.image {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: repeating-linear-gradient(45deg, var(--surface), var(--surface) 6px, var(--border) 6px, var(--border) 7px);
+  color: var(--muted);
+  font-size: 11px;
+  overflow: hidden;
+}
+.cover, .fault {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: var(--bg);
+  color: var(--text);
+  text-align: center;
+  padding: 24px;
+}
+.fault {
+  background: var(--bg);
+  color: var(--error);
+  justify-content: flex-start;
+  padding-top: 28px;
+}
+.log {
+  margin: 0;
+  width: 100%;
+  min-height: 1.2em;
+  color: var(--vscode-descriptionForeground);
+  font-family: var(--vscode-editor-font-family);
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+/* ---- widget kit extras ---- */
+.listItem-trailing { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: auto;
+  height: auto;
+  min-height: 28px;
+  color: var(--text);
+  cursor: pointer;
+}
+.checkbox input {
+  width: 22px;
+  height: 22px;
+  accent-color: var(--accent);
+  margin: 0;
+}
+.checkbox-label { font-size: 13px; }
+.textInput {
+  width: 100%;
+  min-height: 40px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  padding: 8px 10px;
+  box-sizing: border-box;
+}
+.progressBar {
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  align-self: center;
+}
+.progressBar-fill {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.12s linear;
+}
+.spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  animation: ouse-spin 0.8s linear infinite;
+  align-self: center;
+}
+@keyframes ouse-spin { to { transform: rotate(360deg); } }
+.arc {
+  --pct: 0;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: conic-gradient(var(--accent) calc(var(--pct) * 1%), var(--surface) 0);
+  display: grid;
+  place-items: center;
+  position: relative;
+  align-self: center;
+}
+.arc::before {
+  content: "";
+  position: absolute;
+  inset: 8px;
+  border-radius: 50%;
+  background: var(--bg);
+}
+.arc-label {
+  position: relative;
+  z-index: 1;
+  font-size: 12px;
+  color: var(--text);
+}
+.image img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+.modal-root {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+}
+.modal-root[hidden] { display: none !important; }
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+}
+.modal-panel {
+  position: relative;
+  z-index: 1;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  box-sizing: border-box;
+  min-width: 0;
+}
+.dialog {
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.dialog .modal-panel {
+  border-radius: 20px;
+  max-width: 92%;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+}
+.bottomSheet {
+  align-items: flex-end;
+  justify-content: stretch;
+}
+.bottomSheet .modal-panel {
+  width: 100%;
+  border-radius: 20px 20px 0 0;
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+}
+.dialog-title, .bottomSheet-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.unknown {
+  border: 1px dashed var(--error);
+  color: var(--error);
+  padding: 6px 8px;
+  font-size: 11px;
+  border-radius: 6px;
+}
+.is-disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}

@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "ouse-device": {
+      "command": "D:/Espressif/python_env/idf6.1_py3.11_env/Scripts/python.exe",
+      "args": [
+        "-u",
+        "-X",
+        "utf8",
+        "C:/Users/ouse/FastProjects/OusePocket/tools/device-mcp.py",
+        "--port",
+        "COM10"
+      ]
+    }
+  }
+}

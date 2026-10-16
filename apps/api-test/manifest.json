@@ -1,0 +1,37 @@
+{
+  "runtime": "ouse-core",
+  "api": 1,
+  "id": "user.api-test",
+  "name": "API Test",
+  "names": {
+    "zh_CN": "接口测试",
+    "en": "API Test"
+  },
+  "icon": "icon.bin",
+  "capabilities": {
+    "background": true,
+    "notifications": true
+  },
+  "assets": [
+    {
+      "id": "blue",
+      "type": "image",
+      "path": "assets/blue.bin"
+    },
+    {
+      "id": "green",
+      "type": "image",
+      "path": "assets/green.bin"
+    },
+    {
+      "id": "words",
+      "type": "text",
+      "path": "assets/words.json"
+    },
+    {
+      "id": "raw",
+      "type": "binary",
+      "path": "assets/raw.bin"
+    }
+  ]
+}

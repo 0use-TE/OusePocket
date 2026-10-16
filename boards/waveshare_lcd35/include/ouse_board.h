@@ -6,6 +6,7 @@
 extern "C" {
 #endif
 esp_err_t ouse_board_init(ouse_core_port_t *port);
+void ouse_board_start_services(void); // after desktop READY, never under UI lock
 #ifdef __cplusplus
 }
 #endif

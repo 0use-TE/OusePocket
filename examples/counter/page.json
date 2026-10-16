@@ -1,0 +1,138 @@
+{
+  "api": 1,
+  "units": "dp",
+  "translations": {
+    "zh_CN": {
+      "title": "计数器",
+      "increment": "+",
+      "reset": "清零"
+    },
+    "en": {
+      "title": "Counter",
+      "increment": "+",
+      "reset": "Reset"
+    }
+  },
+  "root": {
+    "type": "container",
+    "id": "page",
+    "width": "fill",
+    "height": "fill",
+    "layout": "column",
+    "padding": 20,
+    "gap": 20,
+    "style": { "backgroundColor": "$desktop" },
+    "children": [
+      {
+        "type": "toolbar",
+        "id": "title",
+        "width": "fill",
+        "height": 48,
+        "textKey": "title"
+      },
+      {
+        "type": "container",
+        "id": "hero",
+        "width": "fill",
+        "height": "content",
+        "layout": "column",
+        "gap": 8,
+        "style": { "flexGrow": 1 },
+        "children": [
+          {
+            "type": "container",
+            "id": "valueCard",
+            "width": "fill",
+            "height": "content",
+            "layout": "column",
+            "padding": 24,
+            "style": {
+              "backgroundColor": "$surface",
+              "borderColor": "$border",
+              "borderWidth": 1,
+              "radius": 20
+            },
+            "children": [
+              {
+                "type": "label",
+                "id": "value",
+                "width": "fill",
+                "height": "content",
+                "fontSize": 48,
+                "text": "0",
+                "style": { "textColor": "$text", "textAlign": "center" }
+              }
+            ]
+          },
+          {
+            "type": "container",
+            "id": "actionRow",
+            "width": "fill",
+            "height": "content",
+            "layout": "column",
+            "gap": 16,
+            "children": [
+              {
+                "type": "container",
+                "id": "circleWrap",
+                "width": "fill",
+                "height": 128,
+                "layout": "row",
+                "children": [
+                  {
+                    "type": "container",
+                    "id": "circleSpacerL",
+                    "width": 1,
+                    "height": 1,
+                    "style": { "flexGrow": 1 }
+                  },
+                  {
+                    "type": "button",
+                    "id": "increment",
+                    "width": 112,
+                    "height": 112,
+                    "fontSize": 32,
+                    "textKey": "increment",
+                    "style": {
+                      "backgroundColor": "$accent",
+                      "textColor": "#ffffff",
+                      "textAlign": "center",
+                      "radius": 56,
+                      "states": {
+                        "pressed": { "backgroundColor": "$pressed" }
+                      }
+                    }
+                  },
+                  {
+                    "type": "container",
+                    "id": "circleSpacerR",
+                    "width": 1,
+                    "height": 1,
+                    "style": { "flexGrow": 1 }
+                  }
+                ]
+              },
+              {
+                "type": "button",
+                "id": "reset",
+                "width": "fill",
+                "height": 44,
+                "textKey": "reset",
+                "style": {
+                  "backgroundColor": "$surface",
+                  "textColor": "$secondary",
+                  "borderColor": "$border",
+                  "borderWidth": 1,
+                  "radius": 14,
+                  "states": {
+                    "pressed": { "backgroundColor": "$pressed" }
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -18,6 +18,7 @@ typedef struct {
 
 typedef struct {
     bool pending;
+    uint8_t requested_locale, saved_locale, requested_font_percent, saved_font_percent;
     uint8_t requested_brightness, saved_brightness;
     uint8_t requested_theme, saved_theme; // 0 light, 1 dark
     esp_err_t last_error;
@@ -31,6 +32,7 @@ esp_err_t ouse_system_get_info(ouse_system_info_t *info);
 // ESP_OK means accepted, not committed; inspect get_settings_state for completion.
 esp_err_t ouse_system_request_brightness(uint8_t brightness);
 esp_err_t ouse_system_request_theme(uint8_t theme);
+esp_err_t ouse_system_request_ui(uint8_t locale, uint8_t font_percent);
 esp_err_t ouse_system_request_settings(uint8_t brightness, uint8_t theme);
 esp_err_t ouse_system_get_settings_state(ouse_settings_state_t *state);
 

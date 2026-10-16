@@ -1,0 +1,8 @@
+{
+  "runtime": "ouse-core",
+  "api": 1,
+  "id": "user.calculator",
+  "name": "Calculator",
+  "names": {"zh_CN": "计算器", "en": "Calculator"},
+  "icon": "icon.bin"
+}

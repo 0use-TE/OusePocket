@@ -1,0 +1,8 @@
+menu "Ouse development tools"
+    config OUSE_DEVICE_DEBUG
+        bool "Serial device control and on-device tests"
+        default y
+        help
+            Enables explicit DBG commands on the existing wired OPK1 service.
+            No network listener or background input polling is added.
+endmenu

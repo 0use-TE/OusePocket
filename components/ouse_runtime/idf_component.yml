@@ -1,0 +1,5 @@
+version: "0.8.0"
+description: Bounded native LVGL JSON and QuickJS application runtime
+dependencies:
+  idf: "==6.1.0"
+  espressif/quickjs-ng: "==0.14.0"

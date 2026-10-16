@@ -1,7 +1,10 @@
 #include "ouse_theme.h"
+#include "ouse_ui.h"
 // SPDX-License-Identifier: MIT
 #include "ouse_apps_internal.h"
+#include "ouse_ime.h"
 #include <string.h>
+#include <stdio.h>
 #include "esp_log.h"
 
 typedef struct {
@@ -9,10 +12,11 @@ typedef struct {
     esp_err_t (*open)(lv_obj_t *, void *);
     void (*close)(void *);
     void (*pause)(void *), (*resume)(void *);
+    bool (*back)(void *);
     lv_obj_t *root;
     lv_draw_buf_t *preview;
     lv_image_dsc_t image;
-    ouse_theme_t preview_theme;
+    uint32_t preview_generation;
     uint64_t touched;
     void *context;
 } entry_t;
@@ -32,12 +36,41 @@ esp_err_t ouse_apps_validate(const ouse_app_definition_t *app)
     if (!app || !app->id || !app->name || !app->icon || !app->open || !app->close ||
         !*app->id || strlen(app->id) >= 48 || !*app->name || strlen(app->name) >= 48 ||
         !*app->icon || strlen(app->icon) >= 16) return ESP_ERR_INVALID_ARG;
+    if ((app->name_zh && strlen(app->name_zh)>=48) || (app->name_en && strlen(app->name_en)>=48))
+        return ESP_ERR_INVALID_ARG;
     if ((app->pause == NULL) != (app->resume == NULL)) return ESP_ERR_INVALID_ARG;
     for (const char *p = app->id; *p; ++p) {
         if (!((*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9') || *p == '.' || *p == '_' || *p == '-'))
             return ESP_ERR_INVALID_ARG;
     }
     return ESP_OK;
+}
+
+static void copy_definition(entry_t *entry,const ouse_app_definition_t *definition)
+{
+    // Store every name in the registry. Package replacement may release its
+    // manifest strings after all old UI objects have been removed.
+    strcpy(entry->info.id,definition->id);
+    strcpy(entry->info.name,definition->name);
+    strcpy(entry->info.default_name,definition->name);
+    strcpy(entry->info.icon,definition->icon);
+    if(definition->name_zh)strcpy(entry->info.name_zh,definition->name_zh);
+    if(definition->name_en)strcpy(entry->info.name_en,definition->name_en);
+    entry->info.icon_image=definition->icon_image;
+    entry->open=definition->open;entry->close=definition->close;entry->context=definition->context;
+    entry->pause=definition->pause;entry->resume=definition->resume;
+    entry->back=definition->back;
+}
+
+static void resolve_info(const entry_t *entry,ouse_app_info_t *info)
+{
+    *info=entry->info;
+    const char *name=ouse_ui_locale() ? info->name_en : info->name_zh;
+    if(!*name)name=info->default_name;
+    // Legacy native definitions keep the firmware vocabulary. Installed apps
+    // always own their displayed strings, including exact fallback spelling.
+    if(!info->name_zh[0] && !info->name_en[0] && strncmp(info->id,"user.",5))name=ouse_ui_tr(name);
+    snprintf(info->name,sizeof(info->name),"%s",name);
 }
 
 esp_err_t ouse_apps_init(lv_obj_t *host, void (*changed)(bool))
@@ -58,9 +91,7 @@ esp_err_t ouse_apps_register(const ouse_app_definition_t *app)
         if (!strcmp(apps.entries[i].info.id, app->id)) return ESP_ERR_INVALID_STATE;
     if (apps.count == OUSE_APP_CAPACITY) return ESP_ERR_NO_MEM;
     entry_t *entry = &apps.entries[apps.count++];
-    strcpy(entry->info.id, app->id); strcpy(entry->info.name, app->name); strcpy(entry->info.icon, app->icon);
-    entry->open = app->open; entry->close = app->close; entry->context = app->context;
-    entry->pause = app->pause; entry->resume = app->resume;
+    copy_definition(entry,app);
     ESP_LOGI("OuseApps", "Registered: %s", entry->info.id);
     return ESP_OK;
 }
@@ -78,6 +109,19 @@ static void free_preview(entry_t *entry)
     if (entry->preview) lv_draw_buf_destroy(entry->preview);
     entry->preview=NULL; memset(&entry->image,0,sizeof(entry->image));
 }
+esp_err_t ouse_app_find_info(const char *id,ouse_app_info_t *info)
+{
+    if(!id || !info)return ESP_ERR_INVALID_ARG;
+    if(!apps.host)return ESP_ERR_INVALID_STATE;
+    int index=find(id);if(index<0)return ESP_ERR_NOT_FOUND;
+    resolve_info(&apps.entries[index],info);return ESP_OK;
+}
+bool ouse_app_back(void)
+{
+    if(!apps.host || apps.active<0 || apps.transitioning)return false;
+    entry_t *entry=&apps.entries[apps.active];
+    return entry->back && entry->back(entry->context);
+}
 static void capture_preview(entry_t *entry)
 {
     bool host_hidden=lv_obj_has_flag(apps.host,LV_OBJ_FLAG_HIDDEN);
@@ -87,7 +131,7 @@ static void capture_preview(entry_t *entry)
     lv_obj_update_layout(entry->root);
     free_preview(entry);
     entry->preview=lv_snapshot_take(entry->root,LV_COLOR_FORMAT_RGB565);
-    entry->preview_theme=ouse_theme_get();
+    entry->preview_generation=ouse_ui_generation();
     if (entry->preview) lv_draw_buf_to_image(entry->preview,&entry->image);
     if (root_hidden) lv_obj_add_flag(entry->root,LV_OBJ_FLAG_HIDDEN);
     if (host_hidden) lv_obj_add_flag(apps.host,LV_OBJ_FLAG_HIDDEN);
@@ -96,6 +140,7 @@ static void background_instance(void)
 {
     if (apps.active<0) return;
     entry_t *entry=&apps.entries[apps.active];
+    ouse_ime_hide_root(entry->root);
     if (entry->pause) entry->pause(entry->context);
     capture_preview(entry);
     lv_obj_add_flag(entry->root,LV_OBJ_FLAG_HIDDEN);
@@ -106,6 +151,7 @@ static void close_instance(int index)
 {
     entry_t *entry=&apps.entries[index];
     if (!entry->root) return;
+    ouse_ime_hide_root(entry->root);
     if (apps.active==index) apps.active=-1;
     entry->close(entry->context);
     lv_obj_delete(entry->root); entry->root=NULL;
@@ -203,7 +249,7 @@ esp_err_t ouse_app_get_recent(unsigned index, ouse_app_info_t *info)
             if (entry->root && entry->touched<ceiling && entry->touched>newest) { newest=entry->touched; selected=(int)i; }
         }
         if (selected<0) return ESP_ERR_NOT_FOUND;
-        if (rank==index) { *info=apps.entries[selected].info; return ESP_OK; }
+        if (rank==index) { resolve_info(&apps.entries[selected],info); return ESP_OK; }
         ceiling=newest;
     }
     return ESP_ERR_NOT_FOUND;
@@ -211,8 +257,13 @@ esp_err_t ouse_app_get_recent(unsigned index, ouse_app_info_t *info)
 const lv_image_dsc_t *ouse_app_get_preview(const char *id)
 {
     int index=find(id);
-    if (index>=0 && apps.entries[index].root && (!apps.entries[index].preview || apps.entries[index].preview_theme!=ouse_theme_get()))
-        capture_preview(&apps.entries[index]);
+    if (index>=0 && apps.entries[index].root) {
+        entry_t *entry=&apps.entries[index];
+        // Paused scripts receive preference notifications on resume. Discard
+        // old previews rather than displaying mixed-language or stale content.
+        if(entry->preview && entry->preview_generation!=ouse_ui_generation())free_preview(entry);
+        if(!entry->preview && index==apps.active)capture_preview(entry);
+    }
     return index>=0 && apps.entries[index].preview ? &apps.entries[index].image : NULL;
 }
 
@@ -221,7 +272,7 @@ esp_err_t ouse_app_get_info(unsigned index, ouse_app_info_t *info)
     if (!info) return ESP_ERR_INVALID_ARG;
     if (!apps.host) return ESP_ERR_INVALID_STATE;
     if (index >= apps.count) return ESP_ERR_NOT_FOUND;
-    *info = apps.entries[index].info;
+    resolve_info(&apps.entries[index],info);
     return ESP_OK;
 }
 
@@ -236,5 +287,40 @@ esp_err_t ouse_app_get_stats(ouse_app_stats_t *stats)
         if (apps.entries[i].preview) stats->preview_bytes+=apps.entries[i].preview->data_size;
     }
     if (apps.active >= 0) strcpy(stats->active_id, apps.entries[apps.active].info.id);
+    return ESP_OK;
+}
+
+// Runtime mutation remains serialized by the UI task. Built-ins are immutable.
+esp_err_t ouse_apps_user_check(const char *id)
+{
+    if(!id || strncmp(id,"user.",5) || !id[5] || strlen(id)>=48) return ESP_ERR_INVALID_ARG;
+    for(const char *p=id;*p;++p)
+        if(!((*p>='a' && *p<='z') || (*p>='0' && *p<='9') || *p=='.' || *p=='_' || *p=='-'))return ESP_ERR_INVALID_ARG;
+    if(!apps.host || !apps.sealed || apps.transitioning)return ESP_ERR_INVALID_STATE;
+    return find(id)>=0 || apps.count<OUSE_APP_CAPACITY ? ESP_OK : ESP_ERR_NO_MEM;
+}
+esp_err_t ouse_apps_user_apply(const ouse_app_definition_t *definition)
+{
+    esp_err_t error=ouse_apps_validate(definition);
+    if(error!=ESP_OK)return error;
+    error=ouse_apps_user_check(definition->id);if(error!=ESP_OK)return error;
+    int index=find(definition->id);
+    if(index>=0) {
+        error=ouse_app_close_id(definition->id);if(error!=ESP_OK)return error;
+        entry_t *entry=&apps.entries[index];
+        memset(entry,0,sizeof(*entry));
+        copy_definition(entry,definition);
+        return ESP_OK;
+    }
+    apps.sealed=false;error=ouse_apps_register(definition);apps.sealed=true;return error;
+}
+esp_err_t ouse_apps_user_remove(const char *id)
+{
+    esp_err_t error=ouse_apps_user_check(id);if(error!=ESP_OK)return error;
+    int index=find(id);if(index<0)return ESP_ERR_NOT_FOUND;
+    error=ouse_app_close_id(id);if(error!=ESP_OK)return error;
+    memmove(&apps.entries[index],&apps.entries[index+1],(apps.count-(unsigned)index-1)*sizeof(entry_t));
+    --apps.count;memset(&apps.entries[apps.count],0,sizeof(entry_t));
+    if(apps.active>index)--apps.active;
     return ESP_OK;
 }

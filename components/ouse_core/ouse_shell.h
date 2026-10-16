@@ -8,6 +8,15 @@ typedef struct {
     esp_err_t (*save_brightness)(void);
     esp_err_t (*settings_state)(ouse_settings_state_t *);
     void (*back)(void);
+    void (*open_settings)(unsigned page);
 } ouse_shell_config_t;
 void ouse_shell_init(const ouse_shell_config_t *config);
 void ouse_shell_foreground(void);
+typedef struct {
+    bool quick,recents,tracking,notifications;
+    int quick_y,back_progress,recent_scroll_x;
+    unsigned cards;
+    unsigned notification_cards;
+    size_t snapshot_bytes;
+} ouse_shell_state_t;
+void ouse_shell_get_state(ouse_shell_state_t *state);

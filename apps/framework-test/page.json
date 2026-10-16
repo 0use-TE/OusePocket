@@ -1,0 +1,33 @@
+{
+  "api": 1,
+  "units": "dp",
+  "root": {
+    "type": "container", "id": "page", "width": "fill", "height": "fill",
+    "layout": "column", "scroll": true, "padding": 16, "gap": 10,
+    "children": [
+      {"type": "label", "id": "title", "text": "Framework Test", "width": "fill", "height": "content", "fontSize": 22},
+      {"type": "label", "id": "ticks", "text": "ticks=0", "width": "fill", "height": "content", "fontSize": 20},
+      {"type": "label", "id": "lifecycle", "text": "state=starting", "width": "fill", "height": "content"},
+      {"type": "label", "id": "result", "text": "result=ready", "width": "fill", "height": "content"},
+      {"type": "label", "id": "cycle", "text": "resumeEpoch=-1;resumeGap=0", "width": "fill", "height": "content"},
+      {"type": "button", "id": "begin", "text": "Run in background", "width": "fill", "height": 42},
+      {"type": "button", "id": "end", "text": "Stop background", "width": "fill", "height": 42},
+      {"type": "button", "id": "delayedEnd", "text": "Stop after 1 second", "width": "fill", "height": 42},
+      {"type": "button", "id": "delayedHome", "text": "Try Home after 1 second", "width": "fill", "height": 42},
+      {"type": "switch", "id": "switch", "width": 48, "height": 28, "value": false},
+      {"type": "checkbox", "id": "checkbox", "text": "Enable option", "width": "fill", "height": 36, "value": false},
+      {"type": "dropdown", "id": "dropdown", "width": "fill", "height": 42, "options": ["First", "Second", "Third"], "value": 0},
+      {"type": "progressBar", "id": "progress", "width": "fill", "height": 10, "min": 0, "max": 100, "value": 25},
+      {"type": "label", "id": "inputStatus", "text": "input=none", "width": "fill", "height": "content"},
+      {"type": "label", "id": "resizeTitle", "text": "Text · Resize", "width": "fill", "height": "content"},
+      {"type": "textInput", "id": "resizeInput", "width": "fill", "height": 44, "placeholder": "Text", "text": "", "maxLength": 64, "inputType": "text", "keyboardMode": "resize"},
+      {"type": "label", "id": "numberTitle", "text": "Number · Pan", "width": "fill", "height": "content"},
+      {"type": "textInput", "id": "numberInput", "width": "fill", "height": 44, "placeholder": "Number", "text": "", "maxLength": 16, "inputType": "number", "keyboardMode": "pan"},
+      {"type": "label", "id": "passwordTitle", "text": "Password · Resize", "width": "fill", "height": "content"},
+      {"type": "textInput", "id": "secretInput", "width": "fill", "height": 44, "placeholder": "Password", "text": "", "maxLength": 64, "inputType": "password", "keyboardMode": "resize"},
+      {"type": "label", "id": "overlayTitle", "text": "Text · Overlay", "width": "fill", "height": "content"},
+      {"type": "textInput", "id": "overlayInput", "width": "fill", "height": 44, "placeholder": "Overlay", "text": "", "maxLength": 64, "inputType": "text", "keyboardMode": "overlay"},
+      {"type": "button", "id": "home", "text": "Home", "width": "fill", "height": 42}
+    ]
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "name": "ouse-bpk",
+  "displayName": "Ouse BPK",
+  "description": "列出工作区里的 Ouse Core 应用，编辑名称和图标，并在编辑区预览、打包、串口安装与卸载。",
+  "version": "1.0.0",
+  "publisher": "ouse",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onView:ouseBpk.apps"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ouse-bpk",
+          "title": "BPK",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "ouse-bpk": [
+        {
+          "type": "webview",
+          "id": "ouseBpk.apps",
+          "name": "应用"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "ouseBpk.refresh",
+        "title": "同步设备应用",
+        "icon": "$(refresh)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "ouseBpk.refresh",
+          "when": "view == ouseBpk.apps",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "sync-theme": "python ../gen-theme-colors.py",
+    "precompile": "npm run sync-theme",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "prepackage": "npm run compile",
+    "package": "vsce package --allow-missing-repository"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.2.1",
+    "typescript": "^5.4.5"
+  }
+}

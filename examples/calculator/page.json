@@ -1,0 +1,247 @@
+{
+  "api": 1,
+  "units": "dp",
+  "translations": {
+    "zh_CN": { "title": "计算器" },
+    "en": { "title": "Calculator" }
+  },
+  "root": {
+    "type": "container",
+    "id": "page",
+    "width": "fill",
+    "height": "fill",
+    "layout": "column",
+    "scroll": false,
+    "padding": 8,
+    "gap": 6,
+    "style": { "backgroundColor": "$desktop" },
+    "children": [
+      {
+        "type": "container",
+        "id": "display",
+        "width": "fill",
+        "height": 130,
+        "layout": "column",
+        "padding": 12,
+        "gap": 4,
+        "style": {
+          "backgroundColor": "$surface",
+          "borderColor": "$border",
+          "borderWidth": 1,
+          "radius": 16
+        },
+        "children": [
+          { "type": "container", "id": "spacer", "width": "fill", "height": 40 },
+          {
+            "type": "label",
+            "id": "expr",
+            "width": "fill",
+            "height": "content",
+            "fontSize": 16,
+            "text": "0",
+            "style": { "textColor": "$secondary", "textAlign": "right" }
+          },
+          {
+            "type": "label",
+            "id": "result",
+            "width": "fill",
+            "height": "content",
+            "fontSize": 32,
+            "text": "0",
+            "style": { "textColor": "$text", "textAlign": "right" }
+          }
+        ]
+      },
+      {
+        "type": "container",
+        "id": "row_top",
+        "width": "fill",
+        "height": "content",
+        "layout": "row",
+        "gap": 6,
+        "children": [
+          {
+            "type": "button", "id": "b_ac", "width": 71, "height": 48, "fontSize": 18, "text": "AC",
+            "style": {
+              "backgroundColor": "$surface", "textColor": "$error", "borderColor": "$border", "borderWidth": 1, "radius": 14,
+              "states": { "pressed": { "backgroundColor": "$pressed" } }
+            }
+          },
+          {
+            "type": "button", "id": "b_paren", "width": 71, "height": 48, "fontSize": 18, "text": "()",
+            "style": {
+              "backgroundColor": "$surface", "textColor": "$secondary", "borderColor": "$border", "borderWidth": 1, "radius": 14,
+              "states": { "pressed": { "backgroundColor": "$pressed" } }
+            }
+          },
+          {
+            "type": "button", "id": "b_pct", "width": 71, "height": 48, "fontSize": 18, "text": "%",
+            "style": {
+              "backgroundColor": "$surface", "textColor": "$secondary", "borderColor": "$border", "borderWidth": 1, "radius": 14,
+              "states": { "pressed": { "backgroundColor": "$pressed" } }
+            }
+          },
+          {
+            "type": "button", "id": "b_div", "width": 71, "height": 48, "fontSize": 20, "text": "/",
+            "style": {
+              "backgroundColor": "$accent", "textColor": "#ffffff", "radius": 14,
+              "states": { "pressed": { "backgroundColor": "$pressed" } }
+            }
+          }
+        ]
+      },
+      {
+        "type": "container",
+        "id": "row_7",
+        "width": "fill",
+        "height": "content",
+        "layout": "row",
+        "gap": 6,
+        "children": [
+          {
+            "type": "button", "id": "b_7", "width": 71, "height": 48, "fontSize": 20, "text": "7",
+            "style": {
+              "backgroundColor": "$surface", "borderColor": "$border", "borderWidth": 1, "radius": 14,
+              "states": { "pressed": { "backgroundColor": "$pressed" } }
+            }
+          },
+          {
+            "type": "button", "id": "b_8", "width": 71, "height": 48, "fontSize": 20, "text": "8",
+            "style": {
+              "backgroundColor": "$surface", "borderColor": "$border", "borderWidth": 1, "radius": 14,
+              "states": { "pressed": { "backgroundColor": "$pressed" } }
+            }
+          },
+          {
+            "type": "button", "id": "b_9", "width": 71, "height": 48, "fontSize": 20, "text": "9",
+            "style": {
+              "backgroundColor": "$surface", "borderColor": "$border", "borderWidth": 1, "radius": 14,
+              "states": { "pressed": { "backgroundColor": "$pressed" } }
+            }
+          },
+          {
+            "type": "button", "id": "b_mul", "width": 71, "height": 48, "fontSize": 20, "text": "*",
+            "style": {
+              "backgroundColor": "$accent", "textColor": "#ffffff", "radius": 14,
+              "states": { "pressed": { "backgroundColor": "$pressed" } }
+            }
+          }
+        ]
+      },
+      {
+        "type": "container",
+        "id": "row_4",
+        "width": "fill",
+        "height": "content",
+        "layout": "row",
+        "gap": 6,
+        "children": [
+          {
+            "type": "button", "id": "b_4", "width": 71, "height": 48, "fontSize": 20, "text": "4",
+            "style": {
+              "backgroundColor": "$surface", "borderColor": "$border", "borderWidth": 1, "radius": 14,
+              "states": { "pressed": { "backgroundColor": "$pressed" } }
+            }
+          },
+          {
+            "type": "button", "id": "b_5", "width": 71, "height": 48, "fontSize": 20, "text": "5",
+            "style": {
+              "backgroundColor": "$surface", "borderColor": "$border", "borderWidth": 1, "radius": 14,
+              "states": { "pressed": { "backgroundColor": "$pressed" } }
+            }
+          },
+          {
+            "type": "button", "id": "b_6", "width": 71, "height": 48, "fontSize": 20, "text": "6",
+            "style": {
+              "backgroundColor": "$surface", "borderColor": "$border", "borderWidth": 1, "radius": 14,
+              "states": { "pressed": { "backgroundColor": "$pressed" } }
+            }
+          },
+          {
+            "type": "button", "id": "b_sub", "width": 71, "height": 48, "fontSize": 20, "text": "-",
+            "style": {
+              "backgroundColor": "$accent", "textColor": "#ffffff", "radius": 14,
+              "states": { "pressed": { "backgroundColor": "$pressed" } }
+            }
+          }
+        ]
+      },
+      {
+        "type": "container",
+        "id": "row_1",
+        "width": "fill",
+        "height": "content",
+        "layout": "row",
+        "gap": 6,
+        "children": [
+          {
+            "type": "button", "id": "b_1", "width": 71, "height": 48, "fontSize": 20, "text": "1",
+            "style": {
+              "backgroundColor": "$surface", "borderColor": "$border", "borderWidth": 1, "radius": 14,
+              "states": { "pressed": { "backgroundColor": "$pressed" } }
+            }
+          },
+          {
+            "type": "button", "id": "b_2", "width": 71, "height": 48, "fontSize": 20, "text": "2",
+            "style": {
+              "backgroundColor": "$surface", "borderColor": "$border", "borderWidth": 1, "radius": 14,
+              "states": { "pressed": { "backgroundColor": "$pressed" } }
+            }
+          },
+          {
+            "type": "button", "id": "b_3", "width": 71, "height": 48, "fontSize": 20, "text": "3",
+            "style": {
+              "backgroundColor": "$surface", "borderColor": "$border", "borderWidth": 1, "radius": 14,
+              "states": { "pressed": { "backgroundColor": "$pressed" } }
+            }
+          },
+          {
+            "type": "button", "id": "b_add", "width": 71, "height": 48, "fontSize": 20, "text": "+",
+            "style": {
+              "backgroundColor": "$accent", "textColor": "#ffffff", "radius": 14,
+              "states": { "pressed": { "backgroundColor": "$pressed" } }
+            }
+          }
+        ]
+      },
+      {
+        "type": "container",
+        "id": "row_0",
+        "width": "fill",
+        "height": "content",
+        "layout": "row",
+        "gap": 6,
+        "children": [
+          {
+            "type": "button", "id": "b_0", "width": 71, "height": 48, "fontSize": 20, "text": "0",
+            "style": {
+              "backgroundColor": "$surface", "borderColor": "$border", "borderWidth": 1, "radius": 14,
+              "states": { "pressed": { "backgroundColor": "$pressed" } }
+            }
+          },
+          {
+            "type": "button", "id": "b_dot", "width": 71, "height": 48, "fontSize": 20, "text": ".",
+            "style": {
+              "backgroundColor": "$surface", "borderColor": "$border", "borderWidth": 1, "radius": 14,
+              "states": { "pressed": { "backgroundColor": "$pressed" } }
+            }
+          },
+          {
+            "type": "button", "id": "b_bs", "width": 71, "height": 48, "fontSize": 20, "text": "<",
+            "style": {
+              "backgroundColor": "$surface", "textColor": "$secondary", "borderColor": "$border", "borderWidth": 1, "radius": 14,
+              "states": { "pressed": { "backgroundColor": "$pressed" } }
+            }
+          },
+          {
+            "type": "button", "id": "b_eq", "width": 71, "height": 48, "fontSize": 20, "text": "=",
+            "style": {
+              "backgroundColor": "$accent", "textColor": "#ffffff", "radius": 14,
+              "states": { "pressed": { "backgroundColor": "$pressed" } }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,124 @@
+{
+  "api": 1,
+  "units": "dp",
+  "translations": {
+    "zh_CN": {
+      "title": "资源监视",
+      "memoryTitle": "可用内存 / 总量",
+      "storageTitle": "应用存储",
+      "systemTitle": "系统",
+      "used": "已用: ",
+      "free": "可用: ",
+      "packages": "安装包: ",
+      "private": "应用数据: ",
+      "physical": "物理 Flash: ",
+      "cpu": "CPU 频率: ",
+      "uptime": "运行时间: ",
+      "period": "刷新间隔",
+      "unavailable": "存储暂不可用"
+    },
+    "en": {
+      "title": "Resources",
+      "memoryTitle": "Free memory / Total",
+      "storageTitle": "Application storage",
+      "systemTitle": "System",
+      "used": "Used: ",
+      "free": "Free: ",
+      "packages": "Packages: ",
+      "private": "App data: ",
+      "physical": "Physical Flash: ",
+      "cpu": "CPU frequency: ",
+      "uptime": "Uptime: ",
+      "period": "Refresh interval",
+      "unavailable": "Storage unavailable"
+    }
+  },
+  "root": {
+    "type": "container",
+    "id": "page",
+    "width": "fill",
+    "height": "fill",
+    "layout": "column",
+    "scroll": true,
+    "padding": 12,
+    "gap": 12,
+    "children": [
+      {
+        "type": "toolbar",
+        "id": "title",
+        "textKey": "title",
+        "width": "fill",
+        "height": 56
+      },
+      {
+        "type": "card",
+        "id": "memoryCard",
+        "textKey": "memoryTitle",
+        "width": "fill",
+        "height": "content",
+        "children": [
+          {
+            "type": "label",
+            "id": "memory",
+            "width": "fill",
+            "height": "content",
+            "fontSize": 14
+          }
+        ]
+      },
+      {
+        "type": "card",
+        "id": "storageCard",
+        "textKey": "storageTitle",
+        "width": "fill",
+        "height": "content",
+        "children": [
+          {
+            "type": "label",
+            "id": "storage",
+            "width": "fill",
+            "height": "content",
+            "fontSize": 14
+          }
+        ]
+      },
+      {
+        "type": "card",
+        "id": "systemCard",
+        "textKey": "systemTitle",
+        "width": "fill",
+        "height": "content",
+        "children": [
+          {
+            "type": "label",
+            "id": "system",
+            "width": "fill",
+            "height": "content",
+            "fontSize": 14
+          }
+        ]
+      },
+      {
+        "type": "listItem",
+        "id": "refreshRow",
+        "textKey": "period",
+        "width": "fill",
+        "height": "content",
+        "children": [
+          {
+            "type": "dropdown",
+            "id": "interval",
+            "width": 96,
+            "height": 44,
+            "options": [
+              "1 s",
+              "2 s",
+              "5 s"
+            ],
+            "value": 0
+          }
+        ]
+      }
+    ]
+  }
+}

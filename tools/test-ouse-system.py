@@ -77,6 +77,7 @@ fixture = r'''
 static void (*worker)(void *);
 static unsigned item_size, commits, queue_items;
 static uint8_t queue_data[32], disk=65, staged, disk_theme=1, staged_theme;
+static uint8_t disk_locale=1, staged_locale, disk_font=115, staged_font;
 static int init_error, commit_error, task_fail;
 static bool inject, check_pending;
 static jmp_buf finished;
@@ -92,18 +93,22 @@ esp_err_t nvs_open(const char *name, int mode, nvs_handle_t *h) {
     (void)mode; assert(!strcmp(name,"ouse_core")); *h=1; return ESP_OK;
 }
 esp_err_t nvs_get_u8(nvs_handle_t h, const char *key, uint8_t *v) {
-    (void)h; if (!strcmp(key,"theme")) { *v=disk_theme; return ESP_OK; }
+    (void)h; if (!strcmp(key,"locale")) { *v=disk_locale; return ESP_OK; }
+    if (!strcmp(key,"font")) { *v=disk_font; return ESP_OK; }
+    if (!strcmp(key,"theme")) { *v=disk_theme; return ESP_OK; }
     assert(!strcmp(key,"brightness")); *v=disk; return disk ? ESP_OK : ESP_ERR_NVS_NOT_FOUND;
 }
 esp_err_t nvs_set_u8(nvs_handle_t h, const char *key, uint8_t v) {
-    (void)h; if (!strcmp(key,"theme")) staged_theme=v;
+    (void)h; if (!strcmp(key,"locale")) staged_locale=v;
+    else if (!strcmp(key,"font")) staged_font=v;
+    else if (!strcmp(key,"theme")) staged_theme=v;
     else { assert(!strcmp(key,"brightness")); staged=v; } return ESP_OK;
 }
 esp_err_t nvs_commit(nvs_handle_t h) {
     (void)h; ++commits;
     if (inject) { inject=false; assert(ouse_system_request_brightness(90)==ESP_OK); check_pending=true; }
     if (commit_error) return commit_error;
-    disk=staged; disk_theme=staged_theme; return ESP_OK;
+    disk=staged; disk_theme=staged_theme; disk_locale=staged_locale; disk_font=staged_font; return ESP_OK;
 }
 void nvs_close(nvs_handle_t h) { (void)h; }
 QueueHandle_t xQueueCreate(unsigned n, unsigned size) { assert(n==1 && size<=sizeof(queue_data)); item_size=size; return (void *)1; }
@@ -172,6 +177,13 @@ int main(int argc, char **argv) {
     assert(ouse_system_request_brightness(60)==ESP_OK); drain();
     assert(disk==60 && disk_theme==0);
     assert(ouse_system_get_settings_state(&s)==ESP_OK && s.saved_theme==0 && s.saved_brightness==60);
+    assert(s.saved_locale==1 && s.saved_font_percent==115);
+    assert(ouse_system_request_ui(2,100)==ESP_ERR_INVALID_ARG);
+    assert(ouse_system_request_ui(0,101)==ESP_ERR_INVALID_ARG);
+    assert(ouse_system_request_ui(0,130)==ESP_OK);
+    assert(ouse_system_request_brightness(77)==ESP_OK);drain();
+    assert(disk==77 && disk_theme==0 && disk_locale==0 && disk_font==130);
+    assert(ouse_system_get_settings_state(&s)==ESP_OK && s.saved_locale==0 && s.saved_font_percent==130);
     puts("PASS persistence backend: boot restore, deferred commit, failure/retry, coalescing, stale completion");
     return 0;
 }

@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Uses the archived native gesture helper without Brookesia runtime dependencies.
 #include "private/navigation_gesture.hpp"
+#include "ouse_ui.h"
 extern "C" bool ouse_navigation_back(int x,int y,int stop_x,int stop_y,int width,int height)
 {
-    return esp_brookesia::system::super::navigation::back_swipe(x,y,stop_x,stop_y,width,height,1.0f);
+    return esp_brookesia::system::super::navigation::back_swipe(x,y,stop_x,stop_y,width,height,ouse_ui_density()/160.0f);
 }
 
 // Clock formatting ported from the archived shell_status.cpp.
@@ -35,4 +36,18 @@ extern "C" void ouse_navigation_grid(int available_width,int available_height,un
     *x=static_cast<int>(slot%launcher_columns)*(item_width+item_gap);
     *y=static_cast<int>(slot/launcher_columns)*(item_height+item_gap);
     *page=static_cast<int>(index/capacity); *page_width=launcher_grid_width;
+}
+
+#include <cstdio>
+extern "C" void ouse_navigation_date(char *buffer,size_t size,bool chinese)
+{
+    const auto now=std::time(nullptr);std::tm local{};
+#if defined(_WIN32)
+    localtime_s(&local,&now);
+#else
+    localtime_r(&now,&local);
+#endif
+    if(local.tm_year<124){std::snprintf(buffer,size,"%s",ouse_ui_tr("未校时"));return;}
+    if(chinese)std::snprintf(buffer,size,"%d月%d日",local.tm_mon+1,local.tm_mday);
+    else std::strftime(buffer,size,"%b %d, %a",&local);
 }
