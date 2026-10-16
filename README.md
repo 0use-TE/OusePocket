@@ -1,4 +1,4 @@
-# Ouse Core 0.8.0
+# Ouse Core 0.9.0
 
 OusePocket 是 ESP32-P4 上的轻量多媒体应用框架。仓库根目录就是 ESP-IDF 工程；硬件与系统服务使用原生 C/C++，桌面和设置使用 LVGL，独立应用使用 JSON＋JavaScript。旧 Brookesia 工程、微雪示例与历史资料保存在 `legacy/`，当前固件不依赖该目录。
 
@@ -6,9 +6,9 @@ OusePocket 是 ESP32-P4 上的轻量多媒体应用框架。仓库根目录就�
 
 ## 本版状态
 
-源码版本 **0.8.0**，公共核心 C API **8**，脚本运行时 API **1**。本版加入应用子页面导航、分类接口测试 BPK，以及四个快捷项和一条亮度滑条的紧凑原生面板；主题颜色由一份 JSON 生成。包资源、异步私有持久化、19 种控件、通知中心、受控后台和共享软键盘保留。实现及本轮验证状态见 [0.8.0 记录](docs/0.8.0-navigation-ui.md)。
+当前源码 **0.9.0**，公共核心 C API **8**、脚本运行时 API **1**。新增有界原生任务登记、实例所有权与终态事件、后台原因和诊断缓存；QuickJS 执行保护使用 FreeRTOS 任务获调度时间及独立经过时间熔断，不把经过时间称为 CPU 时间。详见 [本轮系统机制](docs/0.9.0-kernel.md)。本地统一验证和构建已通过；后经用户授权完成应用区烧录、哈希校验及简短启动通信确认。连接已恢复，完整真机功能验收仍待安排。
 
-**0.8.0 已构建、烧录并完成本轮五套真机验收。** 快捷面板 6 组、子页面 10 组、框架 14 组、资源存储 12 组、最终分类 API 17 组均通过，未见系统 panic 或意外重启。接口测试首页直接显示应用名，Wi-Fi 列表分批更新；最终 API 与清理阶段无新增脚本错误，早期失败证据保留。临时包/数据与通知已清理，Calculator 包与用户数据、接口测试 BPK 保留，COM10 已释放。固件身份、失败修正和短测边界见 [0.8.0 记录](docs/0.8.0-navigation-ui.md)。历史 [0.7.0 验证](docs/0.7.0-framework.md)、[0.6.0 验证](docs/0.6.0-framework.md) 和 [0.5.0 验证](docs/0.5.0-framework.md) 不替代本版验收。
+0.8.0 的紧凑面板、子页面、分类接口及五套真机验收属于历史版本，见 [0.8.0 记录](docs/0.8.0-navigation-ui.md)，不能作为当前版本硬件验收。依赖、分区、字体和显示等待修复保持。
 
 默认固件只有设置应用。资源监视和接口测试已改为独立 BPK，计数器保留为开发示例。没有任何 JSON＋JS 应用再通过固件启动入口内置注册。
 
@@ -43,8 +43,8 @@ OusePocket 是 ESP32-P4 上的轻量多媒体应用框架。仓库根目录就�
 
 | 应用 | 文件 | 字节数 |
 | --- | --- | ---: |
-| 资源监视 | `dist/bpk/resource-monitor.bpk` | 14,001 |
-| 分类接口测试 | `dist/bpk/api-test.bpk` | 72,433 |
+| 资源监视 | `dist/bpk/resource-monitor.bpk` | 14,479 |
+| 分类接口测试 | `dist/bpk/api-test.bpk` | 74,163 |
 | Counter 示例 | `dist/bpk/counter.bpk` | — |
 | Calculator 示例 | `dist/bpk/calculator.bpk` | 21,845 |
 
@@ -82,9 +82,9 @@ QuickJS 组件单独加入 `-fno-strict-aliasing`，解决本机 GCC 15 RISC-V �
 idf.py build
 ```
 
-应用产物为 `build/ouse_core_desktop.bin`，对应应用地址 `0x10000`。最终固件为 **7,470,448 字节**，8 MiB 应用分区剩 **918,160 字节**；已通过 COM10 / 921600 应用烧录与哈希校验，保留 NVS 和 LittleFS。五套检查与最终清理已完成，身份和证据见 [0.8.0 记录](docs/0.8.0-navigation-ui.md)。首次空白设备还需要 bootloader 与分区表，不额外生成合并固件包。
+应用产物为 `build/ouse_core_desktop.bin`，对应应用地址 `0x10000`。0.8.0 历史固件为 **7,470,448 字节**，8 MiB 应用分区剩 **918,160 字节**；已通过 COM10 / 921600 应用烧录与哈希校验，保留 NVS 和 LittleFS。五套检查与最终清理已完成，身份和证据见 [0.8.0 记录](docs/0.8.0-navigation-ui.md)。首次空白设备还需要 bootloader 与分区表，不额外生成合并固件包。
 
-保留 CPU 400 MHz、PSRAM 200 MHz、XiP、双核和真实 LCD/Wi-Fi。LVGL 单绘制单元，UI 任务为 48 KiB 内部栈；所有 JS 由另一个 64 KiB 内部栈的任务执行，每实例有 512 KiB JS 堆、40 KiB JS 栈上限，前台/后台每轮预算分别为 12/4 ms。显示 flush 等待继续使用已定位的让出 CPU 方案，等待真实完成而不提前复用 DMA 缓冲；该实现依赖固定 LVGL display 布局，升级时必须重新审视。
+保留 CPU 400 MHz、PSRAM 200 MHz、XiP、双核和真实 LCD/Wi-Fi。LVGL 单绘制单元，UI 任务为 48 KiB 内部栈；所有 JS 由另一个 64 KiB 内部栈的任务执行，每实例有 512 KiB JS 堆、40 KiB JS 栈上限，前台/后台每轮任务获调度时间预算分别为 12/4 ms，详见本轮计时口径。显示 flush 等待继续使用已定位的让出 CPU 方案，等待真实完成而不提前复用 DMA 缓冲；该实现依赖固定 LVGL display 布局，升级时必须重新审视。
 
 ## 架构和后续工作
 
@@ -106,6 +106,7 @@ components/ouse_system/     设置保存与系统查询
 components/ouse_devices/    电源/音频/Wi-Fi 状态
 components/ouse_runtime/    JSON 页面和 QuickJS
 components/ouse_storage/    原生私有存储任务、LittleFS 挂载与统计缓存
+components/ouse_tasks/      有界任务登记、所有权、取消与完成状态
 components/ouse_installer/  OPK1 和 BPK 管理
 apps/                       独立资源监视/接口测试 BPK 源码
 examples/                   计数器/计算器等 BPK 示例

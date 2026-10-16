@@ -12,9 +12,7 @@ typedef struct {
     void (*unlock)(void);
     void (*notify)(unsigned worker); // 0 persistence/power, 1 audio, 2 Wi-Fi
 } ouse_device_port_t;
-typedef enum { OUSE_AUDIO_STOP,OUSE_AUDIO_TEST,OUSE_AUDIO_CAPTURE,OUSE_AUDIO_REPLAY } ouse_audio_action_t;
 typedef struct { uint32_t id; ouse_audio_action_t action; unsigned seconds; } ouse_audio_request_t;
-typedef enum { OUSE_WIFI_ENABLE,OUSE_WIFI_SCAN,OUSE_WIFI_CONNECT,OUSE_WIFI_DISCONNECT,OUSE_WIFI_FORGET } ouse_wifi_action_t;
 typedef struct {
     uint32_t id;
     ouse_wifi_action_t action;

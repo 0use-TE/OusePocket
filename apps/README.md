@@ -1,5 +1,7 @@
 # JSON＋JS 应用接口
 
+当前 0.9.0 新增任务 ID/终态事件、后台原因与应用/系统诊断；异步音频和 Wi-Fi 接受请求返回任务 ID（拒绝 false），存储 Promise 增加 taskId。执行预算口径已改为任务获调度时间，以下历史说明中的 12/4 ms 不应解释为纯 JS CPU 时间。接口、取消/关闭策略和计时限制统一见 [0.9.0 系统机制](../docs/0.9.0-kernel.md)。
+
 桌面、设置、手势与系统服务为原生 LVGL/C，固件默认只注册设置。`resource-monitor`、`api-test` 是可安装的 BPK；计数器、计算器见 `examples/counter`、`examples/calculator`。`framework-test`、`framework-stage2` 是框架验证应用，不会默认安装到设备。
 
 应用目录包含 `manifest.json`、`page.json`、`app.js` 和图标，还可声明图片、文本、二进制资源。当前核心 C API 为 8，脚本运行时 API 为 1；单一 BPK 契约、完整参数和返回值见 [BPK 说明](../docs/bpk.md)。修改系统中文后先运行 `tools/generate-core-font.py` 再构建；应用文案由应用自己维护，显示的字形仍需系统字体覆盖。
@@ -136,10 +138,13 @@ loadPreferences();
 | audio | get、setVolume(0..100)、setMuted、testTone、record(1..3)、playRecording、stop、onChange |
 | wifi | get、setEnabled、scan、connect(ssid,password)、disconnect、forget、onChange |
 | notifications | publish/update、cancel、list、onOpen，需声明 notifications:true |
-| system | info、storage，同步查询；storage 使用原生缓存 |
+| system | info、storage、diagnostics、tasks(afterId=0,limit=16)，同步快照查询 |
+| tasks | list(afterId=0,limit=16)、get(id)、cancel(id)、onComplete(fn/null) |
+| background | begin(reason)、end、isActive、get，需声明 background:true |
+| diagnostics | get，当前实例的缓存诊断 |
 | timers | setTimeout/setInterval、clear |
 
-设备 get 读取缓存，写入入口返回是否接受；音频/Wi-Fi 的完成用 requestId/completedId/error 或 onChange 判断。应用私有 storage 与上述设备写请求不同，返回 Promise。system.info 的 CPU 字段是频率，RAM 是可分配堆；暂不提供通用网络请求、模块导入、任意文件、进程或蓝牙 API。
+设备 get 读取缓存；音频/Wi-Fi 的异步操作接受时返回任务 ID，拒绝时 false，应通过 tasks.get/onComplete 判断自己的请求结果。requestId/completedId 仅表示设备最新快照，不代替逐任务历史。音量、静音等短设置仍返回布尔值。应用私有 storage 返回带 taskId 的 Promise，实际 JSON 结果仍由 Promise 交付。system.info 的 CPU 字段是频率，RAM 是可分配堆；暂不提供通用网络请求、模块导入、任意文件、进程或蓝牙 API。
 
 Wi-Fi SSID 为 1～32 UTF-8 字节；密码为空（开放网络）、8～63 字节或 64 位十六进制 PSK，仅连接成功后记住，不从快照返回密码。短录音为 16kHz/16bit/单声道，最多 3 秒，只留在 RAM。sleep 关闭背光，首次唤醒触摸不点击应用。
 

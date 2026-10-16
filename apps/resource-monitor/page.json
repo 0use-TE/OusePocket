@@ -118,6 +118,13 @@
             "value": 0
           }
         ]
+      },
+      {
+        "type": "label",
+        "id": "diagnostics",
+        "width": "fill",
+        "height": "content",
+        "fontSize": 14
       }
     ]
   }

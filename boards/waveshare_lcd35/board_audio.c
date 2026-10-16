@@ -192,9 +192,13 @@ void ouse_board_audio_worker(void *argument)
         ouse_audio_request_t request;
         if(!ouse_devices_take_audio(&request)){ulTaskNotifyTake(pdTRUE,portMAX_DELAY);continue;}
         ouse_audio_state_t state;ouse_audio_get(&state);
-        esp_err_t error=run(request,&state);
+        bool claimed=ouse_task_start(request.id,true);
+        esp_err_t error=claimed ? run(request,&state) : ESP_OK;
+        bool cancelled=ouse_task_cancel_requested(request.id);
         state.mode=error==ESP_OK ? OUSE_AUDIO_IDLE : OUSE_AUDIO_ERROR;state.error=error;state.peak=0;
         state.recorded_ms=recorded_samples/16;state.completed_id=request.id;ouse_devices_publish_audio(&state,request.id);
+        ouse_task_result_t result={.present=true,.value.audio={.recorded_ms=state.recorded_ms,.position_ms=state.position_ms}};
+        ouse_task_finish_result(request.id,error,cancelled,&result);
         if(error!=ESP_OK)ESP_LOGW("OuseAudio","Operation failed: %s",esp_err_to_name(error));
     }
 }

@@ -3,10 +3,17 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "esp_err.h"
+#include "ouse_tasks.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
 #define OUSE_WIFI_AP_MAX 12
+typedef enum { OUSE_AUDIO_STOP,OUSE_AUDIO_TEST,OUSE_AUDIO_CAPTURE,OUSE_AUDIO_REPLAY } ouse_audio_action_t;
+typedef enum { OUSE_WIFI_ENABLE,OUSE_WIFI_SCAN,OUSE_WIFI_CONNECT,OUSE_WIFI_DISCONNECT,OUSE_WIFI_FORGET } ouse_wifi_action_t;
+// Owned submission returns the registry ID. NULL owner means system service.
+esp_err_t ouse_audio_submit(const ouse_task_owner_t *owner,ouse_audio_action_t action,unsigned seconds,uint32_t *id);
+esp_err_t ouse_wifi_submit(const ouse_task_owner_t *owner,ouse_wifi_action_t action,bool enabled,
+    const char *ssid,const char *password,uint32_t *id);
 typedef struct {
     bool available,valid,present,external,charging,full,asleep;
     int percent,millivolts;

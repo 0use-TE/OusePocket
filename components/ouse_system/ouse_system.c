@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include "ouse_system.h"
+#include "ouse_tasks.h"
 #include "esp_flash.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -27,6 +28,12 @@ static void settings_worker(void *argument)
     save_request_t request;
     for (;;) {
         if (xQueueReceive(requests, &request, portMAX_DELAY) != pdTRUE) continue;
+        uint32_t task_id=0;
+        const ouse_task_owner_t owner={.app_id="ouse.system"};
+        // Persistence must remain functional even if diagnostic capacity is
+        // exhausted; the rejected counter makes a missing record explicit.
+        if(ouse_task_create(&owner,OUSE_TASK_SETTINGS,"appearanceSave",OUSE_TASK_FINISH_ON_CLOSE,false,&task_id)==ESP_OK)
+            (void)ouse_task_start(task_id,false);
         nvs_handle_t handle;
         esp_err_t error = nvs_open("ouse_core", NVS_READWRITE, &handle);
         if (error == ESP_OK) {
@@ -37,6 +44,7 @@ static void settings_worker(void *argument)
             if (error == ESP_OK) error = nvs_commit(handle);
             nvs_close(handle);
         }
+        if(task_id)ouse_task_finish(task_id,error,false);
         portENTER_CRITICAL(&state_lock);
         if (error == ESP_OK) { settings.saved_brightness = request.brightness; settings.saved_theme = request.theme; settings.saved_locale=request.locale; settings.saved_font_percent=request.font_percent; }
         if (sequence == request.sequence) {

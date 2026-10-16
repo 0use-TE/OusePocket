@@ -49,6 +49,12 @@
   let lifecycleHandler = null;
   let notificationHandler = null;
   let backgroundActive = false;
+  let backgroundReason = '';
+  let backgroundSince = 0;
+  let previewInstance = 0;
+  let previewTaskId = 0;
+  let taskHandler = null;
+  const previewTasks = [];
   let backgroundAllowed = false;
   let notificationsAllowed = false;
   let assetEntries = [];
@@ -615,14 +621,14 @@
     stopNative(job);
     if (job.interval) {
       job.native = setInterval(() => {
-        if (paused || homes) return;
+        if (paused) return;
         try { job.fn(); } catch (error) { showFault(error); }
       }, job.period);
     } else {
       job.native = setTimeout(() => {
         const index = timers.indexOf(job);
         if (index >= 0) timers.splice(index, 1);
-        if (paused || homes) return;
+        if (paused) return;
         try { job.fn(); } catch (error) { showFault(error); }
       }, job.period);
     }
@@ -655,6 +661,9 @@
   function mountPage(pageId, action, previous) {
     const def = findPageDef(pageId);
     if (!def || !def.root) throw new Error('未知页面 ' + pageId);
+    previewInstance += 1;
+    taskHandler = null;previewTasks.length = 0;
+    backgroundReason = '';backgroundSince = 0;
     widgets.clear();
     unbound.clear();
     screen.replaceChildren();
@@ -879,7 +888,7 @@
         return {
           internalFree: 180000, internalTotal: 320000, psramFree: 24000000, psramTotal: 32000000,
           flashBytes: 16 * 1024 * 1024, cpuMHz: 400, uptimeMs: Date.now() - started,
-          resetReason: 1, coreVersion: '0.7.0', idfVersion: 'preview',
+          resetReason: 1, coreVersion: '0.9.0', idfVersion: 'preview',
         };
       },
       storage() {
@@ -923,33 +932,41 @@
       },
     },
     background: {
-      begin() {
+      begin(reason = 'application') {
+        if (typeof reason !== 'string' || !reason || utf8Length(reason) > 63) throw new Error('Invalid background reason');
         if (!backgroundAllowed) return false;
+        if (!backgroundActive) backgroundSince = Date.now() - started;
+        backgroundReason = reason;
         backgroundActive = true;
-        if (typeof lifecycleHandler === 'function') {
-          try { lifecycleHandler(Ouse.lifecycle.get()); } catch (error) { showFault(error); }
-        }
+        if (homes && paused) { paused = false; resumeTimers(); }
+        schedulePreviewDelivery();
+        if (typeof lifecycleHandler === 'function') lifecycleHandler(Ouse.lifecycle.get());
         return true;
       },
       end() {
         backgroundActive = false;
-        if (typeof lifecycleHandler === 'function') {
-          try { lifecycleHandler(Ouse.lifecycle.get()); } catch (error) { showFault(error); }
-        }
-        return true;
+        backgroundReason = '';
+        backgroundSince = 0;
+        if (homes) { paused = true; pauseTimers(); }
+        if (typeof lifecycleHandler === 'function') lifecycleHandler(Ouse.lifecycle.get());
+        return false;
       },
       isActive() { return backgroundActive; },
+      get() { return Ouse.lifecycle.get(); },
     },
     lifecycle: {
       get() {
-        const visible = !homes && !paused;
-        const runnable = !homes && (visible || backgroundActive);
+        const visible = !homes;
+        const runnable = visible || backgroundActive;
         return {
           state: visible ? 'foreground' : runnable ? 'background' : 'suspended',
           visible: visible,
           runnable: runnable,
           backgroundAllowed: backgroundAllowed,
           backgroundActive: backgroundActive,
+          instanceId: previewInstance, alive: true,
+          reason: backgroundActive ? backgroundReason : '',
+          sinceMs: backgroundActive ? backgroundSince : 0,
         };
       },
       onChange(fn) {
@@ -1036,7 +1053,7 @@
         if (typeof fn !== 'function') throw new Error('定时器需要函数');
         const job = { id: timerSeq++, fn: fn, period: ms, interval: true, native: 0 };
         timers.push(job);
-        if (!paused && !homes) arm(job);
+        if (!paused) arm(job);
         return job.id;
       },
       setTimeout(fn, ms) {
@@ -1044,7 +1061,7 @@
         if (typeof fn !== 'function') throw new Error('定时器需要函数');
         const job = { id: timerSeq++, fn: fn, period: ms, interval: false, native: 0 };
         timers.push(job);
-        if (!paused && !homes) arm(job);
+        if (!paused) arm(job);
         return job.id;
       },
       clear(id) {
@@ -1057,8 +1074,8 @@
     home() {
       if (homes) return;
       homes = true;
-      paused = true;
-      pauseTimers();
+      paused = !backgroundActive;
+      if (paused) pauseTimers();
       const app = globalThis.app;
       if (app && typeof app.onPause === 'function') {
         try { app.onPause(); } catch (error) { showFault(error); }
@@ -1141,6 +1158,128 @@
     },
   };
 
+  // Browser preview only: these records are simulations, never hardware or
+  // FreeRTOS measurements. Completion delivery follows the preview JS policy.
+  function previewTaskSnapshot(record) { return JSON.parse(JSON.stringify(record.snapshot)); }
+  function previewTaskList(afterId = 0, limit = 16) {
+    if (!Number.isInteger(afterId) || afterId < 0 || afterId > 0xffffffff || !Number.isInteger(limit) || limit < 1 || limit > 16) throw new Error('Invalid task page');
+    return previewTasks.filter(record => record.snapshot.id > afterId).slice(0, limit).map(previewTaskSnapshot);
+  }
+  function schedulePreviewDelivery() {
+    const instance = previewInstance;
+    queueMicrotask(() => {
+      if (instance !== previewInstance || paused) return;
+      for (const record of previewTasks.slice()) {
+        if (!record.pending) continue;
+        record.pending = false;
+        const deliver = record.deliver;
+        record.deliver = null;
+        if (deliver) deliver();
+        if (typeof taskHandler === 'function') {
+          try { taskHandler(previewTaskSnapshot(record)); } catch (error) { showFault(error); return; }
+        }
+        if (paused || instance !== previewInstance) return;
+      }
+    });
+  }
+  function newPreviewTask(kind, operation, execute, settle) {
+    if (previewTasks.filter(record => record.pending || record.snapshot.state === 'queued').length >= 8) return false;
+    if (previewTasks.length >= 96) {
+      const index = previewTasks.findIndex(record => !record.pending && record.snapshot.state !== 'queued');
+      if (index < 0) return false;
+      previewTasks.splice(index, 1);
+    }
+    if (kind === 'audio') for (const record of previewTasks) {
+      if (record.snapshot.kind === 'audio' && record.snapshot.state === 'queued') {
+        record.snapshot.cancelRequested = true;record.snapshot.cancelReason = 'superseded';
+      }
+    }
+    const instance = previewInstance, id = ++previewTaskId;
+    const record = { pending: false, deliver: null, snapshot: {
+      id, instanceId: instance, appId: 'preview.app', revision: id, kind, operation,
+      state: 'queued', closePolicy: kind === 'audio' ? 'stop' : 'finish',
+      cancelRequested: false, cancellable: true, detached: false, cancelReason: '',
+      error: 'ESP_OK', errorCode: 0, createdMs: Date.now() - started,
+      startedMs: 0, finishedMs: 0, result: null, simulated: true,
+    } };
+    previewTasks.push(record);
+    queueMicrotask(() => {
+      if (instance !== previewInstance) return;
+      let value, failure;
+      const task = record.snapshot;
+      if (task.cancelRequested) task.state = 'cancelled';
+      else {
+        task.state = 'running';task.cancellable = false;task.startedMs = Date.now() - started;
+        try { value = execute(id);task.state = 'succeeded'; }
+        catch (error) { failure = error;task.state = 'failed';task.error = String(error.message || error);task.errorCode = -1; }
+      }
+      task.cancellable = false;task.finishedMs = Date.now() - started;
+      task.result = { ok: task.state === 'succeeded' };
+      if (kind === 'audio') Object.assign(task.result, {recordedMs: audio.recordedMs, positionMs: audio.positionMs});
+      if (kind === 'wifi') Object.assign(task.result, {enabled: wifi.enabled, connected: wifi.connected, networks: wifi.networks.length, reason: wifi.reason, ssid: wifi.ssid, ip: wifi.ip});
+      if (kind === 'storage' && !failure && task.state === 'succeeded') task.result.jsonBytes = utf8Length(JSON.stringify(value));
+      record.pending = true;
+      if (settle) record.deliver = () => settle(value, failure || (task.state === 'cancelled' ? new Error('Cancelled') : null));
+      schedulePreviewDelivery();
+    });
+    return id;
+  }
+  Ouse.tasks = {
+    list: previewTaskList,
+    get(id) { const record = previewTasks.find(item => item.snapshot.id === id);return record ? previewTaskSnapshot(record) : null; },
+    cancel(id) {
+      const record = previewTasks.find(item => item.snapshot.id === id);
+      if (!record) return false;
+      if (record.snapshot.state !== 'queued') return record.snapshot.state !== 'running';
+      record.snapshot.cancelRequested = true;record.snapshot.cancelReason = 'application';return true;
+    },
+    onComplete(fn) { if (fn !== null && typeof fn !== 'function') throw new Error('Expected function or null');taskHandler = fn; },
+  };
+  Ouse.system.tasks = previewTaskList;
+  Ouse.system.diagnostics = () => ({
+    simulated: true, sampledMs: Date.now() - started, budgetClock: 'preview-simulated',
+    instances: 1, contexts: 1, apps: [], jsHeapBytes: 0,
+    backgroundJs: homes && backgroundActive ? 1 : 0, runnableJs: paused ? 0 : 1,
+    nativeTasksActive: previewTasks.filter(record => ['queued','running','cancelling'].includes(record.snapshot.state)).length,
+    taskRecords: previewTasks.length, taskCapacity: 96, taskActiveLimit: 64, taskOwnerLimit: 8,
+    taskEventsPending: previewTasks.filter(record => record.pending).length,
+    timers: timers.length, foregroundBudgetUs: 12000, backgroundBudgetUs: 4000,
+  });
+  Ouse.diagnostics = { get() { return Object.assign({simulated: true, appId: 'preview.app'}, Ouse.lifecycle.get()); } };
+  for (const [kind, methods] of [['audio', ['testTone','record','playRecording','stop']], ['wifi', ['setEnabled','scan','connect','disconnect','forget']]]) {
+    for (const operation of methods) {
+      const original = Ouse[kind][operation];
+      Ouse[kind][operation] = (...args) => {
+        if (kind === 'wifi' && previewTasks.some(record => record.snapshot.kind === kind && record.snapshot.state === 'queued')) return false;
+        return newPreviewTask(kind, operation, id => {
+          const result = original(...args);
+          if (!result) throw new Error('Preview operation rejected');
+          const state = kind === 'audio' ? audio : wifi;
+          state.requestId = id;state.completedId = id;notify(kind, Ouse[kind].get());
+        });
+      };
+    }
+  }
+  for (const operation of ['get','set','remove','keys','clear','info']) {
+    Ouse.storage[operation] = (...args) => {
+      let resolve, reject;
+      const promise = new Promise((yes, no) => { resolve = yes;reject = no; });
+      const id = newPreviewTask('storage', operation, () => {
+        // Original preview methods return already resolved Promises. Their
+        // actual values are computed below to preserve deferred delivery.
+        if (operation === 'get') return privateStore.has(args[0]) ? JSON.parse(JSON.stringify(privateStore.get(args[0]))) : null;
+        if (operation === 'set') {privateStore.set(args[0], JSON.parse(JSON.stringify(args[1])));return true;}
+        if (operation === 'remove') return privateStore.delete(args[0]);
+        if (operation === 'keys') return [...privateStore.keys()].filter(key => !key.startsWith('__'));
+        if (operation === 'clear') {const keys=[...privateStore.keys()].filter(key => !key.startsWith('__'));keys.forEach(key => privateStore.delete(key));return keys.length;}
+        return {usedBytes: 1024,quotaBytes: 65536,keyCount: [...privateStore.keys()].filter(key => !key.startsWith('__')).length,keyLimit: 32,valueLimit: 8192};
+      }, (value, error) => error ? reject(error) : resolve(value));
+      if (!id) reject(Object.assign(new Error('Task capacity'), {code: 'BUSY'}));
+      else Object.defineProperty(promise, 'taskId', {value: id, enumerable: true});
+      return promise;
+    };
+  }
+
   const previewConsole = {
     log(text) {
       const line = '[' + (title.textContent || 'app') + '] ' + String(text);
@@ -1151,6 +1290,9 @@
   };
 
   function resetRuntime() {
+    previewInstance += 1;
+    taskHandler = null;previewTasks.length = 0;
+    backgroundReason = '';backgroundSince = 0;
     widgets.clear();
     unbound.clear();
     for (const key of Object.keys(listeners)) listeners[key] = null;
@@ -1170,6 +1312,7 @@
     paused = false;
     home.hidden = true;
     resumeTimers();
+    schedulePreviewDelivery();
     const app = globalThis.app;
     if (app && typeof app.onResume === 'function') {
       try { app.onResume(); } catch (error) { showFault(error); }

@@ -32,14 +32,15 @@ static size_t received,expected;
 static uint32_t upload_crc,owner;
 static int64_t activity;
 static SemaphoreHandle_t ui_done;
-static struct { int action;ouse_bpk_t *package;const char *id;esp_err_t error; } ui;
+static struct { int action;ouse_bpk_t *package;const char *id;esp_err_t error;ouse_script_validation_t *validation; } ui;
 
 static void ui_call(void *unused)
 {
     (void)unused;
     if(ui.action==0){
         ui.error=ouse_core_user_check(ui.package->id);
-        if(ui.error==ESP_OK)ui.error=ouse_script_validate(&ui.package->package);
+        ui.validation=NULL;
+        if(ui.error==ESP_OK)ui.error=ouse_script_validate_begin(&ui.package->package,&ui.validation);
     }else if(ui.action==1)ui.error=ouse_core_user_apply(&ui.package->definition);
     else if(ui.action==2)ui.error=ouse_core_user_remove(ui.id);
     else ui.error=ouse_app_open(ui.id);
@@ -51,7 +52,12 @@ static esp_err_t on_ui(int action,ouse_bpk_t *package,const char *id)
     esp_err_t error=ouse_core_post_ui(ui_call,NULL);
     if(error!=ESP_OK)return error;
     // Once dispatched, never expire/free the context while LVGL can still use it.
-    xSemaphoreTake(ui_done,portMAX_DELAY);return ui.error;
+    xSemaphoreTake(ui_done,portMAX_DELAY);
+    if(ui.error==ESP_OK && action==0){
+        ouse_script_validation_t *validation=ui.validation;ui.validation=NULL;
+        return ouse_script_validate_wait(validation);
+    }
+    return ui.error;
 }
 static int find_package(const char *id)
 { for(unsigned i=0;i<OUSE_APP_CAPACITY;++i)if(installed[i] && !strcmp(installed[i]->id,id))return (int)i;return -1; }
@@ -175,7 +181,10 @@ static esp_err_t command(ouse_frame_t *f,char *result,size_t cap)
         memcpy(upload+received,data,n);received+=n;snprintf(result,cap,"%u",(unsigned)received);return ESP_OK;
     }
     if(!strcmp(f->verb,"END")){
-        esp_err_t error=install_upload(result,cap);abort_upload();return error;
+        const ouse_task_owner_t system={.app_id="ouse.installer"};uint32_t task_id=0;
+        esp_err_t error=ouse_task_create(&system,OUSE_TASK_PACKAGE,"install",OUSE_TASK_FINISH_ON_CLOSE,false,&task_id);
+        if(error==ESP_OK){(void)ouse_task_start(task_id,false);error=install_upload(result,cap);ouse_task_finish(task_id,error,false);}
+        abort_upload();return error;
     }
     if(upload)return ESP_ERR_INVALID_STATE;
     if(!strcmp(f->verb,"OPEN")){
@@ -184,12 +193,16 @@ static esp_err_t command(ouse_frame_t *f,char *result,size_t cap)
     }
     if(!strcmp(f->verb,"REMOVE")){
         int slot=valid_id(f->payload)?find_package(f->payload):-1;if(slot<0)return ESP_ERR_NOT_FOUND;
+        const ouse_task_owner_t system={.app_id="ouse.installer"};uint32_t task_id=0;
+        esp_err_t registered=ouse_task_create(&system,OUSE_TASK_PACKAGE,"uninstall",OUSE_TASK_FINISH_ON_CLOSE,false,&task_id);
+        if(registered!=ESP_OK)return registered;
+        (void)ouse_task_start(task_id,false);
         char path[128];path_for(f->payload,path);
         // A prior attempt may have removed the file before UI dispatch failed.
         // Keep the live package until removal completes; a fresh retry must be
         // able to finish this already-committed deletion. Other I/O errors still
         // preserve the registration and report failure.
-        if(unlink(path)!=0 && errno!=ENOENT)return ESP_FAIL;
+        if(unlink(path)!=0 && errno!=ENOENT){ouse_task_finish(task_id,ESP_FAIL,false);return ESP_FAIL;}
         esp_err_t error=on_ui(2,NULL,f->payload);
         // A failed purge can be retried after the UI registration is gone.
         // Closing first prevents the old script from submitting another write
@@ -197,7 +210,7 @@ static esp_err_t command(ouse_frame_t *f,char *result,size_t cap)
         if(error==ESP_OK || error==ESP_ERR_NOT_FOUND)error=ouse_storage_purge(f->payload);
         if(error==ESP_OK){ouse_bpk_free(installed[slot]);installed[slot]=NULL;}
         (void)ouse_storage_refresh();
-        return error;
+        ouse_task_finish(task_id,error,false);return error;
     }
     return ESP_ERR_NOT_SUPPORTED;
 }

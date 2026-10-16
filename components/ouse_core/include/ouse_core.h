@@ -14,7 +14,7 @@
 extern "C" {
 #endif
 
-#define OUSE_CORE_VERSION "0.8.0"
+#define OUSE_CORE_VERSION "0.9.0"
 #define OUSE_CORE_API_VERSION 8
 
 // Immutable board specifications; these describe hardware, not current usage.

@@ -11,7 +11,8 @@ static struct {
     ouse_audio_request_t audio_request;
     ouse_wifi_request_t wifi_request;
     ouse_device_save_state_t save;
-    uint32_t save_id;
+    uint32_t save_id,save_task;
+    uint32_t wifi_task;
 } devices;
 static void lock(void) { if(devices.port.lock)devices.port.lock(); }
 static void unlock(void) { if(devices.port.unlock)devices.port.unlock(); }
@@ -68,63 +69,71 @@ esp_err_t ouse_audio_set_muted(bool muted)
     if(devices.config.muted!=muted){devices.config.muted=muted;devices.audio.muted=muted;++devices.audio.revision;dirty();}
     unlock();notify(0);notify(1);return ESP_OK;
 }
-static esp_err_t audio_request(ouse_audio_action_t action,unsigned seconds)
+static const ouse_task_owner_t system_owner={.app_id="ouse.system"};
+esp_err_t ouse_audio_submit(const ouse_task_owner_t *owner,ouse_audio_action_t action,unsigned seconds,uint32_t *id)
 {
+    if(!id || (unsigned)action>OUSE_AUDIO_REPLAY || (action==OUSE_AUDIO_CAPTURE && (seconds<1 || seconds>3)))return ESP_ERR_INVALID_ARG;
     lock();if(!devices.audio.available){unlock();return ESP_ERR_NOT_SUPPORTED;}
     if(action==OUSE_AUDIO_REPLAY && !devices.audio.recorded_ms){unlock();return ESP_ERR_INVALID_STATE;}
-    devices.audio_request=(ouse_audio_request_t){.id=++devices.audio.request_id,.action=action,.seconds=seconds};
-    devices.audio_pending=true;devices.audio.mode=OUSE_AUDIO_STARTING;devices.audio.error=ESP_OK;++devices.audio.revision;
-    unlock();notify(1);return ESP_OK;
+    static const char *names[]={"stop","testTone","record","playRecording"};
+    esp_err_t error=ouse_task_create(owner ? owner : &system_owner,OUSE_TASK_AUDIO,names[action],OUSE_TASK_STOP_ON_CLOSE,true,id);
+    if(error!=ESP_OK){unlock();return error;}
+    // Queued work can be retired now. Running work is retired by the board only
+    // after codec close; replacing its ID is merely a cooperative stop request.
+    if(devices.audio.request_id){
+        (void)ouse_task_cancel(NULL,devices.audio.request_id,"superseded");
+        if(devices.audio_pending)ouse_task_finish(devices.audio.request_id,ESP_OK,true);
+    }
+    devices.audio_request=(ouse_audio_request_t){.id=*id,.action=action,.seconds=seconds};
+    devices.audio.request_id=*id;devices.audio_pending=true;devices.audio.mode=OUSE_AUDIO_STARTING;
+    devices.audio.error=ESP_OK;++devices.audio.revision;unlock();notify(1);return ESP_OK;
 }
-esp_err_t ouse_audio_test_tone(void) {return audio_request(OUSE_AUDIO_TEST,0);}
-esp_err_t ouse_audio_record(unsigned seconds) {return seconds>=1 && seconds<=3 ? audio_request(OUSE_AUDIO_CAPTURE,seconds) : ESP_ERR_INVALID_ARG;}
-esp_err_t ouse_audio_play_recording(void) {return audio_request(OUSE_AUDIO_REPLAY,0);}
-esp_err_t ouse_audio_stop(void) {return audio_request(OUSE_AUDIO_STOP,0);}
+esp_err_t ouse_audio_test_tone(void) {uint32_t id;return ouse_audio_submit(NULL,OUSE_AUDIO_TEST,0,&id);}
+esp_err_t ouse_audio_record(unsigned seconds) {uint32_t id;return ouse_audio_submit(NULL,OUSE_AUDIO_CAPTURE,seconds,&id);}
+esp_err_t ouse_audio_play_recording(void) {uint32_t id;return ouse_audio_submit(NULL,OUSE_AUDIO_REPLAY,0,&id);}
+esp_err_t ouse_audio_stop(void) {uint32_t id;return ouse_audio_submit(NULL,OUSE_AUDIO_STOP,0,&id);}
 bool ouse_devices_take_audio(ouse_audio_request_t *out) {lock();bool pending=devices.audio_pending;if(pending){*out=devices.audio_request;devices.audio_pending=false;}unlock();return pending;}
-bool ouse_devices_audio_current(uint32_t id) {lock();bool current=devices.audio.request_id==id;unlock();return current;}
+bool ouse_devices_audio_current(uint32_t id) {lock();bool current=devices.audio.request_id==id;unlock();return current && !ouse_task_cancel_requested(id);}
 void ouse_devices_publish_audio(const ouse_audio_state_t *state,uint32_t id)
 {
     lock();if(devices.audio.request_id==id){uint32_t revision=devices.audio.revision;devices.audio=*state;devices.audio.available=true;
         devices.audio.volume=devices.config.volume;devices.audio.muted=devices.config.muted;devices.audio.request_id=id;devices.audio.revision=revision+1;}
     unlock();
 }
-static esp_err_t wifi_request(ouse_wifi_action_t action,const char *ssid,const char *password)
+esp_err_t ouse_wifi_submit(const ouse_task_owner_t *owner,ouse_wifi_action_t action,bool enabled,
+    const char *ssid,const char *password,uint32_t *id)
 {
+    if(!id || (unsigned)action>OUSE_WIFI_FORGET)return ESP_ERR_INVALID_ARG;
+    if(action==OUSE_WIFI_CONNECT){
+        if(!ssid || !password || !*ssid || strlen(ssid)>32 || strlen(password)>64)return ESP_ERR_INVALID_ARG;
+        size_t n=strlen(password);if(n && n<8)return ESP_ERR_INVALID_ARG;
+        if(n==64)for(unsigned i=0;i<64;++i)if(!((password[i]>='0'&&password[i]<='9')||(password[i]>='a'&&password[i]<='f')||(password[i]>='A'&&password[i]<='F')))return ESP_ERR_INVALID_ARG;
+    }
     lock();if(!devices.wifi.available){unlock();return ESP_ERR_NOT_SUPPORTED;}
+    // ESP Wi-Fi events carry no application instance token. Serialize accepted
+    // operations instead of silently overwriting an active request's identity.
+    ouse_task_snapshot_t active;
+    if(devices.wifi_pending || (ouse_task_get(NULL,devices.wifi_task,&active) && active.state<OUSE_TASK_SUCCEEDED)){
+        unlock();return ESP_ERR_INVALID_STATE;
+    }
     if(action!=OUSE_WIFI_ENABLE && action!=OUSE_WIFI_FORGET && action!=OUSE_WIFI_DISCONNECT && !devices.config.wifi_enabled){unlock();return ESP_ERR_INVALID_STATE;}
-    if(action==OUSE_WIFI_SCAN && devices.wifi.connecting){unlock();return ESP_ERR_INVALID_STATE;}
-    devices.wifi_request=(ouse_wifi_request_t){.id=++devices.wifi.request_id,.action=action,.enabled=devices.config.wifi_enabled};
-    strcpy(devices.wifi_request.ssid,ssid ? ssid : devices.config.ssid);
-    strcpy(devices.wifi_request.password,password ? password : devices.config.password);
-    devices.wifi_pending=true;devices.wifi.error=ESP_OK;devices.wifi.reason=0;++devices.wifi.revision;
-    if(action==OUSE_WIFI_SCAN)devices.wifi.scanning=true;
-    if(action==OUSE_WIFI_CONNECT){devices.wifi.connecting=true;devices.wifi.scanning=false;devices.wifi.connected=false;strcpy(devices.wifi.ssid,ssid);devices.wifi.ip[0]=0;}
-    if(action==OUSE_WIFI_DISCONNECT || action==OUSE_WIFI_FORGET){devices.wifi.connecting=false;devices.wifi.connected=false;devices.wifi.scanning=false;devices.wifi.ip[0]=0;}
-    unlock();notify(2);return ESP_OK;
+    static const char *names[]={"setEnabled","scan","connect","disconnect","forget"};
+    esp_err_t error=ouse_task_create(owner ? owner : &system_owner,OUSE_TASK_WIFI,names[action],OUSE_TASK_FINISH_ON_CLOSE,true,id);
+    if(error!=ESP_OK){unlock();return error;}
+    if(action==OUSE_WIFI_ENABLE && devices.config.wifi_enabled!=enabled){devices.config.wifi_enabled=enabled;dirty();}
+    if(action==OUSE_WIFI_FORGET){devices.config.ssid[0]=devices.config.password[0]=0;dirty();}
+    devices.wifi_request=(ouse_wifi_request_t){.id=*id,.action=action,.enabled=devices.config.wifi_enabled};
+    strcpy(devices.wifi_request.ssid,action==OUSE_WIFI_FORGET ? "" : ssid ? ssid : devices.config.ssid);
+    strcpy(devices.wifi_request.password,action==OUSE_WIFI_FORGET ? "" : password ? password : devices.config.password);
+    devices.wifi_task=*id;devices.wifi.request_id=*id;devices.wifi_pending=true;
+    devices.wifi.enabled=devices.config.wifi_enabled;devices.wifi.error=ESP_OK;devices.wifi.reason=0;++devices.wifi.revision;
+    unlock();notify(0);notify(2);return ESP_OK;
 }
-esp_err_t ouse_wifi_set_enabled(bool enabled)
-{
-    lock();if(!devices.wifi.available){unlock();return ESP_ERR_NOT_SUPPORTED;}
-    if(devices.config.wifi_enabled!=enabled){devices.config.wifi_enabled=enabled;dirty();}
-    devices.wifi.enabled=enabled;
-    if(!enabled){devices.wifi.connecting=false;devices.wifi.scanning=false;devices.wifi.connected=false;devices.wifi.ip[0]=0;}
-    unlock();notify(0);return wifi_request(OUSE_WIFI_ENABLE,NULL,NULL);
-}
-esp_err_t ouse_wifi_scan(void) {return wifi_request(OUSE_WIFI_SCAN,NULL,NULL);}
-esp_err_t ouse_wifi_connect(const char *ssid,const char *password)
-{
-    if(!ssid || !password || !*ssid || strlen(ssid)>32 || strlen(password)>64)return ESP_ERR_INVALID_ARG;
-    size_t n=strlen(password);if(n && n<8)return ESP_ERR_INVALID_ARG;
-    if(n==64)for(unsigned i=0;i<64;++i)if(!((password[i]>='0'&&password[i]<='9')||(password[i]>='a'&&password[i]<='f')||(password[i]>='A'&&password[i]<='F')))return ESP_ERR_INVALID_ARG;
-    return wifi_request(OUSE_WIFI_CONNECT,ssid,password);
-}
-esp_err_t ouse_wifi_disconnect(void) {return wifi_request(OUSE_WIFI_DISCONNECT,NULL,NULL);}
-esp_err_t ouse_wifi_forget(void)
-{
-    lock();if(!devices.wifi.available){unlock();return ESP_ERR_NOT_SUPPORTED;}
-    devices.config.ssid[0]=devices.config.password[0]=0;dirty();unlock();notify(0);
-    return wifi_request(OUSE_WIFI_FORGET,"","");
-}
+esp_err_t ouse_wifi_set_enabled(bool enabled) {uint32_t id;return ouse_wifi_submit(NULL,OUSE_WIFI_ENABLE,enabled,NULL,NULL,&id);}
+esp_err_t ouse_wifi_scan(void) {uint32_t id;return ouse_wifi_submit(NULL,OUSE_WIFI_SCAN,false,NULL,NULL,&id);}
+esp_err_t ouse_wifi_connect(const char *ssid,const char *password) {uint32_t id;return ouse_wifi_submit(NULL,OUSE_WIFI_CONNECT,false,ssid,password,&id);}
+esp_err_t ouse_wifi_disconnect(void) {uint32_t id;return ouse_wifi_submit(NULL,OUSE_WIFI_DISCONNECT,false,NULL,NULL,&id);}
+esp_err_t ouse_wifi_forget(void) {uint32_t id;return ouse_wifi_submit(NULL,OUSE_WIFI_FORGET,false,NULL,NULL,&id);}
 bool ouse_devices_take_wifi(ouse_wifi_request_t *out) {lock();bool pending=devices.wifi_pending;if(pending){*out=devices.wifi_request;devices.wifi_pending=false;}unlock();return pending;}
 bool ouse_devices_wifi_current(uint32_t id) {lock();bool current=devices.wifi.request_id==id;unlock();return current;}
 void ouse_devices_publish_wifi(const ouse_wifi_state_t *state,uint32_t id)
@@ -142,11 +151,16 @@ void ouse_devices_remember_wifi(const ouse_wifi_request_t *request)
 bool ouse_devices_take_save(ouse_device_config_t *out,uint32_t *id)
 {
     lock();bool pending=devices.save_pending;
-    if(pending){*out=devices.config;*id=devices.save_id;devices.save_pending=false;devices.save_inflight=true;}unlock();return pending;
+    if(pending){
+        devices.save_task=0;
+        if(ouse_task_create(&system_owner,OUSE_TASK_SETTINGS,"devicesSave",OUSE_TASK_FINISH_ON_CLOSE,false,&devices.save_task)==ESP_OK)
+            (void)ouse_task_start(devices.save_task,false);
+        *out=devices.config;*id=devices.save_id;devices.save_pending=false;devices.save_inflight=true;
+    }unlock();return pending;
 }
 void ouse_devices_saved(uint32_t id,esp_err_t error)
 {
-    lock();devices.save_inflight=false;if(id==devices.save_id){devices.save.error=error;devices.save.pending=false;++devices.save.revision;}unlock();
+    lock();ouse_task_finish(devices.save_task,error,false);devices.save_inflight=false;if(id==devices.save_id){devices.save.error=error;devices.save.pending=false;++devices.save.revision;}unlock();
 }
 void ouse_devices_save_state(ouse_device_save_state_t *out) {lock();*out=devices.save;unlock();}
 void ouse_devices_retry_save(void) {lock();if(devices.initialized)dirty();unlock();notify(0);}

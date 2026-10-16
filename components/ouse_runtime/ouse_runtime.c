@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: MIT
 // One task owns all QuickJS values. LVGL sees only bounded plain-data models.
 #include "ouse_runtime.h"
+#include "ouse_budget.h"
 #include "ouse_core.h"
 #include "ouse_devices.h"
 #include "ouse_ime.h"
 #include "ouse_notifications.h"
 #include "ouse_controls.h"
 #include "ouse_storage.h"
+#include "ouse_tasks.h"
 #include "src/misc/cache/instance/lv_image_cache.h"
 #include "quickjs.h"
 #include "esp_timer.h"
@@ -110,7 +112,10 @@ typedef struct instance {
     char asset_ids[OUSE_RUNTIME_ASSETS_MAX][32];
     unsigned asset_count;
     storage_job_t *storage[MAX_STORAGE_PENDING]; // JS task owns slots/resolvers
-    uint32_t next_storage_token;
+    ouse_task_owner_t owner;
+    JSValue task_handler;
+    char background_reason[64];
+    int64_t background_since_us;
     bool background_allowed, notifications_allowed;
     JSRuntime *runtime;
     JSContext *context;
@@ -127,7 +132,9 @@ typedef struct instance {
     char page_ids[MAX_PAGES][32];
     unsigned page_count, page_stack[MAX_PAGE_STACK], page_depth;
     uint32_t revisions[6], next_timer;
-    int64_t deadline;
+    ouse_budget_t budget;
+    size_t sampled_js_bytes;
+    int64_t sampled_memory_us;
     bool interrupted, rejection_overflow;
     unsigned jobs_run; // bounded Promise work shared by this execution slice
     JSValue rejected_promises[MAX_JOBS], rejection_reasons[MAX_JOBS];
@@ -167,6 +174,7 @@ static QueueHandle_t launches;
 static TaskHandle_t worker_task;
 static portMUX_TYPE stats_lock=portMUX_INITIALIZER_UNLOCKED;
 static ouse_runtime_stats_t runtime_stats;
+static ouse_runtime_diagnostics_t runtime_diagnostics;
 static unsigned error_count;
 static uint32_t now_ms(void) {return (uint32_t)(esp_timer_get_time()/1000);}
 static void model_lock(instance_t *app) {xSemaphoreTake(app->model_lock,portMAX_DELAY);}
@@ -177,6 +185,7 @@ static void wake_worker(void) {if(worker_task)xTaskNotifyGive(worker_task);}
 static void release_instance(instance_t *app)
 {
     if(atomic_fetch_sub(&app->references,1)!=1)return;
+    ouse_task_owner_close(&app->owner);
     for(unsigned i=0;i<app->image_count;++i)free((void *)app->image_descriptors[i].data);
     for(unsigned i=0;i<app->asset_count;++i)free((void *)app->assets[i].data);
     free(app->page);free(app->script);
@@ -188,37 +197,37 @@ static void release_instance(instance_t *app)
 static int interrupt(JSRuntime *runtime,void *opaque)
 {
     (void)runtime;instance_t *app=opaque;
-    if(esp_timer_get_time()>=app->deadline){app->interrupted=true;return 1;}
+    if(ouse_budget_exceeded(&app->budget)){app->interrupted=true;return 1;}
     return 0;
 }
 static void begin_call(instance_t *app)
 {
     app->interrupted=false;app->jobs_run=0;
-    app->deadline=esp_timer_get_time()+(app->worker_visible ? CALL_BUDGET_US : BACKGROUND_BUDGET_US);
+    ouse_budget_begin(&app->budget,app->worker_visible ? CALL_BUDGET_US : BACKGROUND_BUDGET_US,false);
     JS_UpdateStackTop(app->runtime);
 }
 static void begin_startup(instance_t *app)
 {
-    // Context/page creation and compiling a complete (up to 32 KiB) script
-    // happen once on the script task. They need a separate bounded allowance;
-    // recurring UI/background callbacks retain their short execution slices.
-    begin_call(app);app->deadline=esp_timer_get_time()+STARTUP_BUDGET_US;
+    app->interrupted=false;app->jobs_run=0;
+    ouse_budget_begin(&app->budget,STARTUP_BUDGET_US,true);JS_UpdateStackTop(app->runtime);
 }
 static void log_execution_timeout(instance_t *app,const char *kind,const char *name,int64_t started,int64_t remaining)
 {
-    ESP_LOGE("OuseJS","%s timeout: kind=%s; entry=%s; remaining=%lld us; elapsed=%lld us",
-        app->id,kind,name ? name : "-",(long long)remaining,(long long)(esp_timer_get_time()-started));
+    ESP_LOGE("OuseJS","%s timeout: kind=%s; entry=%s; clock=%s; scheduled=%lld us; limit=%lld us; elapsed=%lld us; wall_guard=%u; checkpoints=%u",
+        app->id,kind,name ? name : "-",ouse_budget_clock_name(),(long long)app->budget.scheduled_us,
+        (long long)app->budget.limit_us,(long long)(esp_timer_get_time()-started),app->budget.wall_exceeded,app->budget.samples);
+    (void)remaining;
 }
 static JSValue call_js(instance_t *app,const char *kind,const char *name,JSValueConst function,JSValueConst self,int argc,JSValueConst *argv)
 {
-    int64_t started=esp_timer_get_time(),remaining=app->deadline-started;
+    int64_t started=esp_timer_get_time(),remaining=app->budget.limit_us-app->budget.scheduled_us;
     JSValue value=JS_Call(app->context,function,self,argc,argv);
     if(JS_IsException(value) && app->interrupted)log_execution_timeout(app,kind,name,started,remaining);
     return value;
 }
 static int run_promise_job(instance_t *app,JSContext **context)
 {
-    int64_t started=esp_timer_get_time(),remaining=app->deadline-started;
+    int64_t started=esp_timer_get_time(),remaining=app->budget.limit_us-app->budget.scheduled_us;
     int result=JS_ExecutePendingJob(app->runtime,context);
     if(result<0 && app->interrupted)log_execution_timeout(app,"promise",NULL,started,remaining);
     return result;
@@ -257,6 +266,7 @@ static void fault(instance_t *app,const char *message)
         if(app->context)JS_FreeValue(app->context,app->timers[i].handler);
         app->timers[i].handler=JS_UNDEFINED;app->timers[i].id=0;
     }
+    ouse_task_owner_close(&app->owner);
     cancel_storage_jobs(app);
     ESP_LOGE("OuseJS","%s: %s",app->id,message);
 }
@@ -285,7 +295,7 @@ static bool result_ok(instance_t *app,JSValue result)
     if(!runnable)return true;
     while (app->jobs_run<MAX_JOBS && JS_IsJobPending(app->runtime)) {
         model_lock(app);runnable=!app->closed && !app->faulted && app->navigation_stage==NAV_IDLE && (app->visible || app->background_active);model_unlock(app);
-        if(!runnable || esp_timer_get_time()>=app->deadline)return true;
+        if(!runnable || ouse_budget_slice_done(&app->budget))return true;
         ++app->jobs_run;
         if (run_promise_job(app,&context)<0) { exception(app); return false; }
     }
@@ -443,9 +453,13 @@ static JSValue lifecycle_snapshot(instance_t *app)
     model_lock(app);bool visible=app->visible,active=app->background_active,closed=app->closed,faulted=app->faulted;model_unlock(app);
     bool runnable=!closed && !faulted && (visible || active);
     JSContext *context=app->context;JSValue object=JS_NewObject(context);
-    JS_SetPropertyStr(context,object,"state",JS_NewString(context,visible ? "foreground" : runnable ? "background" : "suspended"));
+    JS_SetPropertyStr(context,object,"state",JS_NewString(context,closed ? "closed" : faulted ? "faulted" : visible ? "foreground" : runnable ? "background" : "suspended"));
     JS_SetPropertyStr(context,object,"visible",JS_NewBool(context,visible));JS_SetPropertyStr(context,object,"runnable",JS_NewBool(context,runnable));
-    JS_SetPropertyStr(context,object,"backgroundAllowed",JS_NewBool(context,app->background_allowed));JS_SetPropertyStr(context,object,"backgroundActive",JS_NewBool(context,active));return object;
+    JS_SetPropertyStr(context,object,"backgroundAllowed",JS_NewBool(context,app->background_allowed));JS_SetPropertyStr(context,object,"backgroundActive",JS_NewBool(context,active));
+    JS_SetPropertyStr(context,object,"instanceId",JS_NewUint32(context,app->owner.instance));
+    JS_SetPropertyStr(context,object,"alive",JS_NewBool(context,!closed));
+    JS_SetPropertyStr(context,object,"reason",JS_NewString(context,active ? app->background_reason : ""));
+    JS_SetPropertyStr(context,object,"sinceMs",JS_NewFloat64(context,active ? app->background_since_us/1000.0 : 0));return object;
 }
 static JSValue lifecycle_api(JSContext *context,JSValueConst self,int argc,JSValueConst *argv,int subscribe)
 {
@@ -456,11 +470,100 @@ static JSValue lifecycle_api(JSContext *context,JSValueConst self,int argc,JSVal
 }
 static JSValue background_api(JSContext *context,JSValueConst self,int argc,JSValueConst *argv,int action)
 {
-    (void)self;(void)argc;(void)argv;instance_t *app=from_js(context);
+    (void)self;instance_t *app=from_js(context);
+    if(action==3)return lifecycle_snapshot(app);
+    char reason[64]="application";
+    if(action==1 && (argc>1 || (argc==1 && (!copy_string(context,argv[0],reason,sizeof(reason)) || !reason[0]))))
+        return JS_ThrowTypeError(context,"begin(reason): nonempty string up to 63 UTF-8 bytes");
     if(action==1 && !app->background_allowed)return JS_FALSE;
     model_lock(app);
-    if(action!=2){bool next=action==1;if(app->background_active!=next){app->background_active=next;++app->lifecycle_revision;}}
+    if(app->closed || app->faulted){model_unlock(app);return JS_FALSE;}
+    if(action!=2){bool next=action==1;
+        bool changed=app->background_active!=next || (next && strcmp(reason,app->background_reason));
+        if(next){if(!app->background_active)app->background_since_us=esp_timer_get_time();strcpy(app->background_reason,reason);}
+        else {app->background_reason[0]=0;app->background_since_us=0;}
+        app->background_active=next;if(changed)++app->lifecycle_revision;
+    }
     bool active=app->background_active;model_unlock(app);return JS_NewBool(context,active);
+}
+static JSValue task_snapshot(JSContext *context,const ouse_task_snapshot_t *task)
+{
+    JSValue object=JS_NewObject(context);
+#define TNUM(name,value) JS_SetPropertyStr(context,object,name,JS_NewFloat64(context,(double)(value)))
+#define TSTR(name,value) JS_SetPropertyStr(context,object,name,JS_NewString(context,value))
+#define TBOOL(name,value) JS_SetPropertyStr(context,object,name,JS_NewBool(context,value))
+    TNUM("id",task->id);TNUM("instanceId",task->owner.instance);TNUM("revision",task->revision);
+    TSTR("appId",task->owner.app_id);TSTR("kind",ouse_task_kind_name(task->kind));TSTR("operation",task->operation);
+    TSTR("state",ouse_task_state_name(task->state));TSTR("closePolicy",task->policy==OUSE_TASK_STOP_ON_CLOSE ? "stop" : "finish");
+    TBOOL("cancelRequested",task->cancel_requested);TBOOL("cancellable",task->cancellable);TBOOL("detached",task->detached);
+    TSTR("cancelReason",task->cancel_reason);TNUM("errorCode",task->error);TSTR("error",esp_err_to_name(task->error));
+    TNUM("createdMs",task->created_us/1000);TNUM("startedMs",task->started_us/1000);TNUM("finishedMs",task->finished_us/1000);
+    JSValue result=JS_NULL;
+    if(task->state>=OUSE_TASK_SUCCEEDED){
+        result=JS_NewObject(context);JS_SetPropertyStr(context,result,"ok",JS_NewBool(context,task->state==OUSE_TASK_SUCCEEDED));
+        if(task->result.present){
+            if(task->kind==OUSE_TASK_WIFI){
+                JS_SetPropertyStr(context,result,"enabled",JS_NewBool(context,task->result.value.wifi.enabled));
+                JS_SetPropertyStr(context,result,"connected",JS_NewBool(context,task->result.value.wifi.connected));
+                JS_SetPropertyStr(context,result,"networks",JS_NewUint32(context,task->result.value.wifi.networks));
+                JS_SetPropertyStr(context,result,"reason",JS_NewInt32(context,task->result.value.wifi.reason));
+                JS_SetPropertyStr(context,result,"ssid",JS_NewString(context,task->result.value.wifi.ssid));
+                JS_SetPropertyStr(context,result,"ip",JS_NewString(context,task->result.value.wifi.ip));
+            }else if(task->kind==OUSE_TASK_AUDIO){
+                JS_SetPropertyStr(context,result,"recordedMs",JS_NewUint32(context,task->result.value.audio.recorded_ms));
+                JS_SetPropertyStr(context,result,"positionMs",JS_NewUint32(context,task->result.value.audio.position_ms));
+            }else if(task->kind==OUSE_TASK_STORAGE)JS_SetPropertyStr(context,result,"jsonBytes",JS_NewFloat64(context,(double)task->result.value.storage.json_bytes));
+        }
+    }
+    JS_SetPropertyStr(context,object,"result",result);
+#undef TNUM
+#undef TSTR
+#undef TBOOL
+    return object;
+}
+static JSValue tasks_api(JSContext *context,JSValueConst self,int argc,JSValueConst *argv,int action)
+{
+    (void)self;instance_t *app=from_js(context);
+    if(action==3){
+        if(argc!=1 || (!JS_IsNull(argv[0]) && !JS_IsFunction(context,argv[0])))return JS_ThrowTypeError(context,"onComplete expects function or null");
+        JS_FreeValue(context,app->task_handler);app->task_handler=JS_DupValue(context,argv[0]);return JS_UNDEFINED;
+    }
+    ouse_task_snapshot_t task;
+    if(action==0 || action==4){
+        double after_value=0,limit_value=16;
+        if(argc>2 || (argc>0 && (!JS_IsNumber(argv[0]) || JS_ToFloat64(context,&after_value,argv[0])<0)) ||
+           (argc>1 && (!JS_IsNumber(argv[1]) || JS_ToFloat64(context,&limit_value,argv[1])<0)) ||
+           !isfinite(after_value) || after_value<0 || after_value>UINT32_MAX || floor(after_value)!=after_value ||
+           !isfinite(limit_value) || limit_value<1 || limit_value>16 || floor(limit_value)!=limit_value)
+            return JS_ThrowTypeError(context,"list(afterId=0, limit=16): nonnegative ID, limit 1..16");
+        JSValue result=JS_NewArray(context);unsigned count=0;uint32_t after=(uint32_t)after_value;
+        while(count<(unsigned)limit_value && ouse_task_next(action==4 ? NULL : &app->owner,after,&task,false)){
+            after=task.id;JS_SetPropertyUint32(context,result,count++,task_snapshot(context,&task));
+        }
+        return result;
+    }
+    double exact;
+    if(argc!=1 || !JS_IsNumber(argv[0]) || JS_ToFloat64(context,&exact,argv[0])<0 || !isfinite(exact) || exact<1 || exact>UINT32_MAX || floor(exact)!=exact)
+        return JS_ThrowTypeError(context,"Expected task ID");
+    if(action==2)return JS_NewBool(context,ouse_task_cancel(&app->owner,(uint32_t)exact,"application")==ESP_OK);
+    return ouse_task_get(&app->owner,(uint32_t)exact,&task) ? task_snapshot(context,&task) : JS_NULL;
+}
+static void task_completion_events(instance_t *app)
+{
+    for(unsigned i=0;i<OUSE_TASK_OWNER_LIMIT && !app->faulted;++i){
+        if(ouse_budget_slice_done(&app->budget))return;
+        model_lock(app);bool runnable=!app->closed && (app->visible || app->background_active) && app->navigation_stage==NAV_IDLE;model_unlock(app);
+        if(!runnable)return;
+        ouse_task_snapshot_t task;if(!ouse_task_next(&app->owner,0,&task,true))return;
+        // No subscriber still consumes the delivery slot; queryable history is
+        // retained until pressure reclaims it. Suspended instances never ack.
+        ouse_task_ack(&app->owner,task.id);
+        if(JS_IsFunction(app->context,app->task_handler)){
+            JSValue handler=JS_DupValue(app->context,app->task_handler),value=task_snapshot(app->context,&task);
+            JSValue result=call_js(app,"tasks","onComplete",handler,JS_UNDEFINED,1,&value);
+            JS_FreeValue(app->context,handler);JS_FreeValue(app->context,value);if(!result_ok(app,result))return;
+        }
+    }
 }
 static JSValue system_info(JSContext *context,JSValueConst self,int argc,JSValueConst *argv)
 {
@@ -580,33 +683,33 @@ static JSValue device_snapshot(JSContext *context,int group)
 }
 static JSValue device_command(JSContext *context,JSValueConst self,int argc,JSValueConst *argv,int command)
 {
-    (void)self;esp_err_t error=ESP_ERR_INVALID_ARG;
+    (void)self;esp_err_t error=ESP_ERR_INVALID_ARG;uint32_t task_id=0;instance_t *app=from_js(context);
     if(command==11) {
         char ssid[33],password[65];
         if(argc!=2 || !copy_string(context,argv[0],ssid,sizeof(ssid)) || !copy_string(context,argv[1],password,sizeof(password)))return JS_ThrowTypeError(context,"connect(ssid, password) expects strings <=32/64 UTF-8 bytes");
-        error=ouse_wifi_connect(ssid,password);memset(password,0,sizeof(password));
+        error=ouse_wifi_submit(&app->owner,OUSE_WIFI_CONNECT,false,ssid,password,&task_id);memset(password,0,sizeof(password));
     } else if(command==4 || command==9) {
         if(argc!=1 || !JS_IsBool(argv[0]))return JS_ThrowTypeError(context,"Expected boolean");
-        error=command==4 ? ouse_audio_set_muted(JS_ToBool(context,argv[0])) : ouse_wifi_set_enabled(JS_ToBool(context,argv[0]));
+        error=command==4 ? ouse_audio_set_muted(JS_ToBool(context,argv[0])) : ouse_wifi_submit(&app->owner,OUSE_WIFI_ENABLE,JS_ToBool(context,argv[0]),NULL,NULL,&task_id);
     } else if(command==0 || command==3 || command==6) {
         double exact;
         if(argc!=1 || !JS_IsNumber(argv[0]) || JS_ToFloat64(context,&exact,argv[0])<0 || !isfinite(exact) || floor(exact)!=exact || exact<0 || exact>300)return JS_ThrowTypeError(context,"Expected a bounded positive integer");
         unsigned n=(unsigned)exact;
-        error=command==0 ? ouse_power_set_timeout(n) : command==3 ? ouse_audio_set_volume(n) : ouse_audio_record(n);
+        error=command==0 ? ouse_power_set_timeout(n) : command==3 ? ouse_audio_set_volume(n) : ouse_audio_submit(&app->owner,OUSE_AUDIO_CAPTURE,n,&task_id);
     } else {
         if(argc)return JS_ThrowTypeError(context,"Expected no arguments");
         switch(command) {
         case 1:model_lock(from_js(context));from_js(context)->pending_commands|=1u<<4;model_unlock(from_js(context));error=ESP_OK;break;
         case 2:model_lock(from_js(context));from_js(context)->pending_commands|=1u<<5;model_unlock(from_js(context));error=ESP_OK;break;
-        case 5:error=ouse_audio_test_tone();break;
-        case 7:error=ouse_audio_play_recording();break;
-        case 8:error=ouse_audio_stop();break;
-        case 10:error=ouse_wifi_scan();break;
-        case 12:error=ouse_wifi_disconnect();break;
-        case 13:error=ouse_wifi_forget();break;
+        case 5:error=ouse_audio_submit(&app->owner,OUSE_AUDIO_TEST,0,&task_id);break;
+        case 7:error=ouse_audio_submit(&app->owner,OUSE_AUDIO_REPLAY,0,&task_id);break;
+        case 8:error=ouse_audio_submit(&app->owner,OUSE_AUDIO_STOP,0,&task_id);break;
+        case 10:error=ouse_wifi_submit(&app->owner,OUSE_WIFI_SCAN,false,NULL,NULL,&task_id);break;
+        case 12:error=ouse_wifi_submit(&app->owner,OUSE_WIFI_DISCONNECT,false,NULL,NULL,&task_id);break;
+        case 13:error=ouse_wifi_submit(&app->owner,OUSE_WIFI_FORGET,false,NULL,NULL,&task_id);break;
         }
     }
-    return JS_NewBool(context,error==ESP_OK);
+    return error==ESP_OK && task_id ? JS_NewUint32(context,task_id) : JS_NewBool(context,error==ESP_OK);
 }
 static uint32_t group_revision(instance_t *app,unsigned group) {return group<3 ? app->worker_ui.revisions[group] : ouse_devices_revision(group-3);}
 static JSValue preference_snapshot(JSContext *context,int group)
@@ -662,12 +765,12 @@ static JSValue locale_text(JSContext *context,JSValueConst self,int argc,JSValue
 static void preference_notifications(instance_t *app)
 {
     for(unsigned i=0;i<6 && !app->faulted;++i) {
-        if(esp_timer_get_time()>=app->deadline || navigation_pending(app))return;
+        if(ouse_budget_slice_done(&app->budget) || navigation_pending(app))return;
         uint32_t current=group_revision(app,i);
         if(current==app->revisions[i])continue;
         if(!JS_IsFunction(app->context,app->changes[i])){app->revisions[i]=current;continue;}
         JSValue handler=JS_DupValue(app->context,app->changes[i]),value=preference_snapshot(app->context,(int)i);
-        if(esp_timer_get_time()>=app->deadline){JS_FreeValue(app->context,value);JS_FreeValue(app->context,handler);return;}
+        if(ouse_budget_slice_done(&app->budget)){JS_FreeValue(app->context,value);JS_FreeValue(app->context,handler);return;}
         app->revisions[i]=current;
         const char *groups[]={"theme","locale","display","power","audio","wifi"};
         JSValue result=call_js(app,"preference",groups[i],handler,JS_UNDEFINED,1,&value);
@@ -732,7 +835,7 @@ static JSValue notification_api(JSContext *context,JSValueConst self,int argc,JS
 static void notification_open_events(instance_t *app)
 {
     if(!app->notifications_allowed || !app->worker_visible || !JS_IsFunction(app->context,app->notification_handler) || app->faulted)return;
-    if(esp_timer_get_time()>=app->deadline)return;
+    if(ouse_budget_slice_done(&app->budget))return;
     model_lock(app);bool eligible=app->visible && !app->closed && !app->faulted && app->navigation_stage==NAV_IDLE;model_unlock(app);
     if(!eligible)return;
     ouse_notification_open_t intent;
@@ -740,7 +843,7 @@ static void notification_open_events(instance_t *app)
     JSValue handler=JS_DupValue(app->context,app->notification_handler),event=JS_NewObject(app->context);
     JS_SetPropertyStr(app->context,event,"id",JS_NewString(app->context,intent.id));
     JS_SetPropertyStr(app->context,event,"payload",JS_NewString(app->context,intent.payload));
-    if(esp_timer_get_time()>=app->deadline){JS_FreeValue(app->context,event);JS_FreeValue(app->context,handler);return;}
+    if(ouse_budget_slice_done(&app->budget)){JS_FreeValue(app->context,event);JS_FreeValue(app->context,handler);return;}
     JSValue result=call_js(app,"notification",intent.id,handler,JS_UNDEFINED,1,&event);
     JS_FreeValue(app->context,event);JS_FreeValue(app->context,handler);
     if(result_ok(app,result)){model_lock(app);if(!app->closed)(void)ouse_notifications_ack_open(app->id,intent.token);model_unlock(app);}
@@ -749,17 +852,18 @@ static void notification_open_events(instance_t *app)
 static void storage_job_release(storage_job_t *job)
 {
     instance_t *app=job->app;
-    if(app->context){JS_FreeValue(app->context,job->resolve);JS_FreeValue(app->context,job->reject);}
-    free(job->result);free(job);--storage_job_count;release_instance(app);
+    if(app && app->context){JS_FreeValue(app->context,job->resolve);JS_FreeValue(app->context,job->reject);}
+    free(job->result);free(job);--storage_job_count;if(app)release_instance(app);
 }
 static void cancel_storage_jobs(instance_t *app)
 {
-    // JS ownership is revoked now. Accepted native jobs still own their plain
-    // request and one instance reference until their completion is drained.
+    // Revoke all JS ownership now. The native completion only needs its plain
+    // job, not a reference keeping an entire closed UI/model/resource set alive.
     for(unsigned i=0;i<MAX_STORAGE_PENDING;++i){storage_job_t *job=app->storage[i];if(!job)continue;
         app->storage[i]=NULL;job->slot=MAX_STORAGE_PENDING;
         if(app->context){JS_FreeValue(app->context,job->resolve);JS_FreeValue(app->context,job->reject);}
         job->resolve=job->reject=JS_UNDEFINED;
+        job->app=NULL;release_instance(app);
         if(job->completed)storage_job_release(job);
     }
 }
@@ -775,6 +879,7 @@ static void drain_storage_completions(void)
 {
     storage_job_t *job;
     while(xQueueReceive(storage_completions,&job,0)==pdTRUE){instance_t *app=job->app;job->completed=true;
+        if(!app){storage_job_release(job);continue;}
         model_lock(app);bool discard=app->closed || app->faulted;model_unlock(app);
         if(discard || !app->context || job->slot>=MAX_STORAGE_PENDING){
             if(job->slot<MAX_STORAGE_PENDING && app->storage[job->slot]==job)app->storage[job->slot]=NULL;
@@ -836,16 +941,15 @@ static JSValue storage_api(JSContext *context,JSValueConst self,int argc,JSValue
     storage_job_t *job=calloc(1,sizeof(*job));
     if(!job){if(json)JS_FreeCString(context,json);JS_FreeValue(context,encoded);return rejected_storage_promise(context,promise,handlers,storage_error(context,"Error","Storage request memory unavailable","ESP_ERR_NO_MEM"));}
     job->app=app;job->slot=slot;job->resolve=handlers[0];job->reject=handlers[1];
-    if(!++app->next_storage_token)++app->next_storage_token;
-    job->token=app->next_storage_token;
     ++storage_job_count;atomic_fetch_add(&app->references,1);
     model_lock(app);
     esp_err_t error=app->closed || app->faulted ? ESP_ERR_INVALID_STATE : ESP_OK;
-    if(error==ESP_OK){app->storage[slot]=job;error=ouse_storage_submit((ouse_storage_operation_t)operation,app->id,arity ? key : NULL,json,job->token,storage_completed,job);}
+    if(error==ESP_OK){app->storage[slot]=job;error=ouse_storage_submit((ouse_storage_operation_t)operation,&app->owner,arity ? key : NULL,json,&job->token,storage_completed,job);}
     if(error!=ESP_OK)app->storage[slot]=NULL;
     model_unlock(app);
     if(json)JS_FreeCString(context,json);
     JS_FreeValue(context,encoded);
+    if(job->token)JS_DefinePropertyValueStr(context,promise,"taskId",JS_NewUint32(context,job->token),JS_PROP_ENUMERABLE);
     if(error!=ESP_OK){
         JSValue reason=storage_error(context,"Error",esp_err_to_name(error),esp_err_to_name(error));
         if(JS_IsException(reason))reason=JS_GetException(context);
@@ -858,14 +962,14 @@ static void process_storage_results(instance_t *app)
 {
     for(unsigned i=0;i<MAX_STORAGE_PENDING && !app->faulted;++i){storage_job_t *job=app->storage[i];
         if(!job || !job->completed)continue;
-        if(esp_timer_get_time()>=app->deadline)return;
+        if(ouse_budget_slice_done(&app->budget))return;
         model_lock(app);bool runnable=!app->closed && !app->faulted && app->navigation_stage==NAV_IDLE && (app->visible || app->background_active);model_unlock(app);
         if(!runnable)return;
         app->storage[i]=NULL;job->slot=MAX_STORAGE_PENDING;
         bool reject=job->error!=ESP_OK || !job->result;
         JSValue value=reject ? storage_error(app->context,"Error",esp_err_to_name(job->error!=ESP_OK ? job->error : ESP_FAIL),esp_err_to_name(job->error!=ESP_OK ? job->error : ESP_FAIL)) : JS_ParseJSON(app->context,job->result,strlen(job->result),"private-storage");
         if(JS_IsException(value)){value=JS_GetException(app->context);reject=true;}
-        if(esp_timer_get_time()>=app->deadline){JS_FreeValue(app->context,value);app->storage[i]=job;job->slot=i;return;}
+        if(ouse_budget_slice_done(&app->budget)){JS_FreeValue(app->context,value);app->storage[i]=job;job->slot=i;return;}
         JSValue result=call_js(app,"storage",reject ? "reject" : "resolve",reject ? job->reject : job->resolve,JS_UNDEFINED,1,&value);JS_FreeValue(app->context,value);
         storage_job_release(job);
         if(!result_ok(app,result))return;
@@ -927,7 +1031,7 @@ static JSValue navigation_api(JSContext *context,JSValueConst self,int argc,JSVa
 }
 static void navigation_changed(instance_t *app)
 {
-    if(esp_timer_get_time()>=app->deadline || !JS_IsFunction(app->context,app->navigation_handler))return;
+    if(ouse_budget_slice_done(&app->budget) || !JS_IsFunction(app->context,app->navigation_handler))return;
     model_lock(app);bool send=app->navigation_event_pending && app->navigation_stage==NAV_IDLE && app->visible && !app->closed && !app->faulted;
     if(send)app->navigation_event_pending=false;
     model_unlock(app);if(!send)return;
@@ -936,6 +1040,8 @@ static void navigation_changed(instance_t *app)
 }
 
 static JSValue ui_set_style(JSContext *context,JSValueConst self,int argc,JSValueConst *argv);
+#include "ouse_runtime_diagnostics.inc"
+
 static void install_api(instance_t *app)
 {
     JSContext *context=app->context;
@@ -964,9 +1070,16 @@ static void install_api(instance_t *app)
     const char *navigation_methods[]={"push","back","replace","get","onChange"};
     for(int i=0;i<5;++i)JS_SetPropertyStr(context,navigation,navigation_methods[i],JS_NewCFunctionMagic(context,navigation_api,navigation_methods[i],i==1 || i==3 ? 0 : 1,JS_CFUNC_generic_magic,i));
     JS_SetPropertyStr(context,api,"navigation",navigation);
+    JSValue tasks=JS_NewObject(context);const char *task_methods[]={"list","get","cancel","onComplete"};
+    for(int i=0;i<4;++i)JS_SetPropertyStr(context,tasks,task_methods[i],JS_NewCFunctionMagic(context,tasks_api,task_methods[i],i ? 1 : 0,JS_CFUNC_generic_magic,i));
+    JS_SetPropertyStr(context,api,"tasks",tasks);
+    JSValue diagnostics=JS_NewObject(context);
+    JS_SetPropertyStr(context,diagnostics,"get",JS_NewCFunctionMagic(context,diagnostics_api,"get",0,JS_CFUNC_generic_magic,0));
+    JS_SetPropertyStr(context,api,"diagnostics",diagnostics);
     JSValue background=JS_NewObject(context),life=JS_NewObject(context);
     JS_SetPropertyStr(context,background,"begin",JS_NewCFunctionMagic(context,background_api,"begin",0,JS_CFUNC_generic_magic,1));
     JS_SetPropertyStr(context,background,"end",JS_NewCFunctionMagic(context,background_api,"end",0,JS_CFUNC_generic_magic,0));
+    JS_SetPropertyStr(context,background,"get",JS_NewCFunctionMagic(context,background_api,"get",0,JS_CFUNC_generic_magic,3));
     JS_SetPropertyStr(context,background,"isActive",JS_NewCFunctionMagic(context,background_api,"isActive",0,JS_CFUNC_generic_magic,2));
     JS_SetPropertyStr(context,life,"get",JS_NewCFunctionMagic(context,lifecycle_api,"get",0,JS_CFUNC_generic_magic,0));
     JS_SetPropertyStr(context,life,"onChange",JS_NewCFunctionMagic(context,lifecycle_api,"onChange",1,JS_CFUNC_generic_magic,1));
@@ -979,6 +1092,8 @@ static void install_api(instance_t *app)
     JS_SetPropertyStr(context,api,"home",JS_NewCFunction(context,native_home,"home",0));
     JSValue system=JS_NewObject(context);
     JS_SetPropertyStr(context,system,"info",JS_NewCFunction(context,system_info,"info",0));
+    JS_SetPropertyStr(context,system,"tasks",JS_NewCFunctionMagic(context,tasks_api,"tasks",0,JS_CFUNC_generic_magic,4));
+    JS_SetPropertyStr(context,system,"diagnostics",JS_NewCFunctionMagic(context,diagnostics_api,"diagnostics",0,JS_CFUNC_generic_magic,1));
     JS_SetPropertyStr(context,system,"storage",JS_NewCFunction(context,system_storage,"storage",0));
     JS_SetPropertyStr(context,api,"system",system);
     JSValue timers=JS_NewObject(context);
@@ -1160,7 +1275,7 @@ static JSValue ui_set_style(JSContext *context,JSValueConst self,int argc,JSValu
 }
 static bool parse_node(instance_t *app,JSValueConst value,int parent,unsigned depth)
 {
-    if(esp_timer_get_time()>=app->deadline){app->interrupted=true;return false;}
+    if(ouse_budget_exceeded(&app->budget)){app->interrupted=true;return false;}
     if (depth>8 || app->node_count==MAX_NODES || !JS_IsObject(value) || JS_IsArray(value)) return false;
     unsigned index=app->node_count++;
     node_model_t *node=&app->nodes[index].model; node->parent=parent;
@@ -1200,7 +1315,7 @@ static bool parse_node(instance_t *app,JSValueConst value,int parent,unsigned de
         if(!optional_integer(app,value,"x",&node->x,0,0,parent_w) || !optional_integer(app,value,"y",&node->y,0,0,parent_h) ||
            !dimension(app,value,"width",&node->w,&node->fill_w,NULL,parent_w) ||
            !dimension(app,value,"height",&node->h,&node->fill_h,&node->content_h,16384) ||
-           !optional_integer(app,value,"fontSize",&font,default_font,8,32) ||
+           !optional_integer(app,value,"fontSize",&font,default_font,8,84) ||
            !optional_integer(app,value,"padding",&padding,default_padding,0,64) || !optional_integer(app,value,"gap",&gap,default_gap,0,64) ||
            !string_property(app,value,"layout",flow,sizeof(flow),false) || !flag_property(app,value,"scroll",&node->scroll))return false;
         if(node->type==LIST){JSValue scrolling=source_property(app,value,"scroll");if(JS_IsUndefined(scrolling))node->scroll=true;JS_FreeValue(app->context,scrolling);}
@@ -1299,7 +1414,7 @@ static bool parse_page(instance_t *app,unsigned page)
         if(model->text_key[0])for(unsigned language=0;language<2;++language){JSValue text=translated(app,model->text_key,language);bool valid=copy_string(app->context,text,model->translated[language],sizeof(model->translated[language]));JS_FreeValue(app->context,text);if(!valid)return false;}
         if(model->subtitle_key[0])for(unsigned language=0;language<2;++language){JSValue text=translated(app,model->subtitle_key,language);bool valid=copy_string(app->context,text,model->subtitle_translated[language],sizeof(model->subtitle_translated[language]));JS_FreeValue(app->context,text);if(!valid)return false;}
     }
-    if(esp_timer_get_time()>=app->deadline){app->interrupted=true;return false;}
+    if(ouse_budget_exceeded(&app->budget)){app->interrupted=true;return false;}
     return true;
 }
 static bool parse_page_stage(instance_t *app,unsigned page,const char *phase)
@@ -1338,9 +1453,9 @@ static bool parse_pages(instance_t *app,JSValueConst document)
         valid=valid && found;
     }
     JS_FreeValue(context,root);JS_FreeValue(context,pages);
-    if(esp_timer_get_time()>=app->deadline){
+    if(ouse_budget_exceeded(&app->budget)){
         ESP_LOGE("OuseJS","%s page catalog: elapsed=%lld us; timeout=1",app->id,
-            (long long)(esp_timer_get_time()-(app->deadline-STARTUP_BUDGET_US)));return false;
+            (long long)(esp_timer_get_time()-(app->budget.started_us)));return false;
     }
     for(unsigned i=0;valid && i<app->page_count;++i){
         valid=parse_page_stage(app,i,"validate");
@@ -1927,7 +2042,7 @@ static void destroy_js(instance_t *app)
         for(unsigned i=0;i<MAX_TIMERS;++i)JS_FreeValue(app->context,app->timers[i].handler);
         for(unsigned i=0;i<MAX_JOBS;++i){JS_FreeValue(app->context,app->rejected_promises[i]);JS_FreeValue(app->context,app->rejection_reasons[i]);}
         JS_FreeValue(app->context,app->translations);JS_FreeValue(app->context,app->lifecycle_handler);JS_FreeValue(app->context,app->notification_handler);
-        JS_FreeValue(app->context,app->navigation_handler);
+        JS_FreeValue(app->context,app->navigation_handler);JS_FreeValue(app->context,app->task_handler);
         for(unsigned i=0;i<MAX_PAGES;++i)JS_FreeValue(app->context,app->page_roots[i]);
         for(unsigned i=0;i<6;++i)JS_FreeValue(app->context,app->changes[i]);
         JS_FreeContext(app->context);app->context=NULL;
@@ -1937,7 +2052,7 @@ static void destroy_js(instance_t *app)
 static esp_err_t initialize_js(instance_t *app)
 {
     int64_t startup_started=esp_timer_get_time();
-    app->translations=app->lifecycle_handler=app->notification_handler=app->navigation_handler=JS_UNDEFINED;
+    app->translations=app->lifecycle_handler=app->notification_handler=app->navigation_handler=app->task_handler=JS_UNDEFINED;
     for(unsigned i=0;i<MAX_PAGES;++i)app->page_roots[i]=JS_UNDEFINED;
     for(unsigned i=0;i<6;++i){app->changes[i]=JS_UNDEFINED;app->revisions[i]=group_revision(app,i);}
     for(unsigned i=0;i<MAX_JOBS;++i)app->rejected_promises[i]=app->rejection_reasons[i]=JS_UNDEFINED;
@@ -2014,11 +2129,11 @@ static void run_batch(instance_t *app)
     navigation_changed(app); // bind the new page before deferred asynchronous work
     if(app->faulted || navigation_pending(app))return;
     if(!result_ok(app,JS_UNDEFINED))return; // resume last slice's pending Promise jobs
-    if(esp_timer_get_time()>=app->deadline || !reconcile_policy(app) || !app->worker_runnable || navigation_pending(app))return;
-    preference_notifications(app);notification_open_events(app);process_storage_results(app);
+    if(ouse_budget_slice_done(&app->budget) || !reconcile_policy(app) || !app->worker_runnable || navigation_pending(app))return;
+    preference_notifications(app);notification_open_events(app);process_storage_results(app);task_completion_events(app);
     if(!reconcile_policy(app) || !app->worker_runnable || navigation_pending(app))return;
     input_event_t input;unsigned processed=0;
-    while(!app->faulted && processed++<4 && esp_timer_get_time()<app->deadline && xQueueReceive(app->events,&input,0)==pdTRUE){
+    while(!app->faulted && processed++<4 && !ouse_budget_slice_done(&app->budget) && xQueueReceive(app->events,&input,0)==pdTRUE){
         model_lock(app);bool valid=app->visible && input.generation==app->generation;model_unlock(app);
         if(!valid || input.node>=app->node_count || input.event>=EVENT_COUNT)continue;
         node_t *node=&app->nodes[input.node];JSValue handler=JS_DupValue(app->context,node->handlers[input.event]);
@@ -2026,7 +2141,7 @@ static void run_batch(instance_t *app)
             JSValue argument=JS_UNDEFINED;
             if(input.event==EVENT_CHANGE){node_type_t type=node->model.type;argument=type==TEXT_INPUT ? JS_NewString(app->context,input.text) : type==SWITCH || type==CHECKBOX ? JS_NewBool(app->context,input.value) : JS_NewInt32(app->context,input.value);}
             else if((input.event==EVENT_SUBMIT && node->model.type==TEXT_INPUT) || input.event==EVENT_DISMISS)argument=JS_NewString(app->context,input.text);
-            if(esp_timer_get_time()>=app->deadline){
+            if(ouse_budget_slice_done(&app->budget)){
                 if(xQueueSendToFront(app->events,&input,0)!=pdTRUE){model_lock(app);++app->dropped_events;model_unlock(app);}
                 JS_FreeValue(app->context,argument);JS_FreeValue(app->context,handler);break;
             }
@@ -2038,7 +2153,7 @@ static void run_batch(instance_t *app)
     uint32_t now=now_ms();
     for(unsigned i=0;i<MAX_TIMERS && !app->faulted;++i){
         script_timer_t *job=&app->timers[i];if(!job->id || (int32_t)(now-job->due)<0)continue;
-        if(esp_timer_get_time()>=app->deadline)break; // defer pending callbacks instead of punishing an idle batch
+        if(ouse_budget_slice_done(&app->budget))break; // defer pending callbacks instead of punishing an idle batch
         JSValue handler=JS_DupValue(app->context,job->handler);
         if(job->interval)job->due=now+job->period;else {JS_FreeValue(app->context,job->handler);job->handler=JS_UNDEFINED;job->id=0;}
         JSValue result=call_js(app,"timer",NULL,handler,JS_UNDEFINED,0,NULL);JS_FreeValue(app->context,handler);result_ok(app,result);
@@ -2047,17 +2162,39 @@ static void run_batch(instance_t *app)
 }
 static void publish_stats(void)
 {
+    int64_t now=esp_timer_get_time();
     ouse_runtime_stats_t stats={.errors=error_count,.worker_stack_min=uxTaskGetStackHighWaterMark(NULL),.storage_jobs=storage_job_count};
+    ouse_runtime_diagnostics_t diagnostics={.sampled_ms=now/1000};
     for(instance_t *app=instances;app;app=app->next){
         ++stats.instances;stats.widgets+=app->node_count;if(app->context)++stats.contexts;
         for(unsigned i=0;i<MAX_STORAGE_PENDING;++i)if(app->storage[i])++stats.storage_pending;
-        for(unsigned i=0;i<MAX_TIMERS;++i)if(app->timers[i].id)++stats.timers;
-        if(app->runtime){JSMemoryUsage memory;JS_ComputeMemoryUsage(app->runtime,&memory);stats.js_heap_bytes+=(size_t)memory.malloc_size;}
+        unsigned timers=0;for(unsigned i=0;i<MAX_TIMERS;++i)if(app->timers[i].id)++timers;
+        stats.timers+=timers;
+        if(app->runtime && (!app->sampled_memory_us || now-app->sampled_memory_us>=1000000)){
+            JSMemoryUsage memory;JS_ComputeMemoryUsage(app->runtime,&memory);app->sampled_js_bytes=(size_t)memory.malloc_size;app->sampled_memory_us=now;
+        }
+        stats.js_heap_bytes+=app->sampled_js_bytes;
         if(app->worker_runnable)++stats.runnable;
         if(app->worker_runnable && !app->worker_visible)++stats.background;
-        stats.queued_events+=uxQueueMessagesWaiting(app->events);model_lock(app);stats.dropped_events+=app->dropped_events;model_unlock(app);
+        unsigned queued=uxQueueMessagesWaiting(app->events);stats.queued_events+=queued;
+        model_lock(app);stats.dropped_events+=app->dropped_events;
+        if(diagnostics.app_count<OUSE_RUNTIME_DIAGNOSTIC_APPS){
+            ouse_runtime_app_stats_t *entry=&diagnostics.apps[diagnostics.app_count++];
+            strcpy(entry->app_id,app->id);entry->instance_id=app->owner.instance;
+            entry->visible=app->visible;entry->runnable=app->worker_runnable;entry->background_allowed=app->background_allowed;
+            entry->background_active=app->background_active;entry->faulted=app->faulted;
+            if(app->background_active){strcpy(entry->background_reason,app->background_reason);entry->background_since_ms=app->background_since_us/1000;}
+            entry->timers=timers;entry->queued_events=queued;entry->js_heap_bytes=app->sampled_js_bytes;
+            entry->memory_sample_ms=app->sampled_memory_us/1000;
+            entry->native_known_bytes=sizeof(*app)+strlen(app->page)+1+strlen(app->script)+1;
+            for(unsigned i=0;i<app->image_count;++i)entry->native_known_bytes+=app->image_descriptors[i].data_size;
+            for(unsigned i=0;i<app->asset_count;++i)entry->native_known_bytes+=app->assets[i].size+(app->assets[i].type==OUSE_SCRIPT_ASSET_TEXT ? 1 : 0);
+            entry->last_scheduled_us=app->budget.scheduled_us;entry->last_elapsed_us=app->budget.observed_us-app->budget.started_us;
+            entry->budget_checkpoints=app->budget.samples;entry->wall_guard_hit=app->budget.wall_exceeded;
+        }
+        model_unlock(app);
     }
-    portENTER_CRITICAL(&stats_lock);runtime_stats=stats;portEXIT_CRITICAL(&stats_lock);
+    portENTER_CRITICAL(&stats_lock);runtime_stats=stats;runtime_diagnostics=diagnostics;portEXIT_CRITICAL(&stats_lock);
 }
 static void script_worker(void *opaque)
 {
@@ -2095,6 +2232,7 @@ static esp_err_t ensure_worker(void)
 {
     // Called only by UI-task entry points. Lifetime is the firmware lifetime.
     if(worker_task)return ESP_OK;
+    ouse_tasks_set_notify(wake_worker);
     launches=xQueueCreate(12,sizeof(instance_t *));if(!launches)return ESP_ERR_NO_MEM;
     storage_completions=xQueueCreate(MAX_STORAGE_JOBS,sizeof(storage_job_t *));if(!storage_completions){vQueueDelete(launches);launches=NULL;return ESP_ERR_NO_MEM;}
     if(xTaskCreate(script_worker,"ouse_js",WORKER_STACK_BYTES,NULL,3,&worker_task)!=pdPASS){vQueueDelete(storage_completions);storage_completions=NULL;vQueueDelete(launches);launches=NULL;return ESP_ERR_NO_MEM;}
@@ -2146,7 +2284,9 @@ static instance_t *allocate_instance(const ouse_script_package_t *package)
     instance_t *app=heap_caps_calloc(1,sizeof(*app),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
     if(!app)app=calloc(1,sizeof(*app));
     if(!app)return NULL;
-    atomic_init(&app->references,1);app->model_lock=xSemaphoreCreateMutex();app->events=xQueueCreate(MAX_EVENTS,sizeof(input_event_t));
+    atomic_init(&app->references,1);
+    if(ouse_task_owner_open(package->id,&app->owner)!=ESP_OK){free(app);return NULL;}
+    app->model_lock=xSemaphoreCreateMutex();app->events=xQueueCreate(MAX_EVENTS,sizeof(input_event_t));
     app->page=strdup(package->page);app->script=strdup(package->script);strcpy(app->id,package->id);app->background_allowed=package->background_allowed;app->notifications_allowed=package->notifications_allowed;
     if(!app->model_lock || !app->events || !app->page || !app->script){release_instance(app);return NULL;}
     size_t bytes=0;
@@ -2211,6 +2351,7 @@ static void close_app(void *opaque)
 {
     ouse_script_app_t *state=opaque;instance_t *app=state->instance;if(!app)return;
     state->instance=NULL;model_lock(app);app->closed=true;app->visible=false;app->background_active=false;++app->generation;model_unlock(app);
+    ouse_task_owner_close(&app->owner);
     if(app->pump){lv_timer_delete(app->pump);app->pump=NULL;}
     ouse_ime_hide_root(app->root);
     if(app->built)for(unsigned i=0;i<app->node_count;++i){node_t *node=&app->nodes[i];if(node->object){lv_obj_remove_event_cb(node->object,input_event);if(node->model.type==DROPDOWN)lv_dropdown_close(node->object);if(node->model.type==TEXT_INPUT)ouse_ime_detach(node->object);node->object=node->caption=node->subtitle=node->overlay=NULL;}}
@@ -2237,15 +2378,29 @@ void ouse_runtime_get_stats(ouse_runtime_stats_t *stats)
     if(!stats)return;
     portENTER_CRITICAL(&stats_lock);*stats=runtime_stats;portEXIT_CRITICAL(&stats_lock);
 }
-esp_err_t ouse_script_validate(const ouse_script_package_t *package)
+esp_err_t ouse_script_validate_begin(const ouse_script_package_t *package,ouse_script_validation_t **out)
 {
+    if(!out)return ESP_ERR_INVALID_ARG;
+    *out=NULL;
     ouse_script_app_t state={0};ouse_app_definition_t definition;esp_err_t error=ouse_script_prepare(&state,package,&definition);if(error!=ESP_OK)return error;
     error=ensure_worker();if(error!=ESP_OK)return error;
     instance_t *app=allocate_instance(package);if(!app)return ESP_ERR_NO_MEM;
     app->validation_only=true;app->validated=xSemaphoreCreateBinary();if(!app->validated){release_instance(app);return ESP_ERR_NO_MEM;}
     if(!enqueue_instance(app)){release_instance(app);return ESP_ERR_NO_MEM;}
-    // The worker never waits for this UI caller and owns copied sources. Timeout
-    // safely leaves its reference alive until compilation and cleanup complete.
-    error=xSemaphoreTake(app->validated,pdMS_TO_TICKS(2000))==pdTRUE ? app->validation_result : ESP_ERR_TIMEOUT;
+    *out=(ouse_script_validation_t *)app;return ESP_OK;
+}
+esp_err_t ouse_script_validate_wait(ouse_script_validation_t *validation)
+{
+    if(!validation)return ESP_ERR_INVALID_ARG;
+    instance_t *app=(instance_t *)validation;
+    // The installer waits outside the UI callback/lock. Compilation retains its
+    // own copies and reference even if this native caller reaches its timeout.
+    esp_err_t error=xSemaphoreTake(app->validated,pdMS_TO_TICKS(2000))==pdTRUE ? app->validation_result : ESP_ERR_TIMEOUT;
     release_instance(app);return error;
+}
+
+void ouse_runtime_get_diagnostics(ouse_runtime_diagnostics_t *out)
+{
+    if(!out)return;
+    portENTER_CRITICAL(&stats_lock);*out=runtime_diagnostics;portEXIT_CRITICAL(&stats_lock);
 }

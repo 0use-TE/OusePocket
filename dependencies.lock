@@ -433,6 +433,6 @@ direct_dependencies:
 - joltwallet/littlefs
 - lvgl/lvgl
 - waveshare/esp32_p4_wifi6_touch_lcd_3_5
-manifest_hash: 053b98a6b7bc9ac796c538afa1408ad974b92dd453eeba63ab72aea86c13f2b4
+manifest_hash: e85f2b9b8565768c4c639ad1b2cf88f1cfbd8b80048d4b850e9cb963f1994e8c
 target: esp32p4
 version: 3.0.0

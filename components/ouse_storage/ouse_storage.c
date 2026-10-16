@@ -2,6 +2,7 @@
 // All private-data filesystem work belongs to this task. Request submission,
 // UI queries and completion delivery contain no filesystem operations.
 #include "ouse_storage.h"
+#include "ouse_tasks.h"
 #include "esp_heap_caps.h"
 #include "esp_littlefs.h"
 #include "esp_log.h"
@@ -327,11 +328,18 @@ static void worker(void *unused)
     for(;;) {
         storage_job_t *job=NULL;
         if(xQueueReceive(jobs,&job,portMAX_DELAY)!=pdTRUE)continue;
-        char *result=NULL;esp_err_t error=job->operation==JOB_REFRESH ? ESP_OK : execute(job,&result);
+        char *result=NULL;
+        bool tracked=job->complete!=NULL;
+        bool claimed=!tracked || ouse_task_start(job->token,false);
+        esp_err_t error=!claimed ? ESP_ERR_INVALID_STATE : job->operation==JOB_REFRESH ? ESP_OK : execute(job,&result);
         // Clear before scanning. A package change racing with this snapshot
         // can then queue another refresh instead of being silently coalesced
         // into a scan that has already passed the package directory.
         atomic_store(&refresh_requested,false);refresh_stats(error);
+        if(tracked){
+            ouse_task_result_t summary={.present=claimed && error==ESP_OK,.value.storage={.json_bytes=result ? strlen(result) : 0}};
+            ouse_task_finish_result(job->token,error,!claimed,&summary);
+        }
         if(job->barrier) {
             job->barrier_error=error;xSemaphoreGive(job->barrier);
             // The synchronous caller owns this job after giving the barrier.
@@ -359,9 +367,11 @@ esp_err_t ouse_storage_start(void)
     }
     xSemaphoreTake(started,portMAX_DELAY);return startup_error;
 }
-esp_err_t ouse_storage_submit(ouse_storage_operation_t operation,const char *app_id,
-    const char *key,const char *value,uint32_t token,ouse_storage_complete_t complete,void *context)
+esp_err_t ouse_storage_submit(ouse_storage_operation_t operation,const ouse_task_owner_t *owner,
+    const char *key,const char *value,uint32_t *task_id,ouse_storage_complete_t complete,void *context)
 {
+    if(!owner || !task_id)return ESP_ERR_INVALID_ARG;
+    *task_id=0;const char *app_id=owner->app_id;
     if(operation<OUSE_STORAGE_GET||operation>OUSE_STORAGE_INFO||!valid_app(app_id)||!complete)return ESP_ERR_INVALID_ARG;
     bool needs_key=operation==OUSE_STORAGE_GET||operation==OUSE_STORAGE_SET||operation==OUSE_STORAGE_REMOVE;
     if(needs_key&&!valid_key(key))return ESP_ERR_INVALID_ARG;
@@ -372,12 +382,16 @@ esp_err_t ouse_storage_submit(ouse_storage_operation_t operation,const char *app
     ouse_storage_stats_t state;ouse_storage_get_stats(&state);if(!state.ready)return ESP_ERR_INVALID_STATE;
     storage_job_t *job=calloc(1,sizeof(*job));if(!job)return ESP_ERR_NO_MEM;
     job->operation=operation;strcpy(job->app_id,app_id);if(needs_key)strcpy(job->key,key);
-    job->token=token;job->complete=complete;job->context=context;
+    job->complete=complete;job->context=context;
     if(operation==OUSE_STORAGE_SET) {
         job->value=allocate(size+1);if(!job->value){free(job);return ESP_ERR_NO_MEM;}
         memcpy(job->value,value,size+1);job->value_size=size;
     }
-    if(xQueueSend(jobs,&job,0)!=pdTRUE){free(job->value);free(job);return ESP_ERR_NO_MEM;}
+    static const char *operations[]={"get","set","remove","keys","clear","info"};
+    esp_err_t registered=ouse_task_create(owner,OUSE_TASK_STORAGE,operations[operation],OUSE_TASK_FINISH_ON_CLOSE,true,task_id);
+    if(registered!=ESP_OK){free(job->value);free(job);return registered;}
+    job->token=*task_id;
+    if(xQueueSend(jobs,&job,0)!=pdTRUE){ouse_task_finish(job->token,ESP_ERR_NO_MEM,false);free(job->value);free(job);return ESP_ERR_NO_MEM;}
     return ESP_OK;
 }
 esp_err_t ouse_storage_purge(const char *app_id)

@@ -1,6 +1,6 @@
 """Exercise the product actual Wi-Fi worker, with deterministic SDK events, without hardware I/O."""
 from pathlib import Path
-import os, subprocess
+import os, subprocess, sys
 ROOT=Path(__file__).resolve().parents[1]
 OUT=ROOT/".tools/ouse-wifi-check"
 OUT.mkdir(exist_ok=True)
@@ -34,6 +34,7 @@ headers=r'''
 #define WIFI_MODE_STA 1
 #define WIFI_IF_STA 0
 #define WIFI_STORAGE_RAM 1
+#define WIFI_EVENT_STA_STOP 6
 #define WIFI_EVENT_SCAN_DONE 1
 #define WIFI_EVENT_STA_DISCONNECTED 2
 #define IP_EVENT_STA_GOT_IP 3
@@ -120,7 +121,7 @@ int esp_netif_init(void){return 0;}
 int esp_event_loop_create_default(void){return 0;}
 int esp_event_handler_register(const char *b,int i,void(*f)(void*,const char*,int,void*),void *a){assert(b&&f);(void)i;(void)a;return 0;}
 int esp_hosted_init(void){++host_inits;return 0;}
-int esp_hosted_connect_to_slave(void){if(supersede_init){supersede_init=false;assert(ouse_wifi_set_enabled(false)==0);}return missing_slave ? ESP_ERR_TIMEOUT : 0;}
+int esp_hosted_connect_to_slave(void){if(supersede_init){supersede_init=false;assert(ouse_wifi_set_enabled(false)==ESP_ERR_INVALID_STATE);}return missing_slave ? ESP_ERR_TIMEOUT : 0;}
 int esp_hosted_get_coprocessor_fwversion(esp_hosted_coprocessor_fwver_t *v){(void)v;++version_queries;return ESP_ERR_TIMEOUT;}
 esp_netif_t *esp_netif_create_default_wifi_sta(void){return (esp_netif_t *)1;}
 int esp_wifi_init(wifi_init_config_t *c){assert(c);++wifi_inits;if(wifi_init_error)return wifi_init_error;if(sdk_initialized)return ESP_ERR_INVALID_STATE;sdk_initialized=true;return 0;}
@@ -152,10 +153,38 @@ static void queue_disconnect(int reason){associated=false;queue_disconnect_from(
 static void queue_ip(void){associated=true;ip_event_got_ip_t ip={.ip_info.ip.addr=assigned_ip};event(NULL,IP_EVENT,IP_EVENT_STA_GOT_IP,&ip);}
 static void disconnected(int reason){queue_disconnect(reason);pump();}
 static void setup(void){ouse_device_port_t p={0};ouse_device_config_t c={.volume=40};assert(ouse_devices_init(&p,&c)==0);ouse_devices_set_available(2,true,0);}
-static void connect_office(void){assert(ouse_wifi_set_enabled(true)==0);pump();assert(ouse_wifi_connect("Office","correctpass")==0);pump();}
+static void connect_office(void){assert(ouse_wifi_set_enabled(true)==0);pump();event(NULL,WIFI_EVENT,WIFI_EVENT_SCAN_DONE,NULL);pump();assert(ouse_wifi_connect("Office","correctpass")==0);pump();}
 static int regression(const char *name){
  setup();
- if(!strcmp(name,"merged-events")){
+ if(!strcmp(name,"kernel-drain")){
+  assert(ouse_wifi_set_enabled(true)==ESP_OK);pump();uint32_t id=snapshot().request_id;
+  ouse_task_snapshot_t task;assert(ouse_task_get(NULL,id,&task) && task.state==OUSE_TASK_RUNNING);
+  assert(ouse_wifi_connect("Office","correctpass")==ESP_ERR_INVALID_STATE);
+  now+=16000000;pump();assert(awaiting_stop==EVENT_SCAN);
+  assert(ouse_task_get(NULL,id,&task) && task.state==OUSE_TASK_RUNNING);
+  assert(ouse_wifi_connect("Office","correctpass")==ESP_ERR_INVALID_STATE);
+  event(NULL,WIFI_EVENT,WIFI_EVENT_SCAN_DONE,NULL);pump();
+  assert(ouse_task_get(NULL,id,&task) && task.state==OUSE_TASK_FAILED && task.error==ESP_ERR_TIMEOUT);
+  assert(ouse_wifi_connect("Office","correctpass")==ESP_OK);pump();queue_ip();pump();assert(snapshot().connected);
+ }else if(!strcmp(name,"kernel-disconnect")){
+  connect_office();queue_ip();pump();
+  assert(ouse_wifi_disconnect()==ESP_OK);pump();uint32_t id=snapshot().request_id;
+  ouse_task_snapshot_t task;assert(ouse_task_get(NULL,id,&task) && task.state==OUSE_TASK_RUNNING);
+  assert(ouse_wifi_scan()==ESP_ERR_INVALID_STATE);
+  queue_disconnect(WIFI_REASON_ASSOC_LEAVE);pump();
+  assert(ouse_task_get(NULL,id,&task) && task.state==OUSE_TASK_SUCCEEDED);
+  assert(ouse_wifi_set_enabled(false)==ESP_OK);pump();id=snapshot().request_id;
+  assert(ouse_task_get(NULL,id,&task) && task.state==OUSE_TASK_RUNNING);
+  event(NULL,WIFI_EVENT,WIFI_EVENT_STA_STOP,NULL);pump();
+  assert(ouse_task_get(NULL,id,&task) && task.state==OUSE_TASK_SUCCEEDED);
+ }else if(!strcmp(name,"kernel-owner-close")){
+  ouse_task_owner_t owner;assert(ouse_task_owner_open("user.wifi",&owner)==ESP_OK);uint32_t id;
+  assert(ouse_wifi_submit(&owner,OUSE_WIFI_ENABLE,true,NULL,NULL,&id)==ESP_OK);pump();
+  ouse_task_owner_close(&owner);ouse_task_owner_t reopened;assert(ouse_task_owner_open("user.wifi",&reopened)==ESP_OK);
+  event(NULL,WIFI_EVENT,WIFI_EVENT_SCAN_DONE,NULL);pump();ouse_task_snapshot_t task;
+  assert(ouse_task_get(NULL,id,&task) && task.state==OUSE_TASK_SUCCEEDED && task.detached && !task.delivery_pending);
+  assert(!ouse_task_get(&reopened,id,&task));ouse_task_owner_close(&reopened);
+ }else if(!strcmp(name,"merged-events")){
   connect_office();unsigned before=connects;queue_disconnect(1);queue_ip();pump();ouse_wifi_state_t w=snapshot();
   printf("merged disconnect->IP: connected=%d connecting=%d connects=%u expected=%u\n",w.connected,w.connecting,connects,before);fflush(stdout);
   assert(w.connected&&!w.connecting&&connects==before&&ntps==1);
@@ -164,8 +193,8 @@ static int regression(const char *name){
   assert(!w.connected&&w.connecting&&connects==before+1&&ntps==1);
   queue_disconnect(WIFI_REASON_AUTH_FAIL);queue_ip();pump();assert(snapshot().connected&&!snapshot().connecting);
  }else if(!strcmp(name,"stop-retry")){
-  assert(ouse_wifi_set_enabled(true)==0);pump();stop_error=ESP_FAIL;assert(ouse_wifi_set_enabled(false)==0);pump();assert(snapshot().error==ESP_FAIL&&sdk_started);
-  stop_error=0;assert(ouse_wifi_set_enabled(false)==0);pump();
+  assert(ouse_wifi_set_enabled(true)==0);pump();event(NULL,WIFI_EVENT,WIFI_EVENT_SCAN_DONE,NULL);pump();stop_error=ESP_FAIL;assert(ouse_wifi_set_enabled(false)==0);pump();assert(snapshot().error==ESP_FAIL&&sdk_started);
+  stop_error=0;assert(ouse_wifi_set_enabled(false)==0);pump();event(NULL,WIFI_EVENT,WIFI_EVENT_STA_STOP,NULL);pump();
   printf("failed stop then retry: calls=%u physical_started=%d worker_started=%d\n",stops,sdk_started,started);fflush(stdout);
   assert(stops==2&&!sdk_started&&!started&&snapshot().error==0);
   assert(ouse_wifi_set_enabled(true)==0);pump();assert(sdk_started&&snapshot().ready&&starts==2);
@@ -200,10 +229,10 @@ static int regression(const char *name){
   connect_office();queue_ip();event(NULL,ESP_HOSTED_EVENT,ESP_HOSTED_EVENT_TRANSPORT_DOWN,NULL);pump();ouse_wifi_state_t w=snapshot();ouse_device_config_t c;ouse_devices_get_config(&c);
   assert(!w.ready&&!w.connected&&!w.connecting&&w.error==ESP_ERR_TIMEOUT&&ntps==0&&!c.ssid[0]);
  }else if(!strcmp(name,"stop-reenable")){
-  assert(ouse_wifi_set_enabled(true)==0);pump();stop_error=ESP_FAIL;assert(ouse_wifi_set_enabled(false)==0);pump();
+  assert(ouse_wifi_set_enabled(true)==0);pump();event(NULL,WIFI_EVENT,WIFI_EVENT_SCAN_DONE,NULL);pump();stop_error=ESP_FAIL;assert(ouse_wifi_set_enabled(false)==0);pump();
   stop_error=0;assert(ouse_wifi_set_enabled(true)==0);pump();assert(snapshot().ready&&snapshot().error==0&&sdk_started&&starts==1);
  }else if(!strcmp(name,"superseded-init")){
-  supersede_init=true;assert(ouse_wifi_set_enabled(true)==0);pump();assert(!snapshot().enabled&&!starts&&!scans&&!connects);pump();assert(!snapshot().enabled&&!sdk_started);
+  supersede_init=true;assert(ouse_wifi_set_enabled(true)==0);pump();assert(snapshot().enabled&&starts==1&&scans==1&&sdk_started);
  }else assert(!"Unknown regression");
  printf("PASS actual Wi-Fi worker regression: %s\n",name);return 0;
 }
@@ -228,11 +257,11 @@ int main(int argc,char **argv){
  signal=-53;now+=5000000;pump();assert(snapshot().rssi==-53);
  unsigned before=connects;disconnected(1);assert(snapshot().connecting && connects==before+1);
  disconnected(1);assert(snapshot().connecting && connects==before+2);disconnected(1);assert(!snapshot().connecting && connects==before+2);
- assert(ouse_wifi_connect("Office","correctpass")==0);pump();now+=16000000;pump();w=snapshot();assert(w.error==ESP_ERR_TIMEOUT && !w.connecting);
+ assert(ouse_wifi_connect("Office","correctpass")==0);pump();now+=16000000;pump();w=snapshot();assert(w.error==ESP_ERR_TIMEOUT && !w.connecting);queue_disconnect(WIFI_REASON_ASSOC_LEAVE);pump();
  assert(ouse_wifi_set_enabled(true)==0);pump();queue_ip();pump();assert(snapshot().connected);
  event(NULL,ESP_HOSTED_EVENT,ESP_HOSTED_EVENT_TRANSPORT_DOWN,NULL);pump();assert(!snapshot().ready && snapshot().error==ESP_ERR_TIMEOUT);
  assert(ouse_wifi_set_enabled(true)==0);pump();assert(snapshot().ready && wifi_inits==1);
- assert(ouse_wifi_set_enabled(false)==0);pump();w=snapshot();assert(!w.enabled && !w.connected && stops==1);
+ assert(ouse_wifi_set_enabled(false)==0);pump();w=snapshot();assert(!w.enabled && !w.connected && stops==1);event(NULL,WIFI_EVENT,WIFI_EVENT_STA_STOP,NULL);pump();
  assert(ouse_wifi_forget()==0);pump();ouse_devices_get_config(&cfg);assert(!cfg.ssid[0] && !cfg.password[0] && host_inits==1);
  assert(!version_queries); // unsupported version RPC must never gate first init or recovery
  puts("PASS optional C6 version RPC omitted; actual Wi-Fi initialization failure still propagated");
@@ -240,8 +269,12 @@ int main(int argc,char **argv){
 }
 '''.replace("BOARD_WIFI",(ROOT/"boards/waveshare_lcd35/board_wifi.c").as_posix())
 (OUT/"check.c").write_text(fixture,encoding="utf-8")
-result=subprocess.run([str(compiler),"/nologo","/utf-8","/std:c11","/O2","/MD","/UNDEBUG","/I"+str(OUT),"/I"+str(ROOT/".tools/ouse-core-check"),"/I"+str(ROOT/"components/ouse_devices/include"),str(OUT/"check.c"),str(ROOT/"components/ouse_devices/ouse_devices.c"),"/Fe"+str(OUT/"check.exe")],cwd=OUT,env=env,capture_output=True,text=True,errors="replace")
+result=subprocess.run([str(compiler),"/nologo","/utf-8","/std:c11","/O2","/MD","/UNDEBUG","/I"+str(OUT),"/I"+str(ROOT/".tools/ouse-core-check"),"/I"+str(ROOT/"components/ouse_devices/include"),"/I"+str(ROOT/"components/ouse_tasks/include"),str(ROOT/"components/ouse_tasks/ouse_tasks.c"),str(OUT/"check.c"),str(ROOT/"components/ouse_devices/ouse_devices.c"),"/Fe"+str(OUT/"check.exe")],cwd=OUT,env=env,capture_output=True,text=True,errors="replace")
 assert result.returncode==0,(result.stdout,result.stderr)
+if "--kernel-only" in sys.argv:
+ for case in ("kernel-drain","kernel-disconnect","kernel-owner-close"):
+  subprocess.run([str(OUT/"check.exe"),case],cwd=OUT,check=True,timeout=15)
+ sys.exit(0)
 subprocess.run([str(OUT/"check.exe")],cwd=OUT,check=True)
 failures=[]
 for case in ("merged-events","stop-retry","stop-reenable","reconnect-failure","init-cleanup-retry","sntp-retry","dhcp-ip-change","superseded-disconnect","untagged-disconnect","transport-before-ip","superseded-init"):

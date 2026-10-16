@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "esp_err.h"
+#include "ouse_tasks.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -42,8 +43,10 @@ esp_err_t ouse_storage_start(void);
 // SET receives a valid serialized JSON value from the caller (1..8192 bytes).
 // Every accepted request invokes complete once, including errors. No callbacks
 // are made for rejected submissions. No filesystem I/O occurs in submit.
-esp_err_t ouse_storage_submit(ouse_storage_operation_t operation,const char *app_id,
-    const char *key,const char *value,uint32_t token,ouse_storage_complete_t complete,void *context);
+// The service registers ownership and writes task_id before enqueueing; callback
+// token is this global task ID. A queue rejection may expose a failed task ID.
+esp_err_t ouse_storage_submit(ouse_storage_operation_t operation,const ouse_task_owner_t *owner,
+    const char *key,const char *value,uint32_t *task_id,ouse_storage_complete_t complete,void *context);
 // Installer-only FIFO barrier: after the registry has closed/removed the app,
 // drain its previously accepted writes then delete only that app's private data.
 // Never call on the UI/JS task; completion has no deadline/lifetime ambiguity.

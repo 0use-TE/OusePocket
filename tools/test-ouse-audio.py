@@ -1,6 +1,6 @@
 """Exercise the product board audio worker against a deterministic codec/driver double, without hardware I/O."""
 from pathlib import Path
-import os, subprocess
+import os, subprocess, sys
 ROOT=Path(__file__).resolve().parents[1]
 OUT=ROOT/".tools/ouse-audio-check"
 OUT.mkdir(exist_ok=True)
@@ -21,6 +21,11 @@ headers=r'''
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+typedef int portMUX_TYPE;
+#define portMUX_INITIALIZER_UNLOCKED 0
+#define portENTER_CRITICAL(p) ((void)(p))
+#define portEXIT_CRITICAL(p) ((void)(p))
+int64_t esp_timer_get_time(void);
 #define BSP_I2C_NUM 0
 #define CONFIG_BSP_I2S_NUM 0
 #define BSP_I2S_MCLK 13
@@ -100,7 +105,7 @@ unsigned ulTaskNotifyTake(int,unsigned);
 const char *esp_err_to_name(int);
 '''
 (OUT/"fakes.h").write_text(headers)
-for name in ["bsp/esp-bsp.h","driver/i2s_std.h","esp_codec_dev.h","esp_codec_dev_defaults.h","esp_heap_caps.h","esp_log.h","freertos/FreeRTOS.h","freertos/task.h"]:
+for name in ["esp_timer.h","bsp/esp-bsp.h","driver/i2s_std.h","esp_codec_dev.h","esp_codec_dev_defaults.h","esp_heap_caps.h","esp_log.h","freertos/FreeRTOS.h","freertos/task.h"]:
  f=OUT/name;f.parent.mkdir(exist_ok=True,parents=True);f.write_text('#include "fakes.h"\n')
 fixture=r'''
 #include "fakes.h"
@@ -108,6 +113,11 @@ fixture=r'''
 #include <assert.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <setjmp.h>
+static jmp_buf idle;
+static uint32_t observed_task;
+static bool observed_cancel_at_close;
+int64_t esp_timer_get_time(void){static int64_t clock;return ++clock;}
 static int fail_probe,fail_open,fail_init,fail_allocate,fail_io;
 static int fail_enable_tx,fail_enable_rx,fail_disable_tx,fail_disable_rx,fail_preload;
 static unsigned allocated,opened,closed,writes,reads,cancel_after;
@@ -147,24 +157,34 @@ void audio_codec_delete_data_if(const audio_codec_data_if_t *p){assert(!active_c
 void audio_codec_delete_ctrl_if(const audio_codec_ctrl_if_t *p){free((void*)p);--allocated;}
 void audio_codec_delete_gpio_if(const audio_codec_gpio_if_t *p){free((void*)p);--allocated;}
 int esp_codec_dev_open(void *p,esp_codec_dev_sample_info_t *f){fake_codec_t *c=p;assert(c&&c->data->is_open(c->data)&&f->sample_rate==16000&&f->channel==1&&f->bits_per_sample==16);assert(!c->opened);c->opened=true;++opened;(void)c->data->set_fmt(c->data,3,f);(void)c->data->enable(c->data,3,true);return fail_open?ESP_FAIL:0;}
-int esp_codec_dev_close(void *p){fake_codec_t *c=p;assert(c);if(c->opened){(void)c->data->enable(c->data,3,false);c->opened=false;++closed;}return 0;}
+int esp_codec_dev_close(void *p){fake_codec_t *c=p;assert(c);if(c->opened){if(observed_task){ouse_task_snapshot_t task;assert(ouse_task_get(NULL,observed_task,&task) && task.state==OUSE_TASK_CANCELLING);observed_cancel_at_close=true;}(void)c->data->enable(c->data,3,false);c->opened=false;++closed;}return 0;}
 int esp_codec_dev_set_out_vol(void *p,int v){assert(p);output_volume=v;return 0;}
 int esp_codec_dev_set_out_mute(void *p,bool m){assert(p);output_muted=m;return 0;}
 int esp_codec_dev_set_in_gain(void *p,float g){assert(p && g==24);return 0;}
 int esp_codec_dev_write(void *p,void *b,int n){fake_codec_t *c=p;assert(c&&c->opened);return c->data->write(c->data,b,n);}
 int esp_codec_dev_read(void *p,void *b,int n){fake_codec_t *c=p;assert(c&&c->opened);return c->data->read(c->data,b,n);}
 void *heap_caps_malloc(size_t n,unsigned flags){assert(n==96000 && flags==3);return fail_allocate ? NULL : malloc(n);}
-unsigned ulTaskNotifyTake(int a,unsigned b){(void)a;(void)b;return 0;}
+unsigned ulTaskNotifyTake(int a,unsigned b){(void)a;(void)b;longjmp(idle,1);return 0;}
 const char *esp_err_to_name(int e){(void)e;return "test";}
 #include "BOARD_AUDIO"
-static ouse_audio_request_t take(void){ouse_audio_request_t r;assert(ouse_devices_take_audio(&r));return r;}
-int main(void){
+static ouse_audio_request_t take(void){ouse_audio_request_t r;assert(ouse_devices_take_audio(&r) && ouse_task_start(r.id,true));return r;}
+static esp_err_t execute_request(ouse_audio_request_t request,ouse_audio_state_t *state){esp_err_t error=run(request,state);ouse_task_finish(request.id,error,ouse_task_cancel_requested(request.id));return error;}
+static void pump(void){if(!setjmp(idle))ouse_board_audio_worker(NULL);}
+int main(int argc,char **argv){
  ouse_device_port_t port={0};ouse_device_config_t config={.volume=40};assert(ouse_devices_init(&port,&config)==0);ouse_devices_set_available(1,true,0);
+ if(argc>1){
+  assert(!strcmp(argv[1],"--kernel-only"));ouse_task_owner_t owner;assert(ouse_task_owner_open("user.audio",&owner)==ESP_OK);
+  uint32_t id;assert(ouse_audio_submit(&owner,OUSE_AUDIO_TEST,0,&id)==ESP_OK);observed_task=id;cancel_after=2;pump();
+  ouse_task_snapshot_t task;assert(observed_cancel_at_close && opened==closed && output_muted);
+  assert(ouse_task_get(&owner,id,&task) && task.state==OUSE_TASK_CANCELLED && task.result.present && task.result.value.audio.position_ms>0);
+  observed_task=0;ouse_task_owner_close(&owner);release_codec();free(recording);
+  assert(!allocated);puts("PASS actual audio worker: cancellation stays pending through codec close; terminal result follows release");return 0;
+ }
  ouse_audio_state_t state;ouse_audio_request_t req;
- fail_probe=1;assert(ouse_audio_test_tone()==0);req=take();ouse_audio_get(&state);assert(run(req,&state)==ESP_ERR_NOT_FOUND && !allocated);fail_probe=0;
- fail_init=1;assert(ouse_audio_test_tone()==0);req=take();assert(run(req,&state)==ESP_FAIL && !allocated);fail_init=0;
- fail_open=1;assert(ouse_audio_test_tone()==0);req=take();assert(run(req,&state)==ESP_FAIL && !allocated);fail_open=0;
- assert(ouse_audio_test_tone()==0);req=take();assert(run(req,&state)==0 && writes==32 && output_muted && opened==closed);
+ fail_probe=1;assert(ouse_audio_test_tone()==0);req=take();ouse_audio_get(&state);assert(execute_request(req,&state)==ESP_ERR_NOT_FOUND && !allocated);fail_probe=0;
+ fail_init=1;assert(ouse_audio_test_tone()==0);req=take();assert(execute_request(req,&state)==ESP_FAIL && !allocated);fail_init=0;
+ fail_open=1;assert(ouse_audio_test_tone()==0);req=take();assert(execute_request(req,&state)==ESP_FAIL && !allocated);fail_open=0;
+ assert(ouse_audio_test_tone()==0);req=take();assert(execute_request(req,&state)==0 && writes==32 && output_muted && opened==closed);
  printf("I2S state audit: invalid transitions=%u, redundant format changes=%u, configured DMA frames=%u\n",invalid_transitions,format_changes,dma_frames);fflush(stdout);
  assert(invalid_transitions==0 && format_changes==0 && dma_frames==256);
  assert(!active_tx->running&&!active_rx->running);
@@ -176,35 +196,35 @@ int main(void){
  unsigned resources=allocated;assert(resources==7 && output_volume==40);
  // The codec double intentionally ignores data_if callback failures like the
  // pinned component. The real board worker must still reject failed startup.
- fail_preload=1;assert(ouse_audio_test_tone()==0);req=take();unsigned before=writes;assert(run(req,&state)==ESP_FAIL&&!allocated&&writes==before&&opened==closed);
- assert(ouse_audio_test_tone()==0);req=take();assert(run(req,&state)==0&&allocated==resources);
- fail_enable_tx=1;assert(ouse_audio_test_tone()==0);req=take();before=writes;assert(run(req,&state)==ESP_FAIL&&!allocated&&writes==before&&opened==closed);
- assert(ouse_audio_test_tone()==0);req=take();assert(run(req,&state)==0&&allocated==resources);
- fail_enable_rx=1;assert(ouse_audio_test_tone()==0);req=take();before=writes;assert(run(req,&state)==ESP_FAIL&&!allocated&&writes==before&&partial_rollbacks==1&&opened==closed);
- assert(ouse_audio_test_tone()==0);req=take();assert(run(req,&state)==0&&allocated==resources);
- fail_disable_rx=1;assert(ouse_audio_test_tone()==0);req=take();assert(run(req,&state)==ESP_FAIL&&!allocated&&opened==closed);
- assert(ouse_audio_test_tone()==0);req=take();assert(run(req,&state)==0&&allocated==resources);
- fail_disable_tx=1;assert(ouse_audio_test_tone()==0);req=take();assert(run(req,&state)==ESP_FAIL&&!allocated&&opened==closed);
- assert(ouse_audio_test_tone()==0);req=take();assert(run(req,&state)==0&&allocated==resources);
+ fail_preload=1;assert(ouse_audio_test_tone()==0);req=take();unsigned before=writes;assert(execute_request(req,&state)==ESP_FAIL&&!allocated&&writes==before&&opened==closed);
+ assert(ouse_audio_test_tone()==0);req=take();assert(execute_request(req,&state)==0&&allocated==resources);
+ fail_enable_tx=1;assert(ouse_audio_test_tone()==0);req=take();before=writes;assert(execute_request(req,&state)==ESP_FAIL&&!allocated&&writes==before&&opened==closed);
+ assert(ouse_audio_test_tone()==0);req=take();assert(execute_request(req,&state)==0&&allocated==resources);
+ fail_enable_rx=1;assert(ouse_audio_test_tone()==0);req=take();before=writes;assert(execute_request(req,&state)==ESP_FAIL&&!allocated&&writes==before&&partial_rollbacks==1&&opened==closed);
+ assert(ouse_audio_test_tone()==0);req=take();assert(execute_request(req,&state)==0&&allocated==resources);
+ fail_disable_rx=1;assert(ouse_audio_test_tone()==0);req=take();assert(execute_request(req,&state)==ESP_FAIL&&!allocated&&opened==closed);
+ assert(ouse_audio_test_tone()==0);req=take();assert(execute_request(req,&state)==0&&allocated==resources);
+ fail_disable_tx=1;assert(ouse_audio_test_tone()==0);req=take();assert(execute_request(req,&state)==ESP_FAIL&&!allocated&&opened==closed);
+ assert(ouse_audio_test_tone()==0);req=take();assert(execute_request(req,&state)==0&&allocated==resources);
  // Persistent cleanup failure retains the old channel instead of overwriting
  // its only handle. A later retry finishes cleanup and can recreate the codec.
- fail_disable_tx=3;assert(ouse_audio_test_tone()==0);req=take();assert(run(req,&state)==ESP_FAIL&&allocated==1&&tx&&rx==NULL);
- assert(ouse_audio_test_tone()==0);req=take();assert(run(req,&state)==ESP_FAIL&&allocated==1&&tx);
- assert(ouse_audio_test_tone()==0);req=take();assert(run(req,&state)==0&&allocated==resources);
- fail_allocate=1;assert(ouse_audio_record(3)==0);req=take();assert(run(req,&state)==ESP_ERR_NO_MEM && !allocated && opened==closed);fail_allocate=0;
- assert(ouse_audio_record(3)==0);req=take();assert(run(req,&state)==0 && recorded_samples==48000 && state.recorded_ms==3000 && state.peak>0);
+ fail_disable_tx=3;assert(ouse_audio_test_tone()==0);req=take();assert(execute_request(req,&state)==ESP_FAIL&&allocated==1&&tx&&rx==NULL);
+ assert(ouse_audio_test_tone()==0);req=take();assert(execute_request(req,&state)==ESP_FAIL&&allocated==1&&tx);
+ assert(ouse_audio_test_tone()==0);req=take();assert(execute_request(req,&state)==0&&allocated==resources);
+ fail_allocate=1;assert(ouse_audio_record(3)==0);req=take();assert(execute_request(req,&state)==ESP_ERR_NO_MEM && !allocated && opened==closed);fail_allocate=0;
+ assert(ouse_audio_record(3)==0);req=take();assert(execute_request(req,&state)==0 && recorded_samples==48000 && state.recorded_ms==3000 && state.peak>0);
  int16_t *saved_recording=recording;
  state.mode=OUSE_AUDIO_IDLE;ouse_devices_publish_audio(&state,req.id);
- assert(ouse_audio_play_recording()==0);req=take();before=writes;assert(run(req,&state)==0 && writes-before==188 && allocated==resources && recording==saved_recording && recording[0]==-12000 && recording[1]==12000);
- assert(ouse_audio_test_tone()==0);req=take();before=writes;cancel_after=before+2;assert(run(req,&state)==0 && writes-before==2 && !ouse_devices_audio_current(req.id));cancel_after=0;
- req=take();assert(req.action==OUSE_AUDIO_STOP && run(req,&state)==0);
- fail_io=1;assert(ouse_audio_record(1)==0);req=take();assert(run(req,&state)==ESP_FAIL && !allocated && opened==closed && recording==saved_recording);fail_io=0;
+ assert(ouse_audio_play_recording()==0);req=take();before=writes;assert(execute_request(req,&state)==0 && writes-before==188 && allocated==resources && recording==saved_recording && recording[0]==-12000 && recording[1]==12000);
+ assert(ouse_audio_test_tone()==0);req=take();before=writes;cancel_after=before+2;assert(execute_request(req,&state)==0 && writes-before==2 && !ouse_devices_audio_current(req.id));cancel_after=0;
+ req=take();assert(req.action==OUSE_AUDIO_STOP && execute_request(req,&state)==0);
+ fail_io=1;assert(ouse_audio_record(1)==0);req=take();assert(execute_request(req,&state)==ESP_FAIL && !allocated && opened==closed && recording==saved_recording);fail_io=0;
  release_codec();free(recording);recording=NULL;
  assert(invalid_transitions==0 && format_changes==0 && !allocated && !active_codecs && !active_data && !active_tx && !active_rx);
  puts("PASS actual board audio: fixed-format transport, no invalid I2S transitions/reconfiguration; DMA silence before every TX start, preload/TX/RX startup and stop errors, rollback/retry, release order, partial initialization/open/PSRAM/I/O failures, preserved PCM, bounded 3s recording/replay and cancellation");return 0;
 }
 '''.replace("BOARD_AUDIO",(ROOT/"boards/waveshare_lcd35/board_audio.c").as_posix())
 (OUT/"check.c").write_text(fixture,encoding="utf-8")
-result=subprocess.run([str(compiler),"/nologo","/utf-8","/std:c11","/O2","/MD","/UNDEBUG","/I"+str(OUT),"/I"+str(ROOT/".tools/ouse-core-check"),"/I"+str(ROOT/"components/ouse_devices/include"),str(OUT/"check.c"),str(ROOT/"components/ouse_devices/ouse_devices.c"),"/Fe"+str(OUT/"check.exe")],cwd=OUT,env=env,capture_output=True,text=True,errors="replace")
+result=subprocess.run([str(compiler),"/nologo","/utf-8","/std:c11","/O2","/MD","/UNDEBUG","/I"+str(OUT),"/I"+str(ROOT/".tools/ouse-core-check"),"/I"+str(ROOT/"components/ouse_devices/include"),"/I"+str(ROOT/"components/ouse_tasks/include"),str(ROOT/"components/ouse_tasks/ouse_tasks.c"),str(OUT/"check.c"),str(ROOT/"components/ouse_devices/ouse_devices.c"),"/Fe"+str(OUT/"check.exe")],cwd=OUT,env=env,capture_output=True,text=True,errors="replace")
 assert result.returncode==0,(result.stdout,result.stderr)
-subprocess.run([str(OUT/"check.exe")],cwd=OUT,check=True)
+subprocess.run([str(OUT/"check.exe")]+(["--kernel-only"] if "--kernel-only" in sys.argv else []),cwd=OUT,check=True,timeout=15)

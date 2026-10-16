@@ -7,6 +7,7 @@ let keyDraft='demo', valueDraft='{"message":"hello","count":1}', widgetCount=0, 
 let widgetSwitch=false, widgetCheck=false, widgetSelect=0, targetEnabled=true, stylePatched=false;
 let inputDrafts={}, inputEvents='';
 let textCache=Object.create(null);
+let lastTaskId=0,lastTaskEvent='';
 const wifiRows=[];
 const wifiBound=[],wifiRowData=[];
 let wifiListTimer,wifiGeneration=0,wifiNetworks=null;
@@ -58,13 +59,13 @@ function settle(page,paint=true){const job=pending[page];if(!job)return;try{
  else if(now()-job.start>30000){delete pending[page];result(page,'等待超时','Timed out',job.label,paint);}
  }catch(e){delete pending[page];error(page,e,epoch,paint);}}
 function requestDevice(group,label,invoke,page=current){
- const api=Ouse[group];if(!invoke()){result(page,'请求未接受','Request rejected',label);return;}
- const id=api.get().requestId;
- pending[page]={page,label,completed:true,start:now(),test(){const state=api.get();
-  if(state.requestId!==id)return T('请求被后续操作替换','Superseded by another request');
-  if(state.completedId<id)return false;
-  if(state.error)return 'ESP '+state.error;
-  return true;}};
+ const id=invoke();if(!id){result(page,'请求未接受','Request rejected',label);return;}
+ lastTaskId=id;
+ pending[page]={page,label,completed:true,start:now(),test(){const task=Ouse.tasks.get(id);
+  if(!task)return T('任务记录已回收','Task record reclaimed');
+  if(task.state==='succeeded')return true;
+  if(task.state==='failed'||task.state==='cancelled')return task.state+' '+task.error;
+  return false;}};
  result(page,'处理中','Working',label);settle(page);
 }
 function flushBrightness(){
@@ -100,6 +101,8 @@ function refresh(){if(!visible())return;
  }else if(current==='messages'){
   const l=Ouse.lifecycle.get();
   put('state',l.state+' · '+T('后台','Background')+' '+yes(Ouse.background.isActive())+'\n'+T('后台计数','Background ticks')+' '+backgroundTicks+' · '+T('通知点击','Notice opens')+' '+noticeClicks+'\n'+lastNotice);
+  const d=Ouse.system.diagnostics(),b=Ouse.background.get(),task=lastTaskId?Ouse.tasks.get(lastTaskId):null;
+  put('taskState','JS '+(b.runnable?'run':'pause')+' / '+b.reason+'\nTasks '+d.nativeTasksActive+'/'+d.taskActiveLimit+' · JS '+size(d.jsHeapBytes)+'\n'+(task?'#'+task.id+' '+task.state+' '+task.cancelReason:lastTaskEvent)+'\n'+d.budgetClock);
   put('noticeList',Ouse.notifications.list().map(n=>n.id+' · '+n.title+(n.ongoing?' *':'')).join('\n'));
  }else if(current==='resources'){
   put('state',Ouse.assets.list().map(a=>a.id+' · '+a.type+' · '+a.bytes+' B').join('\n'));
@@ -166,7 +169,9 @@ function bindPage(){
   bind('update','click',()=>{const ok=Ouse.notifications.update({id:'api-demo',title:T('通知已更新','Updated notice'),body:T('来自接口测试','From API Test'),payload:'messages:updated'});result('messages',ok?'通知已更新':'更新失败',ok?'Updated':'Update failed');refresh();});
   bind('ongoing','click',()=>{const ok=Ouse.notifications.publish({id:'api-ongoing',title:T('接口测试进行中','API test running'),body:T('由应用主动取消','Canceled by the app'),payload:'messages:ongoing',ongoing:true});result('messages',ok?'常驻通知已发送':'发送失败',ok?'Ongoing notice published':'Publish failed');refresh();});
   bind('cancel','click',()=>{const a=Ouse.notifications.cancel('api-demo'),b=Ouse.notifications.cancel('api-ongoing');result('messages','已取消','Canceled',String(Number(a)+Number(b)));refresh();});
-  bind('backgroundOn','click',()=>{const ok=Ouse.background.begin();result('messages',ok?'后台已开启':'后台未开启',ok?'Background enabled':'Background rejected');refresh();});
+  bind('taskProbe','click',()=>{const promise=Ouse.storage.info();lastTaskId=promise.taskId||0;promise.then(()=>{if(current==='messages')refresh();},e=>error('messages',e));refresh();});
+  bind('taskCancel','click',()=>{result('messages','取消请求','Cancel request',lastTaskId&&Ouse.tasks.cancel(lastTaskId)?'accepted':'unavailable');refresh();});
+  bind('backgroundOn','click',()=>{const ok=Ouse.background.begin('api-test');result('messages',ok?'后台已开启':'后台未开启',ok?'Background enabled':'Background rejected');refresh();});
   bind('backgroundOff','click',()=>{Ouse.background.end();result('messages','后台已停止','Background stopped');refresh();});
   bind('backgroundHome','click',()=>Ouse.home());bind('cleanup','click',()=>{cleanupTests();refresh();});
  }else if(current==='resources'){
@@ -233,6 +238,10 @@ Ouse.display.onChange(()=>{counts.display++;settle('display',false);refresh();})
 Ouse.power.onChange(()=>{settle('power',false);if(current==='power')refresh();});
 Ouse.audio.onChange(()=>{settle('audio',false);settle('messages',false);if(current==='audio'||current==='messages')refresh();});
 Ouse.wifi.onChange(()=>{settle('wifi',false);if(current==='wifi')refresh();});
+Ouse.tasks.onComplete(task=>{
+ lastTaskEvent='#'+task.id+' '+task.state;settle('audio',false);settle('wifi',false);
+ if(current==='messages'||current==='audio'||current==='wifi')refresh();
+});
 Ouse.notifications.onOpen(event=>{
  noticeClicks++;lastNotice=event.id+' · '+event.payload;
  result('messages','通知已打开','Notification opened',event.id);
