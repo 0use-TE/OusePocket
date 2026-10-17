@@ -1,0 +1,10 @@
+{
+  "runtime": "ouse-core",
+  "api": 1,
+  "id": "user.services",
+  "name": "System services",
+  "names": {"zh_CN": "系统服务测试", "en": "System services"},
+  "icon": "icon.bin",
+  "capabilities": {"network": true, "alarms": true, "media": true},
+  "assets": [{"id": "tone", "type": "binary", "path": "assets/tone.wav"}]
+}

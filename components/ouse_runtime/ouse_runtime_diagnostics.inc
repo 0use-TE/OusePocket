@@ -38,7 +38,16 @@ static JSValue diagnostics_api(JSContext *context,JSValueConst self,int argc,JSV
     SN("backgroundJs",runtime.background);SN("runnableJs",runtime.runnable);SN("timers",runtime.timers);
     SN("queuedEvents",runtime.queued_events);SN("droppedEvents",runtime.dropped_events);SN("errors",runtime.errors);
     SN("jsWorkerStackMinBytes",runtime.worker_stack_min);SN("storageJobs",runtime.storage_jobs);
+    SN("networkJobs",net_job_count);SN("networkJobsLimit",MAX_NET_JOBS);
+    ouse_alarm_stats_t alarms;ouse_alarm_get_stats(&alarms);
+    SN("alarms",alarms.count);SN("alarmsRinging",alarms.ringing);SN("alarmServiceError",alarms.error);
+    JS_SetPropertyStr(context,object,"alarmServiceReady",JS_NewBool(context,alarms.ready));
+    JS_SetPropertyStr(context,object,"clockValid",JS_NewBool(context,alarms.clock_valid));
+    ouse_media_state_t media={0};bool media_known=ouse_media_get(NULL,&media);
+    JS_SetPropertyStr(context,object,"mediaActive",JS_NewBool(context,media_known && media.active));
+    SN("mediaPcmBufferBytes",OUSE_MEDIA_BUFFER_BYTES);SN("mediaBufferedBytes",media.buffered_bytes);
     SN("taskRecords",tasks.records);SN("nativeTasksActive",tasks.active);SN("taskEventsPending",tasks.pending_delivery);
+    SN("taskResultsPending",tasks.pending_results);
     SN("taskCapacity",OUSE_TASK_CAPACITY);SN("taskActiveLimit",OUSE_TASK_ACTIVE_LIMIT);SN("taskOwnerLimit",OUSE_TASK_OWNER_LIMIT);
     SN("taskOwners",tasks.owners);SN("taskRejected",tasks.rejected);SN("taskRecycled",tasks.recycled);SN("taskRegistryBytes",tasks.registry_bytes);
     SN("memorySampleIntervalMs",1000);SN("foregroundBudgetUs",CALL_BUDGET_US);SN("backgroundBudgetUs",BACKGROUND_BUDGET_US);

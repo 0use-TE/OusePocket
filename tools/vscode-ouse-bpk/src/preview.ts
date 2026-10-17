@@ -11,6 +11,9 @@ export interface PreviewDocument {
   capabilities?: {
     background?: boolean;
     notifications?: boolean;
+    network?: boolean;
+    media?: boolean;
+    alarms?: boolean;
   };
 }
 
@@ -193,13 +196,16 @@ async function reloadPreview(key: string): Promise<void> {
     let capabilities = session.document.capabilities;
     try {
       const manifest = JSON.parse(await readEditorText(path.join(key, 'manifest.json'))) as {
-        capabilities?: { background?: unknown; notifications?: unknown };
+        capabilities?: { background?: unknown; notifications?: unknown; network?: unknown; media?: unknown; alarms?: unknown };
       };
       const caps = manifest.capabilities;
       if (caps && typeof caps === 'object') {
         capabilities = {
           background: Boolean(caps.background),
           notifications: Boolean(caps.notifications),
+          network: Boolean(caps.network),
+          media: Boolean(caps.media),
+          alarms: Boolean(caps.alarms),
         };
       }
     } catch {

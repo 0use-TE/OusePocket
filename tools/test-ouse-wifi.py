@@ -68,7 +68,8 @@ typedef struct {int unused;} wifi_init_config_t;
 typedef struct {struct{uint8_t ssid[32],password[64];struct{int authmode;} threshold;struct{bool capable,required;} pmf_cfg;}sta;} wifi_config_t;
 typedef struct {bool show_hidden;} wifi_scan_config_t;
 typedef struct {uint8_t ssid[33];int rssi;uint8_t primary;int authmode;} wifi_ap_record_t;
-typedef struct {const char *server;} esp_sntp_config_t;
+struct timeval;
+typedef struct {const char *server;void (*sync_cb)(struct timeval *);} esp_sntp_config_t;
 int esp_netif_init(void);
 int esp_event_loop_create_default(void);
 int esp_event_handler_register(const char *,int,void(*)(void*,const char*,int,void*),void*);
@@ -145,6 +146,7 @@ unsigned ulTaskNotifyTake(int n,unsigned ms){assert(n && (ms==250 || ms==5000 ||
 const char *esp_err_to_name(int e){(void)e;return "test";}
 int mock_setenv(const char *a,const char *b,int n){assert(a&&b&&n);return 0;}
 void mock_tzset(void){}
+void ouse_clock_note_sync(void) {}
 #include "BOARD_WIFI"
 static void pump(void){if(!setjmp(boundary))ouse_board_wifi_worker(NULL);}
 static ouse_wifi_state_t snapshot(void){ouse_wifi_state_t w;assert(ouse_wifi_get(&w)==0);return w;}
@@ -269,7 +271,7 @@ int main(int argc,char **argv){
 }
 '''.replace("BOARD_WIFI",(ROOT/"boards/waveshare_lcd35/board_wifi.c").as_posix())
 (OUT/"check.c").write_text(fixture,encoding="utf-8")
-result=subprocess.run([str(compiler),"/nologo","/utf-8","/std:c11","/O2","/MD","/UNDEBUG","/I"+str(OUT),"/I"+str(ROOT/".tools/ouse-core-check"),"/I"+str(ROOT/"components/ouse_devices/include"),"/I"+str(ROOT/"components/ouse_tasks/include"),str(ROOT/"components/ouse_tasks/ouse_tasks.c"),str(OUT/"check.c"),str(ROOT/"components/ouse_devices/ouse_devices.c"),"/Fe"+str(OUT/"check.exe")],cwd=OUT,env=env,capture_output=True,text=True,errors="replace")
+result=subprocess.run([str(compiler),"/nologo","/utf-8","/std:c11","/O2","/MD","/UNDEBUG","/I"+str(OUT),"/I"+str(ROOT/".tools/ouse-core-check"),"/I"+str(ROOT/"components/ouse_devices/include"),"/I"+str(ROOT/"components/ouse_tasks/include"),"/I"+str(ROOT/"components/ouse_media/include"),"/I"+str(ROOT/"components/ouse_system/include"),str(ROOT/"components/ouse_tasks/ouse_tasks.c"),str(OUT/"check.c"),str(ROOT/"components/ouse_devices/ouse_devices.c"),"/Fe"+str(OUT/"check.exe")],cwd=OUT,env=env,capture_output=True,text=True,errors="replace")
 assert result.returncode==0,(result.stdout,result.stderr)
 if "--kernel-only" in sys.argv:
  for case in ("kernel-drain","kernel-disconnect","kernel-owner-close"):

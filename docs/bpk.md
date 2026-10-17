@@ -1,5 +1,7 @@
 # BPK：清单、控件与系统 API
 
+0.10.0 新增原生 HTTP/HTTPS、WAV 媒体会话、系统时间与持久闹钟，接口和限制见 [原生服务](0.10.0-services.md)。新增服务不授权后台 JS；GPIO/USB 外设接口未开放。验证状态以该文档的交付记录为准。
+
 当前 0.9.0 新增任务 ID/终态事件、后台原因与应用/系统诊断；异步音频和 Wi-Fi 接受请求返回任务 ID（拒绝 false），存储 Promise 增加 taskId。执行预算口径已改为任务获调度时间，以下历史说明中的 12/4 ms 不应解释为纯 JS CPU 时间。接口、取消/关闭策略和计时限制统一见 [0.9.0 系统机制](0.9.0-kernel.md)。
 
 系统服务与桌面仍为原生 C/C++。资源监视和接口测试是可单独安装、删除的 JSON＋JS BPK；固件只保留设置应用。计数器和计算器仅作为可安装的开发示例。
@@ -37,7 +39,7 @@
 
 ## 应用内部文案
 
-应用框架的执行和输入基础见 [0.5.0 框架说明](0.5.0-framework.md)，当前契约见本文。可选 `capabilities` 只接受布尔值 `background`、`notifications`，省略时均为 false，不引入另一种 BPK 格式。声明后台能力后，仍需主动调用 `Ouse.background.begin()` 才会在离开前台后继续执行；工作结束调用 `end()`，未申请时默认暂停。通知能力单独控制消息发布，不自动授权后台运行。
+应用框架的执行和输入基础见 [0.5.0 框架说明](0.5.0-framework.md)，当前契约见本文。可选 `capabilities` 只接受布尔值 `background`、`notifications`、`network`、`media`、`alarms`，省略时均为 false，不引入另一种 BPK 格式。声明后台能力后，仍需主动调用 `Ouse.background.begin()` 才会在离开前台后继续执行；工作结束调用 `end()`，未申请时默认暂停。通知能力单独控制消息发布，不自动授权后台运行。
 
 首次创建执行 `app.js` 顶层代码，不调用 `app.onResume()`。顶层完成初始化，已创建实例从后台返回时才执行 onResume；还可注册 onPause/onClose 和 `Ouse.lifecycle.onChange(fn)`。显式关闭结束 JS，原生通知记录可以继续存在，点击后重新创建所属应用。
 

@@ -1,0 +1,31 @@
+{
+  "api": 1,
+  "units": "dp",
+  "root": {
+    "type": "container", "id": "root", "width": "fill", "height": "fill",
+    "layout": "column", "scroll": true, "padding": 12, "gap": 8,
+    "children": [
+      {"type": "toolbar", "id": "title", "text": "系统服务测试", "width": "fill", "height": 48},
+      {"type": "button", "id": "refresh", "text": "查询服务与时间", "width": "fill", "height": 44},
+      {"type": "label", "id": "clock", "text": "", "width": "fill", "height": "content", "fontSize": 14},
+      {"type": "label", "id": "caps", "text": "", "width": "fill", "height": "content", "fontSize": 14},
+      {"type": "textInput", "id": "url", "placeholder": "HTTP/HTTPS 测试地址", "width": "fill", "height": 44, "maxLength": 256},
+      {"type": "button", "id": "get", "text": "发送 GET 请求", "width": "fill", "height": 44},
+      {"type": "button", "id": "cancel", "text": "请求取消网络任务", "width": "fill", "height": 44},
+      {"type": "label", "id": "network", "text": "输入地址后手动提交；上限 32 KiB", "width": "fill", "height": "content", "fontSize": 14},
+      {"type": "button", "id": "mediaAsset", "text": "播放包内 WAV 测试片段", "width": "fill", "height": 44},
+      {"type": "button", "id": "mediaUrl", "text": "播放上方地址的 WAV", "width": "fill", "height": 44},
+      {"type": "button", "id": "pause", "text": "暂停媒体", "width": "fill", "height": 44},
+      {"type": "button", "id": "resume", "text": "继续媒体", "width": "fill", "height": 44},
+      {"type": "button", "id": "stopMedia", "text": "请求停止媒体", "width": "fill", "height": 44},
+      {"type": "label", "id": "media", "text": "", "width": "fill", "height": "content", "fontSize": 14},
+      {"type": "divider", "id": "line", "width": "fill", "height": 1},
+      {"type": "button", "id": "alarm", "text": "建立 10 秒后的一次闹钟", "width": "fill", "height": 44},
+      {"type": "button", "id": "dismiss", "text": "停止测试闹铃", "width": "fill", "height": 44},
+      {"type": "button", "id": "snooze", "text": "测试闹钟稍后 1 分钟", "width": "fill", "height": 44},
+      {"type": "button", "id": "remove", "text": "删除测试闹钟", "width": "fill", "height": 44},
+      {"type": "label", "id": "alarms", "text": "", "width": "fill", "height": "content", "fontSize": 14},
+      {"type": "label", "id": "result", "text": "不申请后台 JS；可回桌面或关闭后检查原生闹钟", "width": "fill", "height": "content", "fontSize": 14}
+    ]
+  }
+}

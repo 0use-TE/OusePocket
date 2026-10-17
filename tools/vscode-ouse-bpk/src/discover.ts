@@ -16,6 +16,9 @@ export interface BpkApp {
   names?: { zh_CN?: string; en?: string };
   background?: boolean;
   notifications?: boolean;
+  network?: boolean;
+  media?: boolean;
+  alarms?: boolean;
   issues: string[];
   packagePath?: string;
 }
@@ -40,6 +43,9 @@ export interface AppDraft {
   nameEn?: string;
   background?: boolean;
   notifications?: boolean;
+  network?: boolean;
+  media?: boolean;
+  alarms?: boolean;
 }
 
 function walkApps(dir: string, found: string[]): void {
@@ -128,8 +134,8 @@ export function manifestIssues(manifest: ManifestFile): string[] {
   if (manifest.capabilities !== undefined) {
     const caps = manifest.capabilities;
     if (!caps || typeof caps !== 'object' || Array.isArray(caps) ||
-        Object.entries(caps).some(([key, value]) => !['background', 'notifications'].includes(key) || typeof value !== 'boolean')) {
-      issues.push('capabilities 仅支持 background/notifications: true/false');
+        Object.entries(caps).some(([key, value]) => !['background', 'notifications', 'network', 'media', 'alarms'].includes(key) || typeof value !== 'boolean')) {
+      issues.push('capabilities 仅支持 background/notifications/network/media/alarms: true/false');
     }
   }
   if (!assetsOf(manifest)) {
@@ -309,7 +315,7 @@ export function discoverApps(workspaceRoots: string[], packageDir?: string): Bpk
     }) ?? workspaceRoots[0];
     const packagePath = id && packageDir ? path.join(packageDir, `${id}.bpk`) : undefined;
     const caps = parsed?.capabilities && typeof parsed.capabilities === 'object' && !Array.isArray(parsed.capabilities)
-      ? parsed.capabilities as { background?: unknown; notifications?: unknown } : undefined;
+      ? parsed.capabilities as { background?: unknown; notifications?: unknown; network?: unknown; media?: unknown; alarms?: unknown } : undefined;
     apps.push({
       root,
       manifestPath,
@@ -321,6 +327,9 @@ export function discoverApps(workspaceRoots: string[], packageDir?: string): Bpk
         ? parsed.names as BpkApp['names'] : undefined,
       background: caps?.background === true,
       notifications: caps?.notifications === true,
+      network: caps?.network === true,
+      media: caps?.media === true,
+      alarms: caps?.alarms === true,
       issues,
       packagePath: packagePath && fs.existsSync(packagePath) ? packagePath : undefined,
     });

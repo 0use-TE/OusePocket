@@ -4,6 +4,8 @@
 #include "ouse_protocol.h"
 #include "ouse_core.h"
 #include "ouse_storage.h"
+#include "ouse_alarm.h"
+#include "ouse_media.h"
 #include "driver/uart.h"
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
@@ -74,7 +76,9 @@ static esp_err_t activate(ouse_bpk_t *p)
 {
     int slot=find_package(p->id);if(slot<0)slot=free_slot();if(slot<0)return ESP_ERR_NO_MEM;
     esp_err_t error=on_ui(1,p,NULL);
-    if(error==ESP_OK){ouse_bpk_free(installed[slot]);installed[slot]=p;}
+    if(error==ESP_OK){ouse_bpk_free(installed[slot]);installed[slot]=p;ouse_alarm_register_app(p->id,p->package.alarms_allowed);
+        if(!p->package.media_allowed)(void)ouse_media_stop(p->id);
+    }
     return error;
 }
 static esp_err_t mount_storage(void)
@@ -207,7 +211,12 @@ static esp_err_t command(ouse_frame_t *f,char *result,size_t cap)
         // A failed purge can be retried after the UI registration is gone.
         // Closing first prevents the old script from submitting another write
         // after the storage worker's FIFO deletion barrier.
-        if(error==ESP_OK || error==ESP_ERR_NOT_FOUND)error=ouse_storage_purge(f->payload);
+        if(error==ESP_OK || error==ESP_ERR_NOT_FOUND){
+            ouse_alarm_register_app(f->payload,false);
+            error=ouse_media_purge(f->payload);
+            if(error==ESP_OK)error=ouse_alarm_purge(f->payload);
+            if(error==ESP_OK)error=ouse_storage_purge(f->payload);
+        }
         if(error==ESP_OK){ouse_bpk_free(installed[slot]);installed[slot]=NULL;}
         (void)ouse_storage_refresh();
         ouse_task_finish(task_id,error,false);return error;
@@ -259,7 +268,12 @@ static void worker(void *context)
 {
     (void)context;
     esp_err_t error=mount_storage();
-    if(error==ESP_OK)restore_packages();else ESP_LOGE(TAG,"Storage unavailable: %s; existing data preserved",esp_err_to_name(error));
+    if(error==ESP_OK){
+        restore_packages();const char *alarm_apps[OUSE_APP_CAPACITY];unsigned count=0;
+        for(unsigned i=0;i<OUSE_APP_CAPACITY;++i)if(installed[i] && installed[i]->package.alarms_allowed)alarm_apps[count++]=installed[i]->id;
+        esp_err_t alarm_error=ouse_alarm_start(alarm_apps,count);
+        if(alarm_error!=ESP_OK)ESP_LOGW(TAG,"Alarm service unavailable: %s; file preserved",esp_err_to_name(alarm_error));
+    }else ESP_LOGE(TAG,"Storage unavailable: %s; existing data preserved",esp_err_to_name(error));
     ESP_LOGI(TAG,"READY; UART0 921600; protocol=OPK1; storage=%s",storage_ready?"ready":"unavailable");
     unsigned char bytes[256];
     for(;;){

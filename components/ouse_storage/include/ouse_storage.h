@@ -45,6 +45,8 @@ esp_err_t ouse_storage_start(void);
 // are made for rejected submissions. No filesystem I/O occurs in submit.
 // The service registers ownership and writes task_id before enqueueing; callback
 // token is this global task ID. A queue rejection may expose a failed task ID.
+// Completion consumer releases ouse_task_hold_result(token,false) once the
+// payload has been consumed/discarded. Closing the owner also revokes this pin.
 esp_err_t ouse_storage_submit(ouse_storage_operation_t operation,const ouse_task_owner_t *owner,
     const char *key,const char *value,uint32_t *task_id,ouse_storage_complete_t complete,void *context);
 // Installer-only FIFO barrier: after the registry has closed/removed the app,

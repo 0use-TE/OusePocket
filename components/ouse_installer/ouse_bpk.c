@@ -160,7 +160,7 @@ static bool capabilities(JSContext *ctx,JSValue doc,ouse_bpk_t *p)
     if(valid)valid=JS_GetOwnPropertyNames(ctx,&keys,&count,caps,JS_GPN_STRING_MASK|JS_GPN_ENUM_ONLY)==0;
     for(uint32_t i=0;valid && i<count;++i){
         const char *key=JS_AtomToCString(ctx,keys[i].atom);
-        valid=key && (!strcmp(key,"background") || !strcmp(key,"notifications"));
+        valid=key && (!strcmp(key,"background") || !strcmp(key,"notifications") || !strcmp(key,"network") || !strcmp(key,"media") || !strcmp(key,"alarms"));
         if(key)JS_FreeCString(ctx,key);
     }
     JSValue background=JS_GetPropertyStr(ctx,caps,"background");
@@ -171,6 +171,13 @@ static bool capabilities(JSContext *ctx,JSValue doc,ouse_bpk_t *p)
     valid=valid && (JS_IsUndefined(notifications) || JS_IsBool(notifications));
     if(valid)p->package.notifications_allowed=JS_ToBool(ctx,notifications)>0;
     JS_FreeValue(ctx,notifications);
+    const char *services[]={"network","media","alarms"};
+    bool *allowed[]={&p->package.network_allowed,&p->package.media_allowed,&p->package.alarms_allowed};
+    for(unsigned i=0;i<3;++i){JSValue value=JS_GetPropertyStr(ctx,caps,services[i]);
+        valid=valid && (JS_IsUndefined(value) || JS_IsBool(value));
+        if(valid)*allowed[i]=JS_ToBool(ctx,value)>0;
+        JS_FreeValue(ctx,value);
+    }
     for(uint32_t i=0;i<count;++i)JS_FreeAtom(ctx,keys[i].atom);
     js_free(ctx,keys);JS_FreeValue(ctx,caps);return valid;
 }

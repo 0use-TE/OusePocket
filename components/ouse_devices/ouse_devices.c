@@ -13,6 +13,7 @@ static struct {
     ouse_device_save_state_t save;
     uint32_t save_id,save_task;
     uint32_t wifi_task;
+    uint32_t suspended_media;
 } devices;
 static void lock(void) { if(devices.port.lock)devices.port.lock(); }
 static void unlock(void) { if(devices.port.unlock)devices.port.unlock(); }
@@ -72,17 +73,27 @@ esp_err_t ouse_audio_set_muted(bool muted)
 static const ouse_task_owner_t system_owner={.app_id="ouse.system"};
 esp_err_t ouse_audio_submit(const ouse_task_owner_t *owner,ouse_audio_action_t action,unsigned seconds,uint32_t *id)
 {
-    if(!id || (unsigned)action>OUSE_AUDIO_REPLAY || (action==OUSE_AUDIO_CAPTURE && (seconds<1 || seconds>3)))return ESP_ERR_INVALID_ARG;
+    if(!id || (unsigned)action>OUSE_AUDIO_RING || (action==OUSE_AUDIO_CAPTURE && (seconds<1 || seconds>3)) ||
+       (action==OUSE_AUDIO_RING && (!owner || owner->instance || strcmp(owner->app_id,"ouse.alarm") || seconds<1 || seconds>60)))return ESP_ERR_INVALID_ARG;
     lock();if(!devices.audio.available){unlock();return ESP_ERR_NOT_SUPPORTED;}
+    // A queued media consumer owns a separate producer rendezvous. Do not lose
+    // it by coalescing a short test request; an alarm preserves it explicitly.
+    if(action!=OUSE_AUDIO_RING && devices.audio_pending && devices.audio_request.action==OUSE_AUDIO_MEDIA){unlock();return ESP_ERR_INVALID_STATE;}
+    ouse_task_snapshot_t active;
+    if(action!=OUSE_AUDIO_RING && (devices.suspended_media || (devices.audio_request.action==OUSE_AUDIO_RING &&
+       ouse_task_get(NULL,devices.audio.request_id,&active) && active.state<OUSE_TASK_SUCCEEDED))){unlock();return ESP_ERR_INVALID_STATE;}
     if(action==OUSE_AUDIO_REPLAY && !devices.audio.recorded_ms){unlock();return ESP_ERR_INVALID_STATE;}
-    static const char *names[]={"stop","testTone","record","playRecording"};
+    static const char *names[]={"stop","testTone","record","playRecording","alarmRing"};
     esp_err_t error=ouse_task_create(owner ? owner : &system_owner,OUSE_TASK_AUDIO,names[action],OUSE_TASK_STOP_ON_CLOSE,true,id);
     if(error!=ESP_OK){unlock();return error;}
     // Queued work can be retired now. Running work is retired by the board only
     // after codec close; replacing its ID is merely a cooperative stop request.
     if(devices.audio.request_id){
-        (void)ouse_task_cancel(NULL,devices.audio.request_id,"superseded");
-        if(devices.audio_pending)ouse_task_finish(devices.audio.request_id,ESP_OK,true);
+        if(action==OUSE_AUDIO_RING && devices.audio_request.action==OUSE_AUDIO_MEDIA)devices.suspended_media=devices.audio.request_id;
+        else{
+            (void)ouse_task_cancel(NULL,devices.audio.request_id,"superseded");
+            if(devices.audio_pending)ouse_task_finish(devices.audio.request_id,ESP_OK,true);
+        }
     }
     devices.audio_request=(ouse_audio_request_t){.id=*id,.action=action,.seconds=seconds};
     devices.audio.request_id=*id;devices.audio_pending=true;devices.audio.mode=OUSE_AUDIO_STARTING;
@@ -93,6 +104,38 @@ esp_err_t ouse_audio_record(unsigned seconds) {uint32_t id;return ouse_audio_sub
 esp_err_t ouse_audio_play_recording(void) {uint32_t id;return ouse_audio_submit(NULL,OUSE_AUDIO_REPLAY,0,&id);}
 esp_err_t ouse_audio_stop(void) {uint32_t id;return ouse_audio_submit(NULL,OUSE_AUDIO_STOP,0,&id);}
 bool ouse_devices_take_audio(ouse_audio_request_t *out) {lock();bool pending=devices.audio_pending;if(pending){*out=devices.audio_request;devices.audio_pending=false;}unlock();return pending;}
+esp_err_t ouse_devices_queue_media(uint32_t id)
+{
+    if(!id)return ESP_ERR_INVALID_ARG;
+    lock();ouse_task_snapshot_t active;
+    if(!devices.audio.available){unlock();return ESP_ERR_NOT_SUPPORTED;}
+    if(devices.suspended_media || (devices.audio_request.action==OUSE_AUDIO_RING &&
+       ouse_task_get(NULL,devices.audio.request_id,&active) && active.state<OUSE_TASK_SUCCEEDED)){unlock();return ESP_ERR_INVALID_STATE;}
+    if(devices.audio.request_id){
+        (void)ouse_task_cancel(NULL,devices.audio.request_id,"media_focus");
+        if(devices.audio_pending)ouse_task_finish(devices.audio.request_id,ESP_OK,true);
+    }
+    devices.audio_request=(ouse_audio_request_t){.id=id,.action=OUSE_AUDIO_MEDIA};
+    devices.audio.request_id=id;devices.audio_pending=true;devices.audio.mode=OUSE_AUDIO_STARTING;
+    devices.audio.error=ESP_OK;++devices.audio.revision;unlock();notify(1);return ESP_OK;
+}
+bool ouse_devices_take_alarm(ouse_audio_request_t *out)
+{
+    lock();bool found=devices.audio_pending && devices.audio_request.action==OUSE_AUDIO_RING;
+    if(found){*out=devices.audio_request;devices.audio_pending=false;}
+    unlock();return found;
+}
+uint32_t ouse_devices_resume_media(bool enqueue)
+{
+    lock();uint32_t id=0;
+    if(devices.suspended_media && !devices.audio_pending && devices.audio_request.action==OUSE_AUDIO_RING &&
+       devices.audio.completed_id==devices.audio.request_id){
+        id=devices.suspended_media;devices.suspended_media=0;
+        devices.audio_request=(ouse_audio_request_t){.id=id,.action=OUSE_AUDIO_MEDIA};devices.audio.request_id=id;
+        devices.audio_pending=enqueue;devices.audio.mode=OUSE_AUDIO_STARTING;++devices.audio.revision;
+    }
+    unlock();if(id && enqueue)notify(1);return id;
+}
 bool ouse_devices_audio_current(uint32_t id) {lock();bool current=devices.audio.request_id==id;unlock();return current && !ouse_task_cancel_requested(id);}
 void ouse_devices_publish_audio(const ouse_audio_state_t *state,uint32_t id)
 {

@@ -4,6 +4,6 @@ if(CONFIG_OUSE_DEVICE_DEBUG)
 endif()
 idf_component_register(SRCS ${ouse_installer_sources}
     INCLUDE_DIRS "include" "."
-    REQUIRES ouse_core ouse_runtime ouse_storage esp_driver_uart esp_partition heap
+    REQUIRES ouse_core ouse_runtime ouse_storage ouse_alarm ouse_media esp_driver_uart esp_partition heap
         joltwallet__littlefs espressif__quickjs-ng esp_timer
     PRIV_REQUIRES espressif__esp_new_jpeg unity esp_app_format)

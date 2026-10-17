@@ -61,7 +61,7 @@ void ouse_task_owner_close(const ouse_task_owner_t *owner)
     for(unsigned i=0;i<OUSE_TASK_OWNERS_MAX;++i)if(same(owner,&registry.owners[i]))memset(&registry.owners[i],0,sizeof(registry.owners[i]));
     for(unsigned i=0;i<OUSE_TASK_CAPACITY;++i){ouse_task_snapshot_t *task=&registry.records[i];
         if(!task->id || !same(owner,&task->owner))continue;
-        task->detached=true;task->delivery_pending=false;
+        task->detached=true;task->delivery_pending=false;task->result_held=false;
         if(task->policy==OUSE_TASK_STOP_ON_CLOSE && task->cancellable)cancel(task,"owner_closed");
         changed(task);
     }
@@ -70,7 +70,7 @@ void ouse_task_owner_close(const ouse_task_owner_t *owner)
 esp_err_t ouse_task_create(const ouse_task_owner_t *owner,ouse_task_kind_t kind,
     const char *operation,ouse_task_policy_t policy,bool cancellable,uint32_t *id)
 {
-    if((unsigned)kind>OUSE_TASK_PACKAGE || (unsigned)policy>OUSE_TASK_STOP_ON_CLOSE || !owner || !operation || !id || strnlen(owner->app_id,48)>=48 || !*operation || strnlen(operation,24)>=24)return ESP_ERR_INVALID_ARG;
+    if((unsigned)kind>OUSE_TASK_ALARM || (unsigned)policy>OUSE_TASK_STOP_ON_CLOSE || !owner || !operation || !id || strnlen(owner->app_id,48)>=48 || !*operation || strnlen(operation,24)>=24)return ESP_ERR_INVALID_ARG;
     esp_err_t result=ESP_ERR_NO_MEM;unsigned active=0,owned=0;
     ouse_task_snapshot_t *slot=NULL,*oldest=NULL;
     portENTER_CRITICAL(&registry_lock);
@@ -78,7 +78,7 @@ esp_err_t ouse_task_create(const ouse_task_owner_t *owner,ouse_task_kind_t kind,
     for(unsigned i=0;i<OUSE_TASK_CAPACITY;++i){ouse_task_snapshot_t *task=&registry.records[i];
         if(!task->id){if(!slot)slot=task;continue;}
         if(!terminal(task->state)){++active;if(same(owner,&task->owner))++owned;}
-        else if(task->delivery_pending){if(same(owner,&task->owner))++owned;}
+        else if(task->delivery_pending || task->result_held){if(same(owner,&task->owner))++owned;}
         else if(!oldest || task->id<oldest->id)oldest=task;
     }
     if(active>=OUSE_TASK_ACTIVE_LIMIT || (owner->instance && owned>=OUSE_TASK_OWNER_LIMIT) || registry.next_id==UINT32_MAX)goto done;
@@ -122,6 +122,7 @@ void ouse_task_finish_result(uint32_t id,esp_err_t error,bool cancelled,const ou
     if(task && !terminal(task->state)){
         if(result){task->result=*result;
             if(task->kind==OUSE_TASK_WIFI){task->result.value.wifi.ssid[32]=0;task->result.value.wifi.ip[15]=0;}
+            else if(task->kind==OUSE_TASK_ALARM)task->result.value.alarm.id[31]=0;
         }
         finish(task,error,cancelled);
     }
@@ -150,6 +151,12 @@ void ouse_task_ack(const ouse_task_owner_t *owner,uint32_t id)
     if(task && owner && same(owner,&task->owner)){task->delivery_pending=false;changed(task);}
     portEXIT_CRITICAL(&registry_lock);
 }
+void ouse_task_hold_result(uint32_t id,bool held)
+{
+    portENTER_CRITICAL(&registry_lock);ouse_task_snapshot_t *task=find(id);
+    if(task && (!held || !task->detached)){task->result_held=held;changed(task);}
+    portEXIT_CRITICAL(&registry_lock);
+}
 bool ouse_task_next(const ouse_task_owner_t *owner,uint32_t after_id,ouse_task_snapshot_t *out,bool pending_only)
 {
     if(!out)return false;
@@ -170,6 +177,7 @@ void ouse_tasks_get_stats(ouse_task_stats_t *out)
         ++out->records;
         if(!terminal(registry.records[i].state)) ++out->active;
         if(registry.records[i].delivery_pending) ++out->pending_delivery;
+        if(registry.records[i].result_held) ++out->pending_results;
     }
     for(unsigned i=0;i<OUSE_TASK_OWNERS_MAX;++i)if(registry.owners[i].instance) ++out->owners;
     portEXIT_CRITICAL(&registry_lock);
@@ -179,4 +187,4 @@ void ouse_tasks_set_notify(void (*notify)(void))
 const char *ouse_task_state_name(ouse_task_state_t state)
 {static const char *names[]={"queued","running","cancelling","succeeded","failed","cancelled"};return (unsigned)state<6 ? names[state] : "unknown";}
 const char *ouse_task_kind_name(ouse_task_kind_t kind)
-{static const char *names[]={"wifi","audio","storage","settings","package"};return (unsigned)kind<5 ? names[kind] : "unknown";}
+{static const char *names[]={"wifi","audio","storage","settings","package","network","alarm"};return (unsigned)kind<7 ? names[kind] : "unknown";}

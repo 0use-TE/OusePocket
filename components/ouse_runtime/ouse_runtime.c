@@ -9,6 +9,10 @@
 #include "ouse_controls.h"
 #include "ouse_storage.h"
 #include "ouse_tasks.h"
+#include "ouse_net.h"
+#include "ouse_alarm.h"
+#include "ouse_clock.h"
+#include "ouse_media.h"
 #include "src/misc/cache/instance/lv_image_cache.h"
 #include "quickjs.h"
 #include "esp_timer.h"
@@ -38,6 +42,8 @@
 #define MAX_ASSET_BYTES OUSE_RUNTIME_IMAGE_BYTES_MAX
 #define MAX_STORAGE_PENDING 8
 #define MAX_STORAGE_JOBS 64
+#define MAX_NET_PENDING 2
+#define MAX_NET_JOBS 16
 #define MAX_PAGES 16
 #define MAX_PAGE_STACK 8
 
@@ -98,6 +104,7 @@ typedef struct {
     ouse_theme_colors_t colors;
 } ui_snapshot_t;
 typedef struct storage_job storage_job_t;
+typedef struct net_job net_job_t;
 typedef struct instance {
     struct instance *next;        // worker only
     atomic_uint references;
@@ -112,11 +119,12 @@ typedef struct instance {
     char asset_ids[OUSE_RUNTIME_ASSETS_MAX][32];
     unsigned asset_count;
     storage_job_t *storage[MAX_STORAGE_PENDING]; // JS task owns slots/resolvers
+    net_job_t *network[MAX_NET_PENDING];
     ouse_task_owner_t owner;
     JSValue task_handler;
     char background_reason[64];
     int64_t background_since_us;
-    bool background_allowed, notifications_allowed;
+    bool background_allowed, notifications_allowed, network_allowed, media_allowed, alarms_allowed;
     JSRuntime *runtime;
     JSContext *context;
     lv_obj_t *root, *viewport;    // UI only
@@ -167,6 +175,16 @@ struct storage_job {
     esp_err_t error;
     bool completed;         // JS task only, after receiving the completion
 };
+struct net_job {
+    instance_t *app;
+    unsigned slot;
+    uint32_t token;
+    JSValue resolve,reject;
+    ouse_net_result_t *result;
+    bool completed,bytes;
+};
+static QueueHandle_t net_completions;
+static unsigned net_job_count;
 static QueueHandle_t storage_completions;
 static unsigned storage_job_count; // JS task only, includes closed in-flight jobs
 static instance_t *instances; // worker-owned list
@@ -253,6 +271,7 @@ static void promise_rejected(JSContext *context,JSValueConst promise,JSValueCons
 }
 static instance_t *from_js(JSContext *context) { return JS_GetContextOpaque(context); }
 static void cancel_storage_jobs(instance_t *app);
+static void cancel_net_jobs(instance_t *app);
 static void fault(instance_t *app,const char *message)
 {
     model_lock(app);
@@ -268,6 +287,7 @@ static void fault(instance_t *app,const char *message)
     }
     ouse_task_owner_close(&app->owner);
     cancel_storage_jobs(app);
+    cancel_net_jobs(app);
     ESP_LOGE("OuseJS","%s: %s",app->id,message);
 }
 static void exception(instance_t *app)
@@ -496,6 +516,7 @@ static JSValue task_snapshot(JSContext *context,const ouse_task_snapshot_t *task
     TSTR("appId",task->owner.app_id);TSTR("kind",ouse_task_kind_name(task->kind));TSTR("operation",task->operation);
     TSTR("state",ouse_task_state_name(task->state));TSTR("closePolicy",task->policy==OUSE_TASK_STOP_ON_CLOSE ? "stop" : "finish");
     TBOOL("cancelRequested",task->cancel_requested);TBOOL("cancellable",task->cancellable);TBOOL("detached",task->detached);
+    TBOOL("resultPending",task->result_held);
     TSTR("cancelReason",task->cancel_reason);TNUM("errorCode",task->error);TSTR("error",esp_err_to_name(task->error));
     TNUM("createdMs",task->created_us/1000);TNUM("startedMs",task->started_us/1000);TNUM("finishedMs",task->finished_us/1000);
     JSValue result=JS_NULL;
@@ -513,6 +534,10 @@ static JSValue task_snapshot(JSContext *context,const ouse_task_snapshot_t *task
                 JS_SetPropertyStr(context,result,"recordedMs",JS_NewUint32(context,task->result.value.audio.recorded_ms));
                 JS_SetPropertyStr(context,result,"positionMs",JS_NewUint32(context,task->result.value.audio.position_ms));
             }else if(task->kind==OUSE_TASK_STORAGE)JS_SetPropertyStr(context,result,"jsonBytes",JS_NewFloat64(context,(double)task->result.value.storage.json_bytes));
+            else if(task->kind==OUSE_TASK_NETWORK){
+                JS_SetPropertyStr(context,result,"status",JS_NewInt32(context,task->result.value.network.status));
+                JS_SetPropertyStr(context,result,"bodyBytes",JS_NewFloat64(context,(double)task->result.value.network.body_bytes));
+            }else if(task->kind==OUSE_TASK_ALARM)JS_SetPropertyStr(context,result,"alarmId",JS_NewString(context,task->result.value.alarm.id));
         }
     }
     JS_SetPropertyStr(context,object,"result",result);
@@ -851,6 +876,7 @@ static void notification_open_events(instance_t *app)
 
 static void storage_job_release(storage_job_t *job)
 {
+    ouse_task_hold_result(job->token,false);
     instance_t *app=job->app;
     if(app && app->context){JS_FreeValue(app->context,job->resolve);JS_FreeValue(app->context,job->reject);}
     free(job->result);free(job);--storage_job_count;if(app)release_instance(app);
@@ -1041,6 +1067,7 @@ static void navigation_changed(instance_t *app)
 
 static JSValue ui_set_style(JSContext *context,JSValueConst self,int argc,JSValueConst *argv);
 #include "ouse_runtime_diagnostics.inc"
+#include "ouse_runtime_services.inc"
 
 static void install_api(instance_t *app)
 {
@@ -1066,6 +1093,17 @@ static void install_api(instance_t *app)
     const char *storage_methods[]={"get","set","remove","keys","clear","info"};
     for(int i=0;i<6;++i)JS_SetPropertyStr(context,storage,storage_methods[i],JS_NewCFunctionMagic(context,storage_api,storage_methods[i],i<3 ? i==1 ? 2 : 1 : 0,JS_CFUNC_generic_magic,i));
     JS_SetPropertyStr(context,api,"storage",storage);
+    JSValue net=JS_NewObject(context);
+    JS_SetPropertyStr(context,net,"request",JS_NewCFunction(context,net_request,"request",1));
+    JS_SetPropertyStr(context,api,"net",net);
+    JSValue clock=JS_NewObject(context);JS_SetPropertyStr(context,clock,"get",JS_NewCFunction(context,clock_get,"get",0));
+    JS_SetPropertyStr(context,api,"clock",clock);
+    JSValue alarms=JS_NewObject(context);const char *alarm_methods[]={"set","remove","dismiss","snooze","list"};
+    for(int i=0;i<5;++i)JS_SetPropertyStr(context,alarms,alarm_methods[i],JS_NewCFunctionMagic(context,alarms_api,alarm_methods[i],i==4 ? 0 : i==3 ? 2 : 1,JS_CFUNC_generic_magic,i));
+    JS_SetPropertyStr(context,api,"alarms",alarms);
+    JSValue media=JS_NewObject(context);const char *media_methods[]={"play","pause","resume","stop","get"};
+    for(int i=0;i<5;++i)JS_SetPropertyStr(context,media,media_methods[i],JS_NewCFunctionMagic(context,media_api,media_methods[i],i==0 ? 1 : 0,JS_CFUNC_generic_magic,i));
+    JS_SetPropertyStr(context,api,"media",media);
     JSValue navigation=JS_NewObject(context);
     const char *navigation_methods[]={"push","back","replace","get","onChange"};
     for(int i=0;i<5;++i)JS_SetPropertyStr(context,navigation,navigation_methods[i],JS_NewCFunctionMagic(context,navigation_api,navigation_methods[i],i==1 || i==3 ? 0 : 1,JS_CFUNC_generic_magic,i));
@@ -1095,6 +1133,7 @@ static void install_api(instance_t *app)
     JS_SetPropertyStr(context,system,"tasks",JS_NewCFunctionMagic(context,tasks_api,"tasks",0,JS_CFUNC_generic_magic,4));
     JS_SetPropertyStr(context,system,"diagnostics",JS_NewCFunctionMagic(context,diagnostics_api,"diagnostics",0,JS_CFUNC_generic_magic,1));
     JS_SetPropertyStr(context,system,"storage",JS_NewCFunction(context,system_storage,"storage",0));
+    JS_SetPropertyStr(context,system,"capabilities",JS_NewCFunction(context,system_capabilities,"capabilities",0));
     JS_SetPropertyStr(context,api,"system",system);
     JSValue timers=JS_NewObject(context);
     JS_SetPropertyStr(context,timers,"setInterval",JS_NewCFunctionMagic(context,timer_create,"setInterval",2,JS_CFUNC_generic_magic,1));
@@ -2038,6 +2077,7 @@ static void destroy_js(instance_t *app)
 {
     if(app->context){
         cancel_storage_jobs(app);
+        cancel_net_jobs(app);
         for(unsigned i=0;i<MAX_NODES;++i)for(unsigned e=0;e<EVENT_COUNT;++e)JS_FreeValue(app->context,app->nodes[i].handlers[e]);
         for(unsigned i=0;i<MAX_TIMERS;++i)JS_FreeValue(app->context,app->timers[i].handler);
         for(unsigned i=0;i<MAX_JOBS;++i){JS_FreeValue(app->context,app->rejected_promises[i]);JS_FreeValue(app->context,app->rejection_reasons[i]);}
@@ -2130,7 +2170,7 @@ static void run_batch(instance_t *app)
     if(app->faulted || navigation_pending(app))return;
     if(!result_ok(app,JS_UNDEFINED))return; // resume last slice's pending Promise jobs
     if(ouse_budget_slice_done(&app->budget) || !reconcile_policy(app) || !app->worker_runnable || navigation_pending(app))return;
-    preference_notifications(app);notification_open_events(app);process_storage_results(app);task_completion_events(app);
+    preference_notifications(app);notification_open_events(app);process_storage_results(app);process_net_results(app);task_completion_events(app);
     if(!reconcile_policy(app) || !app->worker_runnable || navigation_pending(app))return;
     input_event_t input;unsigned processed=0;
     while(!app->faulted && processed++<4 && !ouse_budget_slice_done(&app->budget) && xQueueReceive(app->events,&input,0)==pdTRUE){
@@ -2202,6 +2242,7 @@ static void script_worker(void *opaque)
     for(;;){
         (void)ulTaskNotifyTake(pdTRUE,runnable ? pdMS_TO_TICKS(20) : portMAX_DELAY);
         drain_storage_completions();
+        drain_net_completions();
         instance_t *launch=NULL;
         if(xQueueReceive(launches,&launch,0)==pdTRUE){
             model_lock(launch);launch->worker_ui=launch->snapshot;bool closed=launch->closed;model_unlock(launch);
@@ -2235,7 +2276,11 @@ static esp_err_t ensure_worker(void)
     ouse_tasks_set_notify(wake_worker);
     launches=xQueueCreate(12,sizeof(instance_t *));if(!launches)return ESP_ERR_NO_MEM;
     storage_completions=xQueueCreate(MAX_STORAGE_JOBS,sizeof(storage_job_t *));if(!storage_completions){vQueueDelete(launches);launches=NULL;return ESP_ERR_NO_MEM;}
-    if(xTaskCreate(script_worker,"ouse_js",WORKER_STACK_BYTES,NULL,3,&worker_task)!=pdPASS){vQueueDelete(storage_completions);storage_completions=NULL;vQueueDelete(launches);launches=NULL;return ESP_ERR_NO_MEM;}
+    net_completions=xQueueCreate(MAX_NET_JOBS,sizeof(net_job_t *));
+    if(!net_completions || xTaskCreate(script_worker,"ouse_js",WORKER_STACK_BYTES,NULL,3,&worker_task)!=pdPASS){
+        if(net_completions)vQueueDelete(net_completions);
+        net_completions=NULL;vQueueDelete(storage_completions);storage_completions=NULL;vQueueDelete(launches);launches=NULL;return ESP_ERR_NO_MEM;
+    }
     return ESP_OK;
 }
 static bool valid_asset_id(const char *id)
@@ -2288,6 +2333,7 @@ static instance_t *allocate_instance(const ouse_script_package_t *package)
     if(ouse_task_owner_open(package->id,&app->owner)!=ESP_OK){free(app);return NULL;}
     app->model_lock=xSemaphoreCreateMutex();app->events=xQueueCreate(MAX_EVENTS,sizeof(input_event_t));
     app->page=strdup(package->page);app->script=strdup(package->script);strcpy(app->id,package->id);app->background_allowed=package->background_allowed;app->notifications_allowed=package->notifications_allowed;
+    app->network_allowed=package->network_allowed;app->media_allowed=package->media_allowed;app->alarms_allowed=package->alarms_allowed;
     if(!app->model_lock || !app->events || !app->page || !app->script){release_instance(app);return NULL;}
     size_t bytes=0;
     for(unsigned i=0;i<package->image_count;++i){const ouse_script_image_t *source=&package->images[i];

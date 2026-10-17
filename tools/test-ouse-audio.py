@@ -46,6 +46,8 @@ int64_t esp_timer_get_time(void);
 #define MALLOC_CAP_SPIRAM 1
 #define MALLOC_CAP_8BIT 2
 #define pdTRUE 1
+#define pdMS_TO_TICKS(n) (n)
+void vTaskDelay(unsigned ticks);
 #define portMAX_DELAY 0xffffffff
 #define I2S_CHANNEL_DEFAULT_CONFIG(a,b) {.dma_frame_num=240}
 #define I2S_STD_CLK_DEFAULT_CONFIG(rate) {rate}
@@ -110,6 +112,7 @@ for name in ["esp_timer.h","bsp/esp-bsp.h","driver/i2s_std.h","esp_codec_dev.h",
 fixture=r'''
 #include "fakes.h"
 #include "ouse_device_driver.h"
+#include "ouse_media.h"
 #include <assert.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -117,6 +120,7 @@ fixture=r'''
 static jmp_buf idle;
 static uint32_t observed_task;
 static bool observed_cancel_at_close;
+void vTaskDelay(unsigned ticks){(void)ticks;}
 int64_t esp_timer_get_time(void){static int64_t clock;return ++clock;}
 static int fail_probe,fail_open,fail_init,fail_allocate,fail_io;
 static int fail_enable_tx,fail_enable_rx,fail_disable_tx,fail_disable_rx,fail_preload;
@@ -166,17 +170,43 @@ int esp_codec_dev_read(void *p,void *b,int n){fake_codec_t *c=p;assert(c&&c->ope
 void *heap_caps_malloc(size_t n,unsigned flags){assert(n==96000 && flags==3);return fail_allocate ? NULL : malloc(n);}
 unsigned ulTaskNotifyTake(int a,unsigned b){(void)a;(void)b;longjmp(idle,1);return 0;}
 const char *esp_err_to_name(int e){(void)e;return "test";}
+
 #include "BOARD_AUDIO"
+static bool media_fixture;
+static ouse_media_state_t media_state;
+static unsigned media_reads,media_samples,media_interrupts;
+void ouse_media_consumer_started(uint32_t id){assert(media_fixture&&id==media_state.task_id);}
+unsigned ouse_media_read(uint32_t id,int16_t *samples,unsigned capacity,bool *done,esp_err_t *error){
+ assert(media_fixture&&id==media_state.task_id&&capacity==256);++media_reads;*error=ESP_OK;*done=false;
+ if(media_reads==2){ouse_task_owner_t alarm={.app_id="ouse.alarm"};uint32_t ring;assert(ouse_audio_submit(&alarm,OUSE_AUDIO_RING,1,&ring)==ESP_OK);return 0;}
+ if(media_reads>=4){*done=true;return 0;}
+ for(unsigned i=0;i<capacity;++i)samples[i]=1000;return capacity;
+}
+void ouse_media_consumed(uint32_t id,unsigned n){assert(id==media_state.task_id);media_samples+=n;}
+void ouse_media_interrupted(uint32_t id,bool value){assert(id==media_state.task_id);media_state.interrupted=value;++media_interrupts;}
+void ouse_media_consumer_done(uint32_t id,esp_err_t error,bool cancelled){assert(media_fixture&&opened==closed&&!media_state.interrupted);media_state.active=false;ouse_task_finish(id,error,cancelled);}
+bool ouse_media_get(const char *app,ouse_media_state_t *state){(void)app;if(!media_fixture)return false;*state=media_state;return true;}
+
 static ouse_audio_request_t take(void){ouse_audio_request_t r;assert(ouse_devices_take_audio(&r) && ouse_task_start(r.id,true));return r;}
 static esp_err_t execute_request(ouse_audio_request_t request,ouse_audio_state_t *state){esp_err_t error=run(request,state);ouse_task_finish(request.id,error,ouse_task_cancel_requested(request.id));return error;}
 static void pump(void){if(!setjmp(idle))ouse_board_audio_worker(NULL);}
 int main(int argc,char **argv){
  ouse_device_port_t port={0};ouse_device_config_t config={.volume=40};assert(ouse_devices_init(&port,&config)==0);ouse_devices_set_available(1,true,0);
+
+ if(argc>1 && !strcmp(argv[1],"--media-focus")){
+  ouse_task_owner_t owner;assert(ouse_task_owner_open("user.player",&owner)==ESP_OK);uint32_t id;
+  assert(ouse_task_create(&owner,OUSE_TASK_AUDIO,"play",OUSE_TASK_FINISH_ON_CLOSE,true,&id)==ESP_OK);
+  media_fixture=true;media_state=(ouse_media_state_t){.active=true,.task_id=id};assert(ouse_devices_queue_media(id)==ESP_OK);pump();
+  ouse_task_snapshot_t task;assert(ouse_task_get(&owner,id,&task)&&task.state==OUSE_TASK_SUCCEEDED&&!task.cancel_requested);
+  assert(media_reads==4&&media_samples==512&&media_interrupts==2&&opened==3&&closed==3&&!media_state.active);
+  release_codec();assert(!allocated&&!invalid_transitions&&!format_changes);
+  puts("PASS actual codec media focus: close media -> ring -> reopen media; one consumer, unchanged I2S format, no media cancellation, final close before terminal");return 0;
+ }
  if(argc>1){
-  assert(!strcmp(argv[1],"--kernel-only"));ouse_task_owner_t owner;assert(ouse_task_owner_open("user.audio",&owner)==ESP_OK);
+  bool cleanup_failure=!strcmp(argv[1],"--cleanup-error");assert(cleanup_failure||!strcmp(argv[1],"--kernel-only"));if(cleanup_failure)fail_disable_rx=1;ouse_task_owner_t owner;assert(ouse_task_owner_open("user.audio",&owner)==ESP_OK);
   uint32_t id;assert(ouse_audio_submit(&owner,OUSE_AUDIO_TEST,0,&id)==ESP_OK);observed_task=id;cancel_after=2;pump();
   ouse_task_snapshot_t task;assert(observed_cancel_at_close && opened==closed && output_muted);
-  assert(ouse_task_get(&owner,id,&task) && task.state==OUSE_TASK_CANCELLED && task.result.present && task.result.value.audio.position_ms>0);
+  assert(ouse_task_get(&owner,id,&task) && (cleanup_failure ? task.state==OUSE_TASK_FAILED&&task.error==ESP_FAIL : task.state==OUSE_TASK_CANCELLED) && task.result.present && task.result.value.audio.position_ms>0);
   observed_task=0;ouse_task_owner_close(&owner);release_codec();free(recording);
   assert(!allocated);puts("PASS actual audio worker: cancellation stays pending through codec close; terminal result follows release");return 0;
  }
@@ -225,6 +255,10 @@ int main(int argc,char **argv){
 }
 '''.replace("BOARD_AUDIO",(ROOT/"boards/waveshare_lcd35/board_audio.c").as_posix())
 (OUT/"check.c").write_text(fixture,encoding="utf-8")
-result=subprocess.run([str(compiler),"/nologo","/utf-8","/std:c11","/O2","/MD","/UNDEBUG","/I"+str(OUT),"/I"+str(ROOT/".tools/ouse-core-check"),"/I"+str(ROOT/"components/ouse_devices/include"),"/I"+str(ROOT/"components/ouse_tasks/include"),str(ROOT/"components/ouse_tasks/ouse_tasks.c"),str(OUT/"check.c"),str(ROOT/"components/ouse_devices/ouse_devices.c"),"/Fe"+str(OUT/"check.exe")],cwd=OUT,env=env,capture_output=True,text=True,errors="replace")
+result=subprocess.run([str(compiler),"/nologo","/utf-8","/std:c11","/O2","/MD","/UNDEBUG","/I"+str(OUT),"/I"+str(ROOT/".tools/ouse-core-check"),"/I"+str(ROOT/"components/ouse_devices/include"),"/I"+str(ROOT/"components/ouse_tasks/include"),"/I"+str(ROOT/"components/ouse_media/include"),"/I"+str(ROOT/"components/ouse_system/include"),str(ROOT/"components/ouse_tasks/ouse_tasks.c"),str(OUT/"check.c"),str(ROOT/"components/ouse_devices/ouse_devices.c"),"/Fe"+str(OUT/"check.exe")],cwd=OUT,env=env,capture_output=True,text=True,errors="replace")
 assert result.returncode==0,(result.stdout,result.stderr)
-subprocess.run([str(OUT/"check.exe")]+(["--kernel-only"] if "--kernel-only" in sys.argv else []),cwd=OUT,check=True,timeout=15)
+if "--cleanup-error" in sys.argv:
+ subprocess.run([str(OUT/"check.exe"),"--cleanup-error"],cwd=OUT,check=True,timeout=15)
+else:
+ subprocess.run([str(OUT/"check.exe")]+(["--kernel-only"] if "--kernel-only" in sys.argv else []),cwd=OUT,check=True,timeout=15)
+ subprocess.run([str(OUT/"check.exe"),"--media-focus"],cwd=OUT,check=True,timeout=15)

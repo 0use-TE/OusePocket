@@ -1,10 +1,12 @@
 # JSON＋JS 应用接口
 
+0.10.0 新增 `Ouse.net.request`、`Ouse.media`、`Ouse.clock`、`Ouse.alarms` 和 `Ouse.system.capabilities`。声明对应 network/media/alarms 能力后调用原生服务，无需后台 JS。接口、支持格式与验证边界见 [原生服务](../docs/0.10.0-services.md)；`service-test` 是新增的独立分类 BPK。
+
 当前 0.9.0 新增任务 ID/终态事件、后台原因与应用/系统诊断；异步音频和 Wi-Fi 接受请求返回任务 ID（拒绝 false），存储 Promise 增加 taskId。执行预算口径已改为任务获调度时间，以下历史说明中的 12/4 ms 不应解释为纯 JS CPU 时间。接口、取消/关闭策略和计时限制统一见 [0.9.0 系统机制](../docs/0.9.0-kernel.md)。
 
 桌面、设置、手势与系统服务为原生 LVGL/C，固件默认只注册设置。`resource-monitor`、`api-test` 是可安装的 BPK；计数器、计算器见 `examples/counter`、`examples/calculator`。`framework-test`、`framework-stage2` 是框架验证应用，不会默认安装到设备。
 
-应用目录包含 `manifest.json`、`page.json`、`app.js` 和图标，还可声明图片、文本、二进制资源。当前核心 C API 为 8，脚本运行时 API 为 1；单一 BPK 契约、完整参数和返回值见 [BPK 说明](../docs/bpk.md)。修改系统中文后先运行 `tools/generate-core-font.py` 再构建；应用文案由应用自己维护，显示的字形仍需系统字体覆盖。
+应用目录包含 `manifest.json`、`page.json`、`app.js` 和图标，还可声明图片、文本、二进制资源。当前核心 C API 为 9，脚本运行时 API 为 1；单一 BPK 契约、完整参数和返回值见 [BPK 说明](../docs/bpk.md)。修改系统中文后先运行 `tools/generate-core-font.py` 再构建；应用文案由应用自己维护，显示的字形仍需系统字体覆盖。
 
 ## 清单、资源和安装
 

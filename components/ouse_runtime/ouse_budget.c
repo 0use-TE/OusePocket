@@ -7,6 +7,9 @@
 #if !configGENERATE_RUN_TIME_STATS
 #error Ouse execution protection requires FreeRTOS runtime statistics
 #endif
+#if defined(ESP_PLATFORM) && (!CONFIG_FREERTOS_RUN_TIME_STATS_USING_ESP_TIMER || !CONFIG_FREERTOS_RUN_TIME_COUNTER_TYPE_U64)
+#error Ouse scheduled microsecond budgets require the fixed ESP timer / U64 runtime statistics configuration
+#endif
 static uint64_t counter(void)
 {
     TaskStatus_t state;

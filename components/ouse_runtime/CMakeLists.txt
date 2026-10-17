@@ -1,5 +1,5 @@
 idf_component_register(SRCS "ouse_budget.c" "ouse_runtime.c" INCLUDE_DIRS "include"
-    REQUIRES ouse_tasks ouse_core ouse_system ouse_storage esp_timer log espressif__quickjs-ng)
+    REQUIRES ouse_tasks ouse_net ouse_alarm ouse_media ouse_core ouse_system ouse_storage esp_timer log espressif__quickjs-ng)
 
 if(NOT CMAKE_SCRIPT_MODE_FILE)
     # GCC 15 RISC-V defines uint32_t as unsigned long, while QuickJS 0.14's

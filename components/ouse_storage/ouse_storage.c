@@ -391,7 +391,8 @@ esp_err_t ouse_storage_submit(ouse_storage_operation_t operation,const ouse_task
     esp_err_t registered=ouse_task_create(owner,OUSE_TASK_STORAGE,operations[operation],OUSE_TASK_FINISH_ON_CLOSE,true,task_id);
     if(registered!=ESP_OK){free(job->value);free(job);return registered;}
     job->token=*task_id;
-    if(xQueueSend(jobs,&job,0)!=pdTRUE){ouse_task_finish(job->token,ESP_ERR_NO_MEM,false);free(job->value);free(job);return ESP_ERR_NO_MEM;}
+    ouse_task_hold_result(job->token,true);
+    if(xQueueSend(jobs,&job,0)!=pdTRUE){ouse_task_hold_result(job->token,false);ouse_task_finish(job->token,ESP_ERR_NO_MEM,false);free(job->value);free(job);return ESP_ERR_NO_MEM;}
     return ESP_OK;
 }
 esp_err_t ouse_storage_purge(const char *app_id)

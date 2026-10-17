@@ -5,6 +5,8 @@
 #include "esp_log.h"
 #include "esp_system.h"
 #include "ouse_installer.h"
+#include "ouse_net.h"
+#include "ouse_media.h"
 
 static esp_err_t save_brightness(void *context, uint8_t percent)
 {
@@ -61,6 +63,10 @@ void app_main(void)
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     ouse_board_start_services();
+    esp_err_t network_error=ouse_net_init();
+    if(network_error!=ESP_OK)ESP_LOGW("OuseNet","Request service unavailable: %s",esp_err_to_name(network_error));
+    esp_err_t media_error=ouse_media_init();
+    if(media_error!=ESP_OK)ESP_LOGW("OuseMedia","Playback service unavailable: %s",esp_err_to_name(media_error));
     esp_err_t usb_error=ouse_installer_start();
     if(usb_error!=ESP_OK) ESP_LOGE("OuseUSB","Installer unavailable: %s",esp_err_to_name(usb_error));
 }

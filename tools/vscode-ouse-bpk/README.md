@@ -60,3 +60,6 @@ npm run package
 ## 0.9.0 系统接口预览
 
 预览支持 Ouse.tasks 的分页查询/完成监听、存储 Promise.taskId、后台原因和系统诊断。异步硬件操作返回模拟任务 ID；任务、内存和计时均为模拟，诊断标记 simulated 和 preview-simulated。预览不替代设备上的 FreeRTOS 调度、QuickJS 隔离与真实驱动验收。
+
+
+0.10.0 清单支持 network/media/alarms 布尔能力，发现、打包校验和预览传递保持一致。网络预览仅返回 simulated 数据，不访问测试 URL；闹钟只模拟会话内一次记录。媒体预览明确 available=false，真实 WAV 播放与 codec 抢占需使用设备。完整接口见 [原生服务](../../docs/0.10.0-services.md)。

@@ -298,6 +298,9 @@ class BpkViewProvider implements vscode.WebviewViewProvider {
         capabilities: {
           background: Boolean(app.background),
           notifications: Boolean(app.notifications),
+          network: Boolean(app.network),
+          media: Boolean(app.media),
+          alarms: Boolean(app.alarms),
         },
       },
       this.workspaceRoots(),

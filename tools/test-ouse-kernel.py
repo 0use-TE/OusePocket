@@ -98,7 +98,9 @@ static void registry_tests(void){
     }
     // Undelivered terminal events remain pinned, just like active work.
     assert(ouse_task_create(&a,OUSE_TASK_AUDIO,"test",OUSE_TASK_STOP_ON_CLOSE,true,&id)==ESP_ERR_NO_MEM);
-    for(unsigned i=0;i<OUSE_TASK_OWNER_LIMIT;++i)ouse_task_ack(&a,ids[i]);
+    for(unsigned i=0;i<OUSE_TASK_OWNER_LIMIT;++i){ouse_task_hold_result(ids[i],true);ouse_task_ack(&a,ids[i]);}
+    assert(ouse_task_create(&a,OUSE_TASK_AUDIO,"test",OUSE_TASK_STOP_ON_CLOSE,true,&id)==ESP_ERR_NO_MEM);
+    for(unsigned i=0;i<OUSE_TASK_OWNER_LIMIT;++i)ouse_task_hold_result(ids[i],false);
     for(unsigned i=0;i<OUSE_TASK_CAPACITY+4;++i){
         assert(ouse_task_create(&a,OUSE_TASK_AUDIO,"test",OUSE_TASK_STOP_ON_CLOSE,true,&id)==ESP_OK);
         assert(ouse_task_cancel(&a,id,"queued")==ESP_OK);
@@ -132,6 +134,27 @@ static void device_tests(void){
     assert(ouse_task_get(NULL,first,&task) && task.detached && task.state==OUSE_TASK_SUCCEEDED);
     puts("PASS devices: audio cooperative stop and close, Wi-Fi serialization and detached completion");
 }
+static void focus_tests(void){
+    ouse_task_owner_t media,alarm={.app_id="ouse.alarm"};uint32_t song,ring,other;ouse_audio_request_t request;ouse_task_snapshot_t task;
+    assert(ouse_task_owner_open("user.player",&media)==ESP_OK);
+    assert(ouse_task_create(&media,OUSE_TASK_AUDIO,"play",OUSE_TASK_FINISH_ON_CLOSE,true,&song)==ESP_OK);
+    assert(ouse_devices_queue_media(song)==ESP_OK);
+    assert(ouse_audio_submit(&media,OUSE_AUDIO_TEST,0,&other)==ESP_ERR_INVALID_STATE);
+    assert(ouse_audio_submit(&alarm,OUSE_AUDIO_RING,60,&ring)==ESP_OK);
+    assert(!ouse_task_cancel_requested(song)); // queued consumer preserved
+    assert(ouse_devices_take_audio(&request)&&request.id==ring&&ouse_task_start(ring,true));
+    assert(ouse_audio_submit(&media,OUSE_AUDIO_STOP,0,&other)==ESP_ERR_INVALID_STATE);
+    ouse_audio_state_t state;ouse_audio_get(&state);state.completed_id=ring;ouse_devices_publish_audio(&state,ring);ouse_task_finish(ring,ESP_OK,false);
+    assert(ouse_devices_resume_media(true)==song);
+    assert(ouse_devices_take_audio(&request)&&request.id==song&&ouse_task_start(song,true));
+    assert(ouse_audio_submit(&alarm,OUSE_AUDIO_RING,60,&ring)==ESP_OK);
+    assert(ouse_devices_take_alarm(&request)&&request.id==ring&&ouse_task_start(ring,true));
+    assert(ouse_task_get(&media,song,&task)&&task.state==OUSE_TASK_RUNNING&&!task.cancel_requested);
+    ouse_audio_get(&state);state.completed_id=ring;ouse_devices_publish_audio(&state,ring);ouse_task_finish(ring,ESP_OK,false);
+    assert(ouse_devices_resume_media(false)==song&&!ouse_devices_take_audio(&request)&&ouse_devices_audio_current(song));
+    ouse_task_owner_close(&media);assert(!ouse_task_cancel_requested(song));ouse_task_finish(song,ESP_OK,false);
+    puts("PASS focus: queued/running media survive alarm, foreign short commands cannot steal ring, exactly one resumed consumer, no JS lifetime dependency");
+}
 static void budget_tests(void){
     ouse_budget_t budget;ouse_budget_begin(&budget,12000,false);
     run(1500);assert(!ouse_budget_exceeded(&budget) && budget.scheduled_us==1500);
@@ -149,7 +172,7 @@ static void budget_tests(void){
     assert(ouse_budget_exceeded(&budget) && budget.scheduled_us==4500);
     puts("PASS budget: preemption/blocked-time exclusion, foreground/background allocation limits, wall fuse, 64-bit counter");
 }
-int main(void){ouse_tasks_set_notify(notified);registry_tests();device_tests();budget_tests();return 0;}
+int main(void){ouse_tasks_set_notify(notified);registry_tests();device_tests();focus_tests();budget_tests();return 0;}
 '''
 (OUT / "check.c").write_text(fixture, encoding="utf-8")
 includes = [OUT, ROOT/"components/ouse_tasks/include", ROOT/"components/ouse_devices/include", ROOT/"components/ouse_runtime"]

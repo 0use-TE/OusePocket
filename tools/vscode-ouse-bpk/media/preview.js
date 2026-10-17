@@ -57,6 +57,10 @@
   const previewTasks = [];
   let backgroundAllowed = false;
   let notificationsAllowed = false;
+  let networkAllowed = false;
+  let alarmsAllowed = false;
+  let mediaAllowed = false;
+  const previewAlarms = new Map();
   let assetEntries = [];
   let assetData = Object.create(null);
   const privateStore = new Map();
@@ -661,9 +665,6 @@
   function mountPage(pageId, action, previous) {
     const def = findPageDef(pageId);
     if (!def || !def.root) throw new Error('未知页面 ' + pageId);
-    previewInstance += 1;
-    taskHandler = null;previewTasks.length = 0;
-    backgroundReason = '';backgroundSince = 0;
     widgets.clear();
     unbound.clear();
     screen.replaceChildren();
@@ -888,7 +889,7 @@
         return {
           internalFree: 180000, internalTotal: 320000, psramFree: 24000000, psramTotal: 32000000,
           flashBytes: 16 * 1024 * 1024, cpuMHz: 400, uptimeMs: Date.now() - started,
-          resetReason: 1, coreVersion: '0.9.0', idfVersion: 'preview',
+          resetReason: 1, coreVersion: '0.10.0', idfVersion: 'preview',
         };
       },
       storage() {
@@ -1197,7 +1198,7 @@
     const instance = previewInstance, id = ++previewTaskId;
     const record = { pending: false, deliver: null, snapshot: {
       id, instanceId: instance, appId: 'preview.app', revision: id, kind, operation,
-      state: 'queued', closePolicy: kind === 'audio' ? 'stop' : 'finish',
+      state: 'queued', closePolicy: kind === 'audio' || kind === 'network' ? 'stop' : 'finish',
       cancelRequested: false, cancellable: true, detached: false, cancelReason: '',
       error: 'ESP_OK', errorCode: 0, createdMs: Date.now() - started,
       startedMs: 0, finishedMs: 0, result: null, simulated: true,
@@ -1218,6 +1219,8 @@
       if (kind === 'audio') Object.assign(task.result, {recordedMs: audio.recordedMs, positionMs: audio.positionMs});
       if (kind === 'wifi') Object.assign(task.result, {enabled: wifi.enabled, connected: wifi.connected, networks: wifi.networks.length, reason: wifi.reason, ssid: wifi.ssid, ip: wifi.ip});
       if (kind === 'storage' && !failure && task.state === 'succeeded') task.result.jsonBytes = utf8Length(JSON.stringify(value));
+      if (kind === 'network' && value) Object.assign(task.result, {status: value.status, bodyBytes: value.bodyBytes});
+      if (kind === 'alarm' && value) task.result.alarmId = value;
       record.pending = true;
       if (settle) record.deliver = () => settle(value, failure || (task.state === 'cancelled' ? new Error('Cancelled') : null));
       schedulePreviewDelivery();
@@ -1246,6 +1249,71 @@
     timers: timers.length, foregroundBudgetUs: 12000, backgroundBudgetUs: 4000,
   });
   Ouse.diagnostics = { get() { return Object.assign({simulated: true, appId: 'preview.app'}, Ouse.lifecycle.get()); } };
+  Ouse.clock = {get() {return {utcMs: Date.now(), valid: true, syncedThisBoot: false, lastSyncUptimeMs: 0, source: 'preview-simulated'};} };
+  Ouse.system.capabilities = () => ({simulated: true, coreVersion: 'development',
+    network: {available: true, requestBodyMax: 8192, responseBodyMax: 32768, pendingPerInstance: 2, headersMax: 12, redirects: false},
+    alarms: {available: true, persistent: false, perAppMax: 4, totalMax: 24, powerOffWake: false, automaticDst: false},
+    media: {available: false, formats: [], outputRateHz: 16000, outputChannels: 1, bufferBytes: 8192, seek: false},
+    granted: {network: networkAllowed, alarms: alarmsAllowed, media: mediaAllowed, background: backgroundAllowed, notifications: notificationsAllowed},
+  });
+  // Native decoding and codec focus need the device. Keep discovery honest;
+  // do not claim a successful playback from a browser that produces no audio.
+  Ouse.media = {play() {return false;}, pause() {return false;}, resume() {return false;}, stop() {return false;}, get() {return null;} };
+  Ouse.net = {request(options) {
+    let valid = networkAllowed && options && typeof options === 'object' && typeof options.url === 'string' &&
+      utf8Length(options.url) <= 512 && /^https?:\/\//.test(options.url) && !/[\s\x00-\x1f\x7f@#\\]/.test(options.url) &&
+      ['GET','HEAD','POST','PUT','PATCH','DELETE'].includes(options.method || 'GET') &&
+      (options.body === undefined || (typeof options.body === 'string' && utf8Length(options.body) <= 8192)) &&
+      ['text','bytes'].includes(options.responseType || 'text');
+    const timeout = options && options.timeoutMs !== undefined ? options.timeoutMs : 10000;
+    valid = valid && Number.isInteger(timeout) && timeout >= 1000 && timeout <= 30000;
+    if (!valid) return Promise.reject(new Error('Invalid or unauthorized preview request'));
+    if (previewTasks.filter(r => r.snapshot.kind === 'network' && (r.pending || r.snapshot.state === 'queued')).length >= 2) return Promise.reject(new Error('Network busy'));
+    let settle;
+    const promise = new Promise((resolve, reject) => {settle = (value, error) => error ? reject(error) : resolve(value);});
+    const id = newPreviewTask('network', options.method || 'GET', () => {
+      // Deliberately no fetch(): a preview must not silently send credentials or
+      // contact a URL entered for the device. The response declares simulation.
+      const text = options.method === 'HEAD' ? '' : '{"simulated":true}';
+      return {status: 200, ok: true, bodyBytes: utf8Length(text), headers: [['Content-Type','application/json']],
+        body: options.responseType === 'bytes' ? new TextEncoder().encode(text).buffer : text, simulated: true};
+    }, settle);
+    if (!id) settle(null, new Error('Task capacity reached'));
+    else Object.defineProperty(promise, 'taskId', {value: id, enumerable: true});
+    return promise;
+  }};
+  function previewAlarmCommand(action, id, options) {
+    if (!alarmsAllowed) return false;
+    return newPreviewTask('alarm', action, () => {
+      const old = previewAlarms.get(id), now = Date.now();
+      if (action === 'set') {
+        if (!old && previewAlarms.size >= 4) throw new Error('Alarm limit reached');
+        if (!options || options.weekdays) throw new Error('Preview only simulates one-shot alarms');
+        if (!Number.isFinite(options.atMs) || options.atMs <= now) throw new Error('Future time required');
+        previewAlarms.set(id, {...options, id, nextMs: Math.floor(options.atMs / 1000) * 1000, lastMs: 0, enabled: true, ringing: false, missed: false});
+      } else {
+        if (!old) throw new Error('Alarm not found');
+        if (action === 'remove') previewAlarms.delete(id);
+        else if (action === 'dismiss') old.ringing = false;
+        else if (action === 'snooze') {old.nextMs = now + options * 60000;old.enabled = true;old.ringing = false;}
+      }
+      return id;
+    });
+  }
+  Ouse.alarms = {
+    set(options) {return previewAlarmCommand('set', options && options.id, options);},
+    remove(id) {return previewAlarmCommand('remove', id);},
+    dismiss(id) {return previewAlarmCommand('dismiss', id);},
+    snooze(id, minutes) {if (!Number.isInteger(minutes) || minutes < 1 || minutes > 60) throw new Error('Minutes: 1..60');return previewAlarmCommand('snooze', id, minutes);},
+    list() {
+      if (!alarmsAllowed) return [];
+      const now = Date.now();
+      for (const alarm of previewAlarms.values()) if (alarm.enabled && alarm.nextMs <= now) {
+        alarm.lastMs = alarm.nextMs;alarm.enabled = false;alarm.missed = now - alarm.nextMs > 120000;alarm.ringing = !alarm.missed;alarm.nextMs = 0;
+      }
+      return [...previewAlarms.values()].map(a => ({...a, simulated: true}));
+    },
+  };
   for (const [kind, methods] of [['audio', ['testTone','record','playRecording','stop']], ['wifi', ['setEnabled','scan','connect','disconnect','forget']]]) {
     for (const operation of methods) {
       const original = Ouse[kind][operation];
@@ -1292,6 +1360,7 @@
   function resetRuntime() {
     previewInstance += 1;
     taskHandler = null;previewTasks.length = 0;
+    previewAlarms.clear();
     backgroundReason = '';backgroundSince = 0;
     widgets.clear();
     unbound.clear();
@@ -1333,6 +1402,9 @@
     backgroundActive = false;
     backgroundAllowed = Boolean(message.capabilities && message.capabilities.background);
     notificationsAllowed = Boolean(message.capabilities && message.capabilities.notifications);
+    networkAllowed = Boolean(message.capabilities && message.capabilities.network);
+    alarmsAllowed = Boolean(message.capabilities && message.capabilities.alarms);
+    mediaAllowed = Boolean(message.capabilities && message.capabilities.media);
     assetEntries = Array.isArray(message.assets) ? message.assets.slice() : [];
     assetData = message.assetData && typeof message.assetData === 'object' ? Object.assign({}, message.assetData) : Object.create(null);
     privateStore.clear();

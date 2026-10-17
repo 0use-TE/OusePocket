@@ -5,6 +5,7 @@
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "esp_netif_sntp.h"
+#include "ouse_clock.h"
 #include "esp_timer.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -23,6 +24,7 @@ enum { EVENT_SCAN=1,EVENT_IP=2,EVENT_DISCONNECT=4,EVENT_DOWN=8,EVENT_STOP=16 };
 static unsigned awaiting_stop;
 static esp_err_t stop_result;
 static bool hosted,wifi_created,initialized,started,sntp_started;
+static void time_synchronized(struct timeval *tv){(void)tv;ouse_clock_note_sync();}
 static ouse_wifi_state_t state;
 static ouse_wifi_request_t session;
 static int64_t deadline;
@@ -189,6 +191,7 @@ static void handle_events(unsigned bits,int reason,esp_ip4_addr_t ip)
             if(!sntp_started) {
                 setenv("TZ","CST-8",1);tzset();
                 esp_sntp_config_t cfg=ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
+                cfg.sync_cb=time_synchronized;
                 if(esp_netif_sntp_init(&cfg)==ESP_OK)sntp_started=true;
             }
         }
