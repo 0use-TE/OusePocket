@@ -350,9 +350,10 @@ class Client:
                             raise RuntimeError(f"{verb}: {result}{detail}")
                         return result
                     text = re.sub(r"\x1b\[[0-9;]*m", "", line.decode("utf-8", errors="replace")).strip()
-                    if "OuseUSB:" in text or "OuseJS:" in text:
+                    if text:
                         diagnostics.append(text[:512])
-                        diagnostics = diagnostics[-12:]
+                        if len(diagnostics) > 80:
+                            del diagnostics[40]
                 if len(self.pending) > 8192:
                     self.pending.clear()
         raise TimeoutError(f"{verb}: no reply; check COM port, close serial monitor, wait for OuseUSB READY")

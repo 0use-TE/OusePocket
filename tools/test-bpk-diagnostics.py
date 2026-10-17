@@ -51,12 +51,18 @@ class DiagnosticsTests(unittest.TestCase):
             client.request("END")
 
     def test_diagnostics_are_bounded(self):
-        data = b"".join(f"E OuseJS: failure {index}\n".encode() for index in range(20))
+        data = b"".join(f"E OuseJS: failure {index}\n".encode() for index in range(100))
         client = self.client(data + bpk.wire(1, 1, "ERR", "ESP_ERR_INVALID_ARG"))
         with self.assertRaises(RuntimeError) as failure:
             client.request("END")
-        self.assertNotIn("failure 0\n", str(failure.exception))
-        self.assertEqual(str(failure.exception).count("OuseJS:"), 12)
+        self.assertIn("failure 0\n", str(failure.exception))
+        self.assertNotIn("failure 50\n", str(failure.exception))
+        self.assertEqual(str(failure.exception).count("OuseJS:"), 80)
+
+    def test_panic_logs_are_preserved(self):
+        client = self.client(b"Guru Meditation Error: panic\nBacktrace: 0x1234\n" + bpk.wire(1, 1, "ERR", "ESP_ERR_INVALID_ARG"))
+        with self.assertRaisesRegex(RuntimeError, "Guru Meditation"):
+            client.request("END")
 
 
 if __name__ == "__main__":

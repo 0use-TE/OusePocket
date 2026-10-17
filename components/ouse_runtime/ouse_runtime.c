@@ -31,9 +31,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdatomic.h>
-#ifndef ESP_PLATFORM
-#include <malloc.h>
-#endif
+#include <stddef.h>
 
 #define MAX_NODES 96
 #define MAX_TIMERS 8
@@ -54,31 +52,48 @@
 #define MAX_PAGES 16
 #define MAX_PAGE_STACK 8
 
-static void *js_psram_calloc(void *opaque,size_t count,size_t size)
-{ (void)opaque;return ouse_psram_calloc(count,size); }
+typedef union {
+    long double alignment;
+    void *pointer_alignment;
+    size_t requested_size;
+} js_allocation_t;
+
 static void *js_psram_malloc(void *opaque,size_t size)
-{ (void)opaque;return ouse_psram_malloc(size); }
+{
+    (void)opaque;
+    if(size>SIZE_MAX-sizeof(js_allocation_t))return NULL;
+    js_allocation_t *allocation=ouse_psram_malloc(sizeof(*allocation)+size);
+    if(!allocation)return NULL;
+    allocation->requested_size=size;return allocation+1;
+}
+static void *js_psram_calloc(void *opaque,size_t count,size_t size)
+{
+    if(count && size>SIZE_MAX/count)return NULL;
+    size_t bytes=count*size;void *pointer=js_psram_malloc(opaque,bytes);
+    if(pointer)memset(pointer,0,bytes);
+    return pointer;
+}
 static void js_psram_free(void *opaque,void *pointer)
-{ (void)opaque;free(pointer); }
+{ (void)opaque;if(pointer)free((js_allocation_t *)pointer-1); }
 static void *js_psram_realloc(void *opaque,void *pointer,size_t size)
 {
     (void)opaque;
+    if(!pointer)return js_psram_malloc(opaque,size);
+    if(!size){js_psram_free(opaque,pointer);return NULL;}
+    if(size>SIZE_MAX-sizeof(js_allocation_t))return NULL;
+    js_allocation_t *allocation=(js_allocation_t *)pointer-1;
 #ifdef ESP_PLATFORM
-    return heap_caps_realloc(pointer,size,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
+    allocation=heap_caps_realloc(allocation,sizeof(*allocation)+size,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
 #else
-    return realloc(pointer,size);
+    allocation=realloc(allocation,sizeof(*allocation)+size);
 #endif
+    if(!allocation)return NULL;
+    allocation->requested_size=size;return allocation+1;
 }
 static size_t js_psram_usable_size(const void *pointer)
 {
     if(!pointer)return 0;
-#ifdef ESP_PLATFORM
-    return heap_caps_get_allocated_size((void *)pointer);
-#elif defined(_WIN32)
-    return _msize((void *)pointer);
-#else
-    return malloc_usable_size((void *)pointer);
-#endif
+    return ((const js_allocation_t *)pointer-1)->requested_size;
 }
 static const JSMallocFunctions js_psram_allocator={
     js_psram_calloc,js_psram_malloc,js_psram_free,js_psram_realloc,js_psram_usable_size

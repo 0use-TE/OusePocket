@@ -30,7 +30,7 @@ static void *heap_caps_calloc(size_t count,size_t size,int caps)
 {assert(caps==3);++allocation_calls;return fail_allocations?NULL:calloc(count,size);}
 static void *heap_caps_realloc(void *pointer,size_t size,int caps)
 {assert(caps==3);++allocation_calls;return fail_allocations?NULL:realloc(pointer,size);}
-static size_t heap_caps_get_allocated_size(void *pointer){return _msize(pointer);}
+static size_t heap_caps_get_allocated_size(void *pointer){return _msize(pointer)+16;}
 ''', encoding='utf-8')
 fixture = r'''
 #include "ouse_app.h"
@@ -39,6 +39,7 @@ fixture = r'''
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
+#include <stddef.h>
 #define ESP_LOGI(...) ((void)0)
 void lv_obj_add_flag(lv_obj_t *object,lv_obj_flag_t flag){(void)object;(void)flag;}
 /* REGISTRY */
@@ -73,11 +74,19 @@ int main(void)
     memset(memory,42,32);fail_allocations=1;
     assert(!js_psram_realloc(NULL,memory,64) && ((unsigned char *)memory)[0]==42);
     fail_allocations=0;memory=js_psram_realloc(NULL,memory,128);assert(memory);
-    assert(js_psram_usable_size(memory)>=128);js_psram_free(NULL,memory);
+    assert(js_psram_usable_size(memory)==128);js_psram_free(NULL,memory);
+    memory=js_psram_malloc(NULL,33);assert(memory && js_psram_usable_size(memory)==33);
+    assert(!js_psram_realloc(NULL,memory,SIZE_MAX));
+    assert(js_psram_usable_size(memory)==33);
+    assert(!js_psram_realloc(NULL,memory,0));
+    assert(!js_psram_malloc(NULL,SIZE_MAX) && !js_psram_calloc(NULL,SIZE_MAX,2));
+    memory=js_psram_calloc(NULL,3,11);assert(memory && js_psram_usable_size(memory)==33);
+    for(unsigned index=0;index<33;++index)assert(!((unsigned char *)memory)[index]);
+    js_psram_free(NULL,memory);
     JSRuntime *runtime=JS_NewRuntime2(&js_psram_allocator,NULL);assert(runtime);
     JS_SetMemoryLimit(runtime,512*1024);
     JSContext *context=JS_NewContext(runtime);assert(context);
-    const char *script="let values=[];for(let index=0;index<500;index++)values.push({text:'PSRAM'+index});values.length";
+    const char *script="let values=[];for(let index=0;index<500;index++){let text='';for(let step=0;step<32;step++)text+='abc';values.push({text});}values.length";
     JSValue result=JS_Eval(context,script,strlen(script),"test",JS_EVAL_TYPE_GLOBAL);
     int count=0;assert(!JS_IsException(result) && JS_ToInt32(context,&count,result)==0 && count==500);
     JS_FreeValue(context,result);
@@ -92,7 +101,7 @@ int main(void)
 fixture = fixture.replace('/* REGISTRY */', section(registry, 'typedef struct {', 'static void resolve_info('))
 fixture = fixture.replace('/* REGISTER */', section(registry, 'esp_err_t ouse_apps_init(', 'static void free_preview('))
 fixture = fixture.replace('/* CHECK */', section(registry, 'esp_err_t ouse_apps_user_check(', 'esp_err_t ouse_apps_user_apply('))
-fixture = fixture.replace('/* ALLOCATOR */', section(runtime, 'static void *js_psram_calloc(', 'typedef enum { NAV_IDLE'))
+fixture = fixture.replace('/* ALLOCATOR */', section(runtime, 'typedef union {\n    long double alignment;', 'typedef enum { NAV_IDLE'))
 (OUT / 'check.c').write_text(fixture, encoding='utf-8')
 env = dict(os.environ)
 for line in subprocess.check_output(['cmd.exe', '/d', '/c', str(ROOT / '.tools/ouse-kernel-check/environment.cmd')], encoding='mbcs').splitlines():
