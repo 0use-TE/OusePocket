@@ -1,0 +1,185 @@
+{
+  "api": 1,
+  "units": "dp",
+  "root": {
+    "type": "container",
+    "id": "page",
+    "width": "fill",
+    "height": "fill",
+    "layout": "column",
+    "padding": 6,
+    "gap": 4,
+    "style": { "backgroundColor": "$background" },
+    "children": [
+      {
+        "type": "container",
+        "id": "header",
+        "width": "fill",
+        "height": 36,
+        "layout": "row",
+        "gap": 8,
+        "children": [
+          { "type": "label", "id": "title", "text": "计算器", "width": "fill", "height": 36, "fontSize": 18, "style": { "textColor": "$text" } },
+          {
+            "type": "container",
+            "id": "modeBtn",
+            "width": 40,
+            "height": 36,
+            "layout": "row",
+            "padding": 6,
+            "style": { "backgroundColor": "$accent", "radius": 10 },
+            "children": [
+              { "type": "image", "id": "modeIcon", "src": "mode", "width": 24, "height": 24 }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "container",
+        "id": "display",
+        "width": "fill",
+        "height": 72,
+        "layout": "column",
+        "padding": 8,
+        "gap": 2,
+        "style": { "backgroundColor": "$surface", "borderColor": "$border", "borderWidth": 1, "radius": 12 },
+        "children": [
+          { "type": "label", "id": "expr", "text": "0", "width": "fill", "height": "content", "fontSize": 13, "style": { "textColor": "$secondary", "textAlign": "right" } },
+          { "type": "label", "id": "result", "text": "0", "width": "fill", "height": "fill", "fontSize": 28, "style": { "textColor": "$text", "textAlign": "right" } }
+        ]
+      },
+      {
+        "type": "container",
+        "id": "science",
+        "width": "fill",
+        "height": 32,
+        "layout": "row",
+        "gap": 3,
+        "style": { "hidden": true },
+        "children": [
+          { "type": "button", "id": "b_sqrt", "text": "sqrt", "width": "fill", "height": 32, "fontSize": 11 },
+          { "type": "button", "id": "b_sq", "text": "x^2", "width": "fill", "height": 32, "fontSize": 12 },
+          { "type": "button", "id": "b_inv", "text": "1/x", "width": "fill", "height": 32, "fontSize": 12 },
+          { "type": "button", "id": "b_neg", "text": "+/-", "width": "fill", "height": 32, "fontSize": 12 },
+          { "type": "button", "id": "b_pi", "text": "pi", "width": "fill", "height": 32, "fontSize": 12 }
+        ]
+      },
+      {
+        "type": "container",
+        "id": "trig",
+        "width": "fill",
+        "height": 32,
+        "layout": "row",
+        "gap": 3,
+        "style": { "hidden": true },
+        "children": [
+          { "type": "button", "id": "b_sin", "text": "sin", "width": "fill", "height": 32, "fontSize": 12 },
+          { "type": "button", "id": "b_cos", "text": "cos", "width": "fill", "height": 32, "fontSize": 12 },
+          { "type": "button", "id": "b_tan", "text": "tan", "width": "fill", "height": 32, "fontSize": 12 },
+          { "type": "button", "id": "b_pct", "text": "%", "width": "fill", "height": 32, "fontSize": 14 }
+        ]
+      },
+      {
+        "type": "container",
+        "id": "prog",
+        "width": "fill",
+        "height": 32,
+        "layout": "row",
+        "gap": 3,
+        "style": { "hidden": true },
+        "children": [
+          { "type": "button", "id": "b_base", "text": "DEC", "width": "fill", "height": 32, "fontSize": 11 },
+          { "type": "button", "id": "b_and", "text": "AND", "width": "fill", "height": 32, "fontSize": 10 },
+          { "type": "button", "id": "b_or", "text": "OR", "width": "fill", "height": 32, "fontSize": 10 },
+          { "type": "button", "id": "b_xor", "text": "XOR", "width": "fill", "height": 32, "fontSize": 10 },
+          { "type": "button", "id": "b_not", "text": "NOT", "width": "fill", "height": 32, "fontSize": 10 }
+        ]
+      },
+      {
+        "type": "container",
+        "id": "hex",
+        "width": "fill",
+        "height": 32,
+        "layout": "row",
+        "gap": 3,
+        "style": { "hidden": true },
+        "children": [
+          { "type": "button", "id": "b_a", "text": "A", "width": "fill", "height": 32, "fontSize": 14 },
+          { "type": "button", "id": "b_b", "text": "B", "width": "fill", "height": 32, "fontSize": 14 },
+          { "type": "button", "id": "b_c", "text": "C", "width": "fill", "height": 32, "fontSize": 14 },
+          { "type": "button", "id": "b_d", "text": "D", "width": "fill", "height": 32, "fontSize": 14 },
+          { "type": "button", "id": "b_e", "text": "E", "width": "fill", "height": 32, "fontSize": 14 },
+          { "type": "button", "id": "b_f", "text": "F", "width": "fill", "height": 32, "fontSize": 14 }
+        ]
+      },
+      {
+        "type": "container",
+        "id": "pad",
+        "width": "fill",
+        "height": "fill",
+        "layout": "column",
+        "gap": 3,
+        "children": [
+          {
+            "type": "container", "id": "row_top", "width": "fill", "height": "fill", "layout": "row", "gap": 3,
+            "children": [
+              { "type": "button", "id": "b_ac", "text": "AC", "width": "fill", "height": "fill", "fontSize": 15, "style": { "backgroundColor": "$surface", "textColor": "$error", "borderColor": "$border", "borderWidth": 1, "radius": 10 } },
+              { "type": "button", "id": "b_paren", "text": "()", "width": "fill", "height": "fill", "fontSize": 15, "style": { "backgroundColor": "$surface", "borderColor": "$border", "borderWidth": 1, "radius": 10 } },
+              { "type": "button", "id": "b_bs", "text": "<", "width": "fill", "height": "fill", "fontSize": 15, "style": { "backgroundColor": "$surface", "borderColor": "$border", "borderWidth": 1, "radius": 10 } },
+              { "type": "button", "id": "b_div", "text": "/", "width": "fill", "height": "fill", "fontSize": 18, "style": { "backgroundColor": "$accent", "textColor": "#ffffff", "radius": 10 } }
+            ]
+          },
+          {
+            "type": "container", "id": "row_7", "width": "fill", "height": "fill", "layout": "row", "gap": 3,
+            "children": [
+              { "type": "button", "id": "b_7", "text": "7", "width": "fill", "height": "fill", "fontSize": 18, "style": { "backgroundColor": "$surface", "borderColor": "$border", "borderWidth": 1, "radius": 10 } },
+              { "type": "button", "id": "b_8", "text": "8", "width": "fill", "height": "fill", "fontSize": 18, "style": { "backgroundColor": "$surface", "borderColor": "$border", "borderWidth": 1, "radius": 10 } },
+              { "type": "button", "id": "b_9", "text": "9", "width": "fill", "height": "fill", "fontSize": 18, "style": { "backgroundColor": "$surface", "borderColor": "$border", "borderWidth": 1, "radius": 10 } },
+              { "type": "button", "id": "b_mul", "text": "*", "width": "fill", "height": "fill", "fontSize": 18, "style": { "backgroundColor": "$accent", "textColor": "#ffffff", "radius": 10 } }
+            ]
+          },
+          {
+            "type": "container", "id": "row_4", "width": "fill", "height": "fill", "layout": "row", "gap": 3,
+            "children": [
+              { "type": "button", "id": "b_4", "text": "4", "width": "fill", "height": "fill", "fontSize": 18, "style": { "backgroundColor": "$surface", "borderColor": "$border", "borderWidth": 1, "radius": 10 } },
+              { "type": "button", "id": "b_5", "text": "5", "width": "fill", "height": "fill", "fontSize": 18, "style": { "backgroundColor": "$surface", "borderColor": "$border", "borderWidth": 1, "radius": 10 } },
+              { "type": "button", "id": "b_6", "text": "6", "width": "fill", "height": "fill", "fontSize": 18, "style": { "backgroundColor": "$surface", "borderColor": "$border", "borderWidth": 1, "radius": 10 } },
+              { "type": "button", "id": "b_sub", "text": "-", "width": "fill", "height": "fill", "fontSize": 18, "style": { "backgroundColor": "$accent", "textColor": "#ffffff", "radius": 10 } }
+            ]
+          },
+          {
+            "type": "container", "id": "row_1", "width": "fill", "height": "fill", "layout": "row", "gap": 3,
+            "children": [
+              { "type": "button", "id": "b_1", "text": "1", "width": "fill", "height": "fill", "fontSize": 18, "style": { "backgroundColor": "$surface", "borderColor": "$border", "borderWidth": 1, "radius": 10 } },
+              { "type": "button", "id": "b_2", "text": "2", "width": "fill", "height": "fill", "fontSize": 18, "style": { "backgroundColor": "$surface", "borderColor": "$border", "borderWidth": 1, "radius": 10 } },
+              { "type": "button", "id": "b_3", "text": "3", "width": "fill", "height": "fill", "fontSize": 18, "style": { "backgroundColor": "$surface", "borderColor": "$border", "borderWidth": 1, "radius": 10 } },
+              { "type": "button", "id": "b_add", "text": "+", "width": "fill", "height": "fill", "fontSize": 18, "style": { "backgroundColor": "$accent", "textColor": "#ffffff", "radius": 10 } }
+            ]
+          },
+          {
+            "type": "container", "id": "row_0", "width": "fill", "height": "fill", "layout": "row", "gap": 3,
+            "children": [
+              { "type": "button", "id": "b_0", "text": "0", "width": "fill", "height": "fill", "fontSize": 18, "style": { "backgroundColor": "$surface", "borderColor": "$border", "borderWidth": 1, "radius": 10 } },
+              { "type": "button", "id": "b_dot", "text": ".", "width": "fill", "height": "fill", "fontSize": 18, "style": { "backgroundColor": "$surface", "borderColor": "$border", "borderWidth": 1, "radius": 10 } },
+              { "type": "button", "id": "b_eq", "text": "=", "width": "fill", "height": "fill", "fontSize": 18, "style": { "backgroundColor": "$accent", "textColor": "#ffffff", "radius": 10 } }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "bottomSheet",
+        "id": "modeSheet",
+        "text": "选择模式",
+        "width": "fill",
+        "height": "content",
+        "padding": 18,
+        "gap": 12,
+        "children": [
+          { "type": "button", "id": "pick_simple", "text": "简单", "width": "fill", "height": 48, "fontSize": 16 },
+          { "type": "button", "id": "pick_science", "text": "科学", "width": "fill", "height": 48, "fontSize": 16 },
+          { "type": "button", "id": "pick_prog", "text": "程序", "width": "fill", "height": 48, "fontSize": 16 }
+        ]
+      }
+    ]
+  }
+}

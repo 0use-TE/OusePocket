@@ -1,0 +1,859 @@
+{
+  "api": 1,
+  "units": "dp",
+  "initialPage": "files",
+  "pages": [
+    {
+      "id": "files",
+      "root": {
+        "type": "container",
+        "id": "root",
+        "width": "fill",
+        "height": "fill",
+        "layout": "column",
+        "padding": 12,
+        "gap": 6,
+        "children": [
+          {
+            "type": "container",
+            "id": "header",
+            "width": "fill",
+            "height": 40,
+            "layout": "row",
+            "gap": 6,
+            "children": [
+              {
+                "type": "button",
+                "id": "up",
+                "text": "返回",
+                "width": 48,
+                "height": 40,
+                "fontSize": 14
+              },
+              {
+                "type": "label",
+                "id": "title",
+                "text": "SD 卡",
+                "width": 1,
+                "height": 32,
+                "fontSize": 18,
+                "style": {
+                  "flexGrow": 1,
+                  "textAlign": "center"
+                }
+              },
+              {
+                "type": "button",
+                "id": "refresh",
+                "text": "刷新",
+                "width": 48,
+                "height": 40,
+                "fontSize": 14
+              },
+              {
+                "type": "button",
+                "id": "info",
+                "text": "信息",
+                "width": 48,
+                "height": 40,
+                "fontSize": 14
+              }
+            ]
+          },
+          {
+            "type": "label",
+            "id": "status",
+            "width": "fill",
+            "height": "content",
+            "fontSize": 14,
+            "style": {
+              "hidden": true
+            }
+          },
+          {
+            "type": "container",
+            "id": "entries",
+            "width": "fill",
+            "height": 1,
+            "layout": "column",
+            "scroll": true,
+            "gap": 0,
+            "style": {
+              "flexGrow": 1
+            },
+            "children": [
+              {
+                "type": "container",
+                "id": "row0",
+                "width": "fill",
+                "height": 56,
+                "layout": "row",
+                "gap": 4,
+                "children": [
+                  {
+                    "type": "image",
+                    "id": "icon0",
+                    "src": "folder",
+                    "width": 32,
+                    "height": 32
+                  },
+                  {
+                    "type": "button",
+                    "id": "entry0",
+                    "width": 1,
+                    "height": 56,
+                    "fontSize": 14,
+                    "style": {
+                      "flexGrow": 1,
+                      "backgroundColor": "$background",
+                      "borderWidth": 0,
+                      "radius": 0,
+                      "textAlign": "left"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "container",
+                "id": "row1",
+                "width": "fill",
+                "height": 56,
+                "layout": "row",
+                "gap": 4,
+                "children": [
+                  {
+                    "type": "image",
+                    "id": "icon1",
+                    "src": "folder",
+                    "width": 32,
+                    "height": 32
+                  },
+                  {
+                    "type": "button",
+                    "id": "entry1",
+                    "width": 1,
+                    "height": 56,
+                    "fontSize": 14,
+                    "style": {
+                      "flexGrow": 1,
+                      "backgroundColor": "$background",
+                      "borderWidth": 0,
+                      "radius": 0,
+                      "textAlign": "left"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "container",
+                "id": "row2",
+                "width": "fill",
+                "height": 56,
+                "layout": "row",
+                "gap": 4,
+                "children": [
+                  {
+                    "type": "image",
+                    "id": "icon2",
+                    "src": "folder",
+                    "width": 32,
+                    "height": 32
+                  },
+                  {
+                    "type": "button",
+                    "id": "entry2",
+                    "width": 1,
+                    "height": 56,
+                    "fontSize": 14,
+                    "style": {
+                      "flexGrow": 1,
+                      "backgroundColor": "$background",
+                      "borderWidth": 0,
+                      "radius": 0,
+                      "textAlign": "left"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "container",
+                "id": "row3",
+                "width": "fill",
+                "height": 56,
+                "layout": "row",
+                "gap": 4,
+                "children": [
+                  {
+                    "type": "image",
+                    "id": "icon3",
+                    "src": "folder",
+                    "width": 32,
+                    "height": 32
+                  },
+                  {
+                    "type": "button",
+                    "id": "entry3",
+                    "width": 1,
+                    "height": 56,
+                    "fontSize": 14,
+                    "style": {
+                      "flexGrow": 1,
+                      "backgroundColor": "$background",
+                      "borderWidth": 0,
+                      "radius": 0,
+                      "textAlign": "left"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "container",
+                "id": "row4",
+                "width": "fill",
+                "height": 56,
+                "layout": "row",
+                "gap": 4,
+                "children": [
+                  {
+                    "type": "image",
+                    "id": "icon4",
+                    "src": "folder",
+                    "width": 32,
+                    "height": 32
+                  },
+                  {
+                    "type": "button",
+                    "id": "entry4",
+                    "width": 1,
+                    "height": 56,
+                    "fontSize": 14,
+                    "style": {
+                      "flexGrow": 1,
+                      "backgroundColor": "$background",
+                      "borderWidth": 0,
+                      "radius": 0,
+                      "textAlign": "left"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "container",
+                "id": "row5",
+                "width": "fill",
+                "height": 56,
+                "layout": "row",
+                "gap": 4,
+                "children": [
+                  {
+                    "type": "image",
+                    "id": "icon5",
+                    "src": "folder",
+                    "width": 32,
+                    "height": 32
+                  },
+                  {
+                    "type": "button",
+                    "id": "entry5",
+                    "width": 1,
+                    "height": 56,
+                    "fontSize": 14,
+                    "style": {
+                      "flexGrow": 1,
+                      "backgroundColor": "$background",
+                      "borderWidth": 0,
+                      "radius": 0,
+                      "textAlign": "left"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "container",
+                "id": "row6",
+                "width": "fill",
+                "height": 56,
+                "layout": "row",
+                "gap": 4,
+                "children": [
+                  {
+                    "type": "image",
+                    "id": "icon6",
+                    "src": "folder",
+                    "width": 32,
+                    "height": 32
+                  },
+                  {
+                    "type": "button",
+                    "id": "entry6",
+                    "width": 1,
+                    "height": 56,
+                    "fontSize": 14,
+                    "style": {
+                      "flexGrow": 1,
+                      "backgroundColor": "$background",
+                      "borderWidth": 0,
+                      "radius": 0,
+                      "textAlign": "left"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "container",
+                "id": "row7",
+                "width": "fill",
+                "height": 56,
+                "layout": "row",
+                "gap": 4,
+                "children": [
+                  {
+                    "type": "image",
+                    "id": "icon7",
+                    "src": "folder",
+                    "width": 32,
+                    "height": 32
+                  },
+                  {
+                    "type": "button",
+                    "id": "entry7",
+                    "width": 1,
+                    "height": 56,
+                    "fontSize": 14,
+                    "style": {
+                      "flexGrow": 1,
+                      "backgroundColor": "$background",
+                      "borderWidth": 0,
+                      "radius": 0,
+                      "textAlign": "left"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "container",
+                "id": "row8",
+                "width": "fill",
+                "height": 56,
+                "layout": "row",
+                "gap": 4,
+                "children": [
+                  {
+                    "type": "image",
+                    "id": "icon8",
+                    "src": "folder",
+                    "width": 32,
+                    "height": 32
+                  },
+                  {
+                    "type": "button",
+                    "id": "entry8",
+                    "width": 1,
+                    "height": 56,
+                    "fontSize": 14,
+                    "style": {
+                      "flexGrow": 1,
+                      "backgroundColor": "$background",
+                      "borderWidth": 0,
+                      "radius": 0,
+                      "textAlign": "left"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "container",
+                "id": "row9",
+                "width": "fill",
+                "height": 56,
+                "layout": "row",
+                "gap": 4,
+                "children": [
+                  {
+                    "type": "image",
+                    "id": "icon9",
+                    "src": "folder",
+                    "width": 32,
+                    "height": 32
+                  },
+                  {
+                    "type": "button",
+                    "id": "entry9",
+                    "width": 1,
+                    "height": 56,
+                    "fontSize": 14,
+                    "style": {
+                      "flexGrow": 1,
+                      "backgroundColor": "$background",
+                      "borderWidth": 0,
+                      "radius": 0,
+                      "textAlign": "left"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "container",
+                "id": "row10",
+                "width": "fill",
+                "height": 56,
+                "layout": "row",
+                "gap": 4,
+                "children": [
+                  {
+                    "type": "image",
+                    "id": "icon10",
+                    "src": "folder",
+                    "width": 32,
+                    "height": 32
+                  },
+                  {
+                    "type": "button",
+                    "id": "entry10",
+                    "width": 1,
+                    "height": 56,
+                    "fontSize": 14,
+                    "style": {
+                      "flexGrow": 1,
+                      "backgroundColor": "$background",
+                      "borderWidth": 0,
+                      "radius": 0,
+                      "textAlign": "left"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "container",
+                "id": "row11",
+                "width": "fill",
+                "height": 56,
+                "layout": "row",
+                "gap": 4,
+                "children": [
+                  {
+                    "type": "image",
+                    "id": "icon11",
+                    "src": "folder",
+                    "width": 32,
+                    "height": 32
+                  },
+                  {
+                    "type": "button",
+                    "id": "entry11",
+                    "width": 1,
+                    "height": 56,
+                    "fontSize": 14,
+                    "style": {
+                      "flexGrow": 1,
+                      "backgroundColor": "$background",
+                      "borderWidth": 0,
+                      "radius": 0,
+                      "textAlign": "left"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "container",
+                "id": "row12",
+                "width": "fill",
+                "height": 56,
+                "layout": "row",
+                "gap": 4,
+                "children": [
+                  {
+                    "type": "image",
+                    "id": "icon12",
+                    "src": "folder",
+                    "width": 32,
+                    "height": 32
+                  },
+                  {
+                    "type": "button",
+                    "id": "entry12",
+                    "width": 1,
+                    "height": 56,
+                    "fontSize": 14,
+                    "style": {
+                      "flexGrow": 1,
+                      "backgroundColor": "$background",
+                      "borderWidth": 0,
+                      "radius": 0,
+                      "textAlign": "left"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "container",
+                "id": "row13",
+                "width": "fill",
+                "height": 56,
+                "layout": "row",
+                "gap": 4,
+                "children": [
+                  {
+                    "type": "image",
+                    "id": "icon13",
+                    "src": "folder",
+                    "width": 32,
+                    "height": 32
+                  },
+                  {
+                    "type": "button",
+                    "id": "entry13",
+                    "width": 1,
+                    "height": 56,
+                    "fontSize": 14,
+                    "style": {
+                      "flexGrow": 1,
+                      "backgroundColor": "$background",
+                      "borderWidth": 0,
+                      "radius": 0,
+                      "textAlign": "left"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "container",
+                "id": "row14",
+                "width": "fill",
+                "height": 56,
+                "layout": "row",
+                "gap": 4,
+                "children": [
+                  {
+                    "type": "image",
+                    "id": "icon14",
+                    "src": "folder",
+                    "width": 32,
+                    "height": 32
+                  },
+                  {
+                    "type": "button",
+                    "id": "entry14",
+                    "width": 1,
+                    "height": 56,
+                    "fontSize": 14,
+                    "style": {
+                      "flexGrow": 1,
+                      "backgroundColor": "$background",
+                      "borderWidth": 0,
+                      "radius": 0,
+                      "textAlign": "left"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "container",
+                "id": "row15",
+                "width": "fill",
+                "height": 56,
+                "layout": "row",
+                "gap": 4,
+                "children": [
+                  {
+                    "type": "image",
+                    "id": "icon15",
+                    "src": "folder",
+                    "width": 32,
+                    "height": 32
+                  },
+                  {
+                    "type": "button",
+                    "id": "entry15",
+                    "width": 1,
+                    "height": 56,
+                    "fontSize": 14,
+                    "style": {
+                      "flexGrow": 1,
+                      "backgroundColor": "$background",
+                      "borderWidth": 0,
+                      "radius": 0,
+                      "textAlign": "left"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "container",
+                "id": "row16",
+                "width": "fill",
+                "height": 56,
+                "layout": "row",
+                "gap": 4,
+                "children": [
+                  {
+                    "type": "image",
+                    "id": "icon16",
+                    "src": "folder",
+                    "width": 32,
+                    "height": 32
+                  },
+                  {
+                    "type": "button",
+                    "id": "entry16",
+                    "width": 1,
+                    "height": 56,
+                    "fontSize": 14,
+                    "style": {
+                      "flexGrow": 1,
+                      "backgroundColor": "$background",
+                      "borderWidth": 0,
+                      "radius": 0,
+                      "textAlign": "left"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "container",
+                "id": "row17",
+                "width": "fill",
+                "height": 56,
+                "layout": "row",
+                "gap": 4,
+                "children": [
+                  {
+                    "type": "image",
+                    "id": "icon17",
+                    "src": "folder",
+                    "width": 32,
+                    "height": 32
+                  },
+                  {
+                    "type": "button",
+                    "id": "entry17",
+                    "width": 1,
+                    "height": 56,
+                    "fontSize": 14,
+                    "style": {
+                      "flexGrow": 1,
+                      "backgroundColor": "$background",
+                      "borderWidth": 0,
+                      "radius": 0,
+                      "textAlign": "left"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "container",
+                "id": "row18",
+                "width": "fill",
+                "height": 56,
+                "layout": "row",
+                "gap": 4,
+                "children": [
+                  {
+                    "type": "image",
+                    "id": "icon18",
+                    "src": "folder",
+                    "width": 32,
+                    "height": 32
+                  },
+                  {
+                    "type": "button",
+                    "id": "entry18",
+                    "width": 1,
+                    "height": 56,
+                    "fontSize": 14,
+                    "style": {
+                      "flexGrow": 1,
+                      "backgroundColor": "$background",
+                      "borderWidth": 0,
+                      "radius": 0,
+                      "textAlign": "left"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "container",
+                "id": "row19",
+                "width": "fill",
+                "height": 56,
+                "layout": "row",
+                "gap": 4,
+                "children": [
+                  {
+                    "type": "image",
+                    "id": "icon19",
+                    "src": "folder",
+                    "width": 32,
+                    "height": 32
+                  },
+                  {
+                    "type": "button",
+                    "id": "entry19",
+                    "width": 1,
+                    "height": 56,
+                    "fontSize": 14,
+                    "style": {
+                      "flexGrow": 1,
+                      "backgroundColor": "$background",
+                      "borderWidth": 0,
+                      "radius": 0,
+                      "textAlign": "left"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "container",
+                "id": "row20",
+                "width": "fill",
+                "height": 56,
+                "layout": "row",
+                "gap": 4,
+                "children": [
+                  {
+                    "type": "image",
+                    "id": "icon20",
+                    "src": "folder",
+                    "width": 32,
+                    "height": 32
+                  },
+                  {
+                    "type": "button",
+                    "id": "entry20",
+                    "width": 1,
+                    "height": 56,
+                    "fontSize": 14,
+                    "style": {
+                      "flexGrow": 1,
+                      "backgroundColor": "$background",
+                      "borderWidth": 0,
+                      "radius": 0,
+                      "textAlign": "left"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "container",
+                "id": "row21",
+                "width": "fill",
+                "height": 56,
+                "layout": "row",
+                "gap": 4,
+                "children": [
+                  {
+                    "type": "image",
+                    "id": "icon21",
+                    "src": "folder",
+                    "width": 32,
+                    "height": 32
+                  },
+                  {
+                    "type": "button",
+                    "id": "entry21",
+                    "width": 1,
+                    "height": 56,
+                    "fontSize": 14,
+                    "style": {
+                      "flexGrow": 1,
+                      "backgroundColor": "$background",
+                      "borderWidth": 0,
+                      "radius": 0,
+                      "textAlign": "left"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "container",
+                "id": "row22",
+                "width": "fill",
+                "height": 56,
+                "layout": "row",
+                "gap": 4,
+                "children": [
+                  {
+                    "type": "image",
+                    "id": "icon22",
+                    "src": "folder",
+                    "width": 32,
+                    "height": 32
+                  },
+                  {
+                    "type": "button",
+                    "id": "entry22",
+                    "width": 1,
+                    "height": 56,
+                    "fontSize": 14,
+                    "style": {
+                      "flexGrow": 1,
+                      "backgroundColor": "$background",
+                      "borderWidth": 0,
+                      "radius": 0,
+                      "textAlign": "left"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "container",
+                "id": "row23",
+                "width": "fill",
+                "height": 56,
+                "layout": "row",
+                "gap": 4,
+                "children": [
+                  {
+                    "type": "image",
+                    "id": "icon23",
+                    "src": "folder",
+                    "width": 32,
+                    "height": 32
+                  },
+                  {
+                    "type": "button",
+                    "id": "entry23",
+                    "width": 1,
+                    "height": 56,
+                    "fontSize": 14,
+                    "style": {
+                      "flexGrow": 1,
+                      "backgroundColor": "$background",
+                      "borderWidth": 0,
+                      "radius": 0,
+                      "textAlign": "left"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "dialog",
+            "id": "dialog",
+            "text": "提示",
+            "width": 276,
+            "height": "content",
+            "children": [
+              {
+                "type": "label",
+                "id": "detail",
+                "width": "fill",
+                "height": 164,
+                "fontSize": 14
+              },
+              {
+                "type": "button",
+                "id": "dismiss",
+                "text": "知道了",
+                "width": "fill",
+                "height": 40,
+                "fontSize": 14
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

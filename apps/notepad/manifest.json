@@ -1,0 +1,11 @@
+{
+  "runtime": "ouse-core",
+  "api": 1,
+  "id": "user.notepad",
+  "name": "Notes",
+  "names": {
+    "zh_CN": "记事本",
+    "en": "Notes"
+  },
+  "icon": "icon.bin"
+}

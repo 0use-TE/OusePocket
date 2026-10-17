@@ -34,7 +34,7 @@
 #include <stdatomic.h>
 #include <stddef.h>
 
-#define MAX_NODES 96
+#define MAX_NODES 128
 #define MAX_TIMERS 8
 #define MAX_TEXT 256
 #define MAX_SOURCE 32768
@@ -105,7 +105,7 @@ typedef enum { NAV_OPEN, NAV_PUSH, NAV_BACK, NAV_REPLACE } navigation_action_t;
 typedef enum { CONTAINER, LABEL, BUTTON, SLIDER, IMAGE, TEXT_INPUT, SWITCH,
     CHECKBOX, DROPDOWN, PROGRESS, SPINNER, ARC, CARD, LIST, LIST_ITEM, TOOLBAR,
     DIVIDER, DIALOG, BOTTOM_SHEET } node_type_t;
-typedef enum { EVENT_CLICK, EVENT_CHANGE, EVENT_FOCUS, EVENT_BLUR, EVENT_SUBMIT, EVENT_DISMISS, EVENT_COUNT } widget_event_t;
+typedef enum { EVENT_CLICK, EVENT_CHANGE, EVENT_FOCUS, EVENT_BLUR, EVENT_SUBMIT, EVENT_DISMISS, EVENT_SWIPE, EVENT_COUNT } widget_event_t;
 typedef struct {
     bool bg_set, color_set, border_set, opacity_set, accent_set, thumb_set;
     uint32_t bg, color, border, accent, thumb;
@@ -127,14 +127,16 @@ typedef struct {
     int parent, x,y,w,h,min,max,value,input_type,keyboard_mode;
     node_type_t type;
     node_style_t style;
-    uint32_t text_revision, value_revision, style_revision, focus_revision, image_revision;
+    uint32_t text_revision, value_revision, style_revision, focus_revision, image_revision, scroll_revision;
+    int scroll_target;
     bool focus;
 } node_model_t;
 typedef struct {
     node_model_t model;
     JSValue handlers[EVENT_COUNT]; // worker only
     lv_obj_t *object, *caption, *subtitle, *overlay; // UI only; never dereferenced by worker
-    uint32_t shown_text, shown_value, shown_style, shown_focus, shown_image;
+    uint32_t shown_text, shown_value, shown_style, shown_focus, shown_image, shown_scroll;
+    int scroll_y,scroll_bottom,scroll_height;
 } node_t;
 typedef struct {
     JSValue handler;
@@ -177,18 +179,23 @@ typedef struct instance {
     JSValue task_handler;
     char background_reason[64];
     int64_t background_since_us;
-    bool background_allowed, notifications_allowed, network_allowed, media_allowed, alarms_allowed, files_allowed;
+    bool background_allowed, notifications_allowed, network_allowed, media_allowed, alarms_allowed, files_allowed, sdcard_allowed;
     JSRuntime *runtime;
     JSContext *context;
     lv_obj_t *root, *viewport;    // UI only
     lv_timer_t *pump;            // UI only
     bool applying_model;         // UI-only synthetic event suppression
+    bool swipe_armed, swipe_suppress_click; // UI-only swipe tracking
+    int swipe_node;
+    int16_t swipe_x, swipe_y;
     uint32_t display_revision, core_display_revision, applied_theme_revision, applied_display_revision; // UI-only revision tracking
     node_t nodes[MAX_NODES];
     script_timer_t timers[MAX_TIMERS];
     unsigned node_count;
     bool dp_units, parsing_page;
-    JSValue translations, changes[6], lifecycle_handler, notification_handler, navigation_handler;
+    JSValue translations, changes[6], lifecycle_handler, notification_handler, navigation_handler, back_handler;
+    bool back_enabled,back_pending;
+    uint32_t back_generation;
     JSValue page_roots[MAX_PAGES]; // worker only; static JSON, never application objects
     char page_ids[MAX_PAGES][32];
     unsigned page_count, page_stack[MAX_PAGE_STACK], page_depth;
@@ -257,7 +264,7 @@ static void wake_worker(void) {if(worker_task)xTaskNotifyGive(worker_task);}
 static void release_instance(instance_t *app)
 {
     if(atomic_fetch_sub(&app->references,1)!=1)return;
-    ouse_task_owner_close(&app->owner);
+    ouse_task_owner_close(&app->owner);ouse_sd_browser_forget(&app->owner);
     for(unsigned i=0;i<app->image_count;++i)free((void *)app->image_descriptors[i].data);
     for(unsigned i=0;i<app->asset_count;++i)free((void *)app->assets[i].data);
     free(app->page);free(app->script);
@@ -339,7 +346,7 @@ static void fault(instance_t *app,const char *message)
         if(app->context)JS_FreeValue(app->context,app->timers[i].handler);
         app->timers[i].handler=JS_UNDEFINED;app->timers[i].id=0;
     }
-    ouse_task_owner_close(&app->owner);
+    ouse_task_owner_close(&app->owner);ouse_sd_browser_forget(&app->owner);
     cancel_storage_jobs(app);
     cancel_net_jobs(app);
     ESP_LOGE("OuseJS","%s: %s",app->id,message);
@@ -440,6 +447,22 @@ static JSValue ui_visibility(JSContext *context,JSValueConst self,int argc,JSVal
     model_unlock(app);return action==2 ? JS_NewBool(context,visible) : JS_TRUE;
 }
 static bool value_widget(node_type_t type) {return type==SLIDER || type==SWITCH || type==CHECKBOX || type==DROPDOWN || type==PROGRESS || type==ARC;}
+static JSValue ui_scroll(JSContext *context,JSValueConst self,int argc,JSValueConst *argv,int setter)
+{
+    (void)self;instance_t *app=from_js(context);node_t *node=argc ? find_node(app,argv[0]) : NULL;
+    if(!node || !node->model.scroll || argc!=(setter ? 2 : 1))return JS_ThrowTypeError(context,"Expected scroll container id and optional position");
+    if(setter){
+        double position;
+        if(!JS_IsNumber(argv[1]) || JS_ToFloat64(context,&position,argv[1]) || !isfinite(position) || position<0 || position>1000000)return JS_ThrowTypeError(context,"Invalid scroll position");
+        model_lock(app);node->model.scroll_target=(int)position;++node->model.scroll_revision;model_unlock(app);return JS_TRUE;
+    }
+    model_lock(app);int position=node->scroll_y,bottom=node->scroll_bottom,height=node->scroll_height;bool pending=node->shown_scroll!=node->model.scroll_revision;model_unlock(app);
+    JSValue value=JS_NewObject(context);
+    JS_SetPropertyStr(context,value,"y",JS_NewInt32(context,position));
+    JS_SetPropertyStr(context,value,"bottom",JS_NewInt32(context,bottom));
+    JS_SetPropertyStr(context,value,"height",JS_NewInt32(context,height));
+    JS_SetPropertyStr(context,value,"pending",JS_NewBool(context,pending));return value;
+}
 static JSValue ui_text(JSContext *context,JSValueConst self,int argc,JSValueConst *argv,int setter)
 {
     (void)self;instance_t *app=from_js(context);node_t *node=argc ? find_node(app,argv[0]) : NULL;
@@ -505,7 +528,7 @@ static JSValue ui_focus(JSContext *context,JSValueConst self,int argc,JSValueCon
 }
 static int event_index(const char *event)
 {
-    const char *names[]={"click","change","focus","blur","submit","dismiss"};
+    const char *names[]={"click","change","focus","blur","submit","dismiss","swipe"};
     for(int i=0;i<EVENT_COUNT;++i)if(!strcmp(event,names[i]))return i;
     return -1;
 }
@@ -1101,6 +1124,17 @@ static JSValue navigation_api(JSContext *context,JSValueConst self,int argc,JSVa
 {
     (void)self;instance_t *app=from_js(context);
     if(operation==3)return navigation_snapshot(app,false);
+    if(operation==5){
+        if(argc!=1 || (!JS_IsNull(argv[0]) && !JS_IsFunction(context,argv[0])))return JS_ThrowTypeError(context,"onBack expects function or null");
+        JS_FreeValue(context,app->back_handler);app->back_handler=JS_DupValue(context,argv[0]);
+        if(JS_IsNull(argv[0])){model_lock(app);app->back_enabled=false;app->back_pending=false;model_unlock(app);}return JS_UNDEFINED;
+    }
+    if(operation==6){
+        if(argc!=1 || !JS_IsBool(argv[0]))return JS_ThrowTypeError(context,"setBackEnabled expects boolean");
+        model_lock(app);app->back_enabled=JS_ToBool(context,argv[0]) && JS_IsFunction(context,app->back_handler);
+        if(!app->back_enabled)app->back_pending=false;
+        model_unlock(app);return JS_UNDEFINED;
+    }
     if(operation==4){
         if(argc!=1 || (!JS_IsNull(argv[0]) && !JS_IsFunction(context,argv[0])))return JS_ThrowTypeError(context,"onChange expects function or null");
         JS_FreeValue(context,app->navigation_handler);app->navigation_handler=JS_DupValue(context,argv[0]);return JS_UNDEFINED;
@@ -1115,6 +1149,13 @@ static JSValue navigation_api(JSContext *context,JSValueConst self,int argc,JSVa
 }
 static void navigation_changed(instance_t *app)
 {
+    model_lock(app);bool back=app->back_pending && app->back_generation==app->generation && app->visible && !app->closed && !app->faulted;
+    if(!ouse_budget_slice_done(&app->budget))app->back_pending=false;
+    model_unlock(app);
+    if(back && !ouse_budget_slice_done(&app->budget) && JS_IsFunction(app->context,app->back_handler)){
+        JSValue handler=JS_DupValue(app->context,app->back_handler);
+        JSValue result=call_js(app,"navigation","back",handler,JS_UNDEFINED,0,NULL);JS_FreeValue(app->context,handler);result_ok(app,result);
+    }
     if(ouse_budget_slice_done(&app->budget) || !JS_IsFunction(app->context,app->navigation_handler))return;
     model_lock(app);bool send=app->navigation_event_pending && app->navigation_stage==NAV_IDLE && app->visible && !app->closed && !app->faulted;
     if(send)app->navigation_event_pending=false;
@@ -1134,6 +1175,8 @@ static void install_api(instance_t *app)
     JS_SetPropertyStr(context,ui,"setText",JS_NewCFunctionMagic(context,ui_text,"setText",2,JS_CFUNC_generic_magic,1));
     JS_SetPropertyStr(context,ui,"setStyle",JS_NewCFunction(context,ui_set_style,"setStyle",2));
     JS_SetPropertyStr(context,ui,"setImage",JS_NewCFunction(context,ui_set_image,"setImage",2));
+    JS_SetPropertyStr(context,ui,"getScroll",JS_NewCFunctionMagic(context,ui_scroll,"getScroll",1,JS_CFUNC_generic_magic,0));
+    JS_SetPropertyStr(context,ui,"scrollTo",JS_NewCFunctionMagic(context,ui_scroll,"scrollTo",2,JS_CFUNC_generic_magic,1));
     JS_SetPropertyStr(context,ui,"on",JS_NewCFunction(context,ui_on,"on",3));
     const char *visibility[]={"hide","show","isVisible","setEnabled"};
     for(int i=0;i<4;++i)JS_SetPropertyStr(context,ui,visibility[i],JS_NewCFunctionMagic(context,ui_visibility,visibility[i],i==3 ? 2 : 1,JS_CFUNC_generic_magic,i));
@@ -1162,12 +1205,12 @@ static void install_api(instance_t *app)
     JSValue media=JS_NewObject(context);const char *media_methods[]={"play","pause","resume","stop","get"};
     for(int i=0;i<5;++i)JS_SetPropertyStr(context,media,media_methods[i],JS_NewCFunctionMagic(context,media_api,media_methods[i],i==0 ? 1 : 0,JS_CFUNC_generic_magic,i));
     JS_SetPropertyStr(context,api,"media",media);
-    JSValue files=JS_NewObject(context);const char *file_methods[]={"get","list","refresh","download"};
-    for(int index=0;index<4;++index)JS_SetPropertyStr(context,files,file_methods[index],JS_NewCFunctionMagic(context,files_api,file_methods[index],index==1 ? 2 : 0,JS_CFUNC_generic_magic,index));
+    JSValue files=JS_NewObject(context);const char *file_methods[]={"get","list","refresh","download","browse","directory"};
+    for(int index=0;index<6;++index)JS_SetPropertyStr(context,files,file_methods[index],JS_NewCFunctionMagic(context,files_api,file_methods[index],index==1 || index==4 ? 2 : index==5 ? 1 : 0,JS_CFUNC_generic_magic,index));
     JS_SetPropertyStr(context,api,"files",files);
     JSValue navigation=JS_NewObject(context);
-    const char *navigation_methods[]={"push","back","replace","get","onChange"};
-    for(int i=0;i<5;++i)JS_SetPropertyStr(context,navigation,navigation_methods[i],JS_NewCFunctionMagic(context,navigation_api,navigation_methods[i],i==1 || i==3 ? 0 : 1,JS_CFUNC_generic_magic,i));
+    const char *navigation_methods[]={"push","back","replace","get","onChange","onBack","setBackEnabled"};
+    for(int i=0;i<7;++i)JS_SetPropertyStr(context,navigation,navigation_methods[i],JS_NewCFunctionMagic(context,navigation_api,navigation_methods[i],i==1 || i==3 ? 0 : 1,JS_CFUNC_generic_magic,i));
     JS_SetPropertyStr(context,api,"navigation",navigation);
     JSValue tasks=JS_NewObject(context);const char *task_methods[]={"list","get","cancel","onComplete"};
     for(int i=0;i<4;++i)JS_SetPropertyStr(context,tasks,task_methods[i],JS_NewCFunctionMagic(context,tasks_api,task_methods[i],i ? 1 : 0,JS_CFUNC_generic_magic,i));
@@ -1569,7 +1612,7 @@ static bool parse_pages(instance_t *app,JSValueConst document)
         vTaskDelay(1); // each independent bounded page gives the UI task a turn
     }
     if(!valid)return false;
-    // Each page has been validated independently with the same 96-node buffer.
+    // Each page has been validated independently with the same 128-node buffer.
     // Only the initial page's native model remains allocated.
     if(!parse_page_stage(app,initial,"initial"))return false;
     app->page_stack[0]=initial;app->page_depth=1;app->navigation_action=NAV_OPEN;return true;
@@ -1606,11 +1649,53 @@ static void capture_ui(ui_snapshot_t *snapshot)
     for(unsigned i=0;i<3;++i)snapshot->revisions[i]=ouse_ui_revision(i);
     snapshot->keyboard_visible=false;snapshot->keyboard_height=snapshot->keyboard_inset=0;
 }
+static int find_object_node(instance_t *app,lv_obj_t *object)
+{
+    for(unsigned i=0;i<app->node_count;++i)if(app->nodes[i].object==object)return (int)i;
+    return -1;
+}
+static void queue_swipe(instance_t *app,unsigned node,uint32_t generation,const char *direction)
+{
+    input_event_t input={.node=node,.event=EVENT_SWIPE,.generation=generation};
+    snprintf(input.text,sizeof(input.text),"%s",direction);
+    model_lock(app);
+    if(app->navigation_stage==NAV_IDLE && node_visible_locked(app,node,true)){
+        if(xQueueSend(app->events,&input,0)!=pdTRUE)++app->dropped_events;
+    }
+    model_unlock(app);wake_worker();
+}
 static void input_event(lv_event_t *event)
 {
     instance_t *app=lv_event_get_user_data(event);if(app->applying_model)return;lv_obj_t *object=lv_event_get_target_obj(event);lv_event_code_t code=lv_event_get_code(event);
+    if(code==LV_EVENT_PRESSED){
+        int index=find_object_node(app,object);
+        lv_indev_t *indev=lv_indev_active();
+        if(index>=0 && indev){
+            lv_point_t point;lv_indev_get_point(indev,&point);
+            app->swipe_armed=true;app->swipe_suppress_click=false;app->swipe_node=index;app->swipe_x=(int16_t)point.x;app->swipe_y=(int16_t)point.y;
+        }
+        return;
+    }
+    if(code==LV_EVENT_RELEASED || code==LV_EVENT_PRESS_LOST){
+        if(app->swipe_armed){
+            lv_indev_t *indev=lv_indev_active();
+            lv_point_t point={app->swipe_x,app->swipe_y};
+            if(indev)lv_indev_get_point(indev,&point);
+            int dx=(int)point.x-(int)app->swipe_x,dy=(int)point.y-(int)app->swipe_y;
+            int threshold=ouse_ui_dp(28);
+            model_lock(app);bool accept=app->visible && !app->closed && !app->faulted && app->navigation_stage==NAV_IDLE;uint32_t generation=app->generation;model_unlock(app);
+            if(accept && (abs(dx)>=threshold || abs(dy)>=threshold)){
+                const char *direction=abs(dx)>=abs(dy)?(dx>0?"right":"left"):(dy>0?"down":"up");
+                app->swipe_suppress_click=true;
+                queue_swipe(app,(unsigned)app->swipe_node,generation,direction);
+            }
+            app->swipe_armed=false;
+        }
+        return;
+    }
     unsigned type=code==LV_EVENT_CLICKED ? EVENT_CLICK : code==LV_EVENT_VALUE_CHANGED ? EVENT_CHANGE : code==LV_EVENT_FOCUSED ? EVENT_FOCUS : code==LV_EVENT_DEFOCUSED ? EVENT_BLUR : EVENT_SUBMIT;
     if(code!=LV_EVENT_CLICKED && code!=LV_EVENT_VALUE_CHANGED && code!=LV_EVENT_FOCUSED && code!=LV_EVENT_DEFOCUSED && code!=LV_EVENT_READY)return;
+    if(code==LV_EVENT_CLICKED && app->swipe_suppress_click){app->swipe_suppress_click=false;return;}
     model_lock(app);bool accept=app->visible && !app->closed && !app->faulted && app->navigation_stage==NAV_IDLE;uint32_t generation=app->generation;model_unlock(app);
     if(!accept)return;
     for(unsigned i=0;i<app->node_count;++i){node_t *node=&app->nodes[i];if(node->object!=object)continue;
@@ -2034,11 +2119,15 @@ static void build_nodes(instance_t *app)
         if(container_widget(model.type) || model.type==BUTTON || model.type==LABEL || model.type==IMAGE || model.type==DIVIDER)lv_obj_set_style_pad_all(object,units(app,(int)model.padding),0);
         initialize_control_skin(node,&model);
         if(model.type==BUTTON){
-            lv_obj_set_style_min_height(object,units(app,40),0);
+            // Explicit JSON height owns the control; only fill/content keep the 40 dp
+            // default so apps can ship compact rows without runtime clipping.
+            bool explicit_h=!model.fill_h && !model.content_h && model.h>0;
+            lv_obj_set_style_min_height(object,units(app,explicit_h ? model.h : 40),0);
             // Square/circle buttons: drop default pad so the glyph can fill and center.
             bool round = model.w > 0 && model.w == model.h
                 && model.style.radius >= 0 && model.style.radius * 2 >= model.w;
-            lv_obj_set_style_pad_all(object,units(app,round ? 0 : 8),0);
+            int pad = round ? 0 : (explicit_h && model.h<40 ? 2 : 8);
+            lv_obj_set_style_pad_all(object,units(app,pad),0);
             if(round && node->caption){
                 lv_obj_set_width(node->caption,LV_SIZE_CONTENT);
                 lv_obj_center(node->caption);
@@ -2135,7 +2224,19 @@ static void ui_pump(lv_timer_t *timer)
         }
         app->applied_theme_revision=snapshot.revisions[0];app->applied_display_revision=snapshot.revisions[2];
     }
-    if(app->built && visible && !faulted)sync_modal_visibility(app);
+    if(app->built && visible && !faulted){
+        sync_modal_visibility(app);lv_obj_update_layout(app->viewport);
+        for(unsigned index=0;index<app->node_count;++index){node_t *node=&app->nodes[index];
+            model_lock(app);bool scrolling=node->model.scroll;uint32_t revision=node->model.scroll_revision;int target=node->model.scroll_target;bool reposition=node->shown_scroll!=revision;model_unlock(app);
+            if(!scrolling || !node->object)continue;
+            if(reposition)lv_obj_scroll_to_y(node->object,units(app,target),LV_ANIM_OFF);
+            int scale=units(app,1000);
+            int position=(int)((int64_t)lv_obj_get_scroll_y(node->object)*1000/scale);
+            int bottom=(int)((int64_t)lv_obj_get_scroll_bottom(node->object)*1000/scale);
+            int height=(int)((int64_t)lv_obj_get_height(node->object)*1000/scale);
+            model_lock(app);node->shown_scroll=revision;node->scroll_y=position;node->scroll_bottom=bottom;node->scroll_height=height;model_unlock(app);
+        }
+    }
     if(home && visible)(void)ouse_app_background();
 }
 // Worker functions below never enter LVGL or synchronously request the UI task.
@@ -2162,7 +2263,7 @@ static void destroy_js(instance_t *app)
         for(unsigned i=0;i<MAX_TIMERS;++i)JS_FreeValue(app->context,app->timers[i].handler);
         for(unsigned i=0;i<MAX_JOBS;++i){JS_FreeValue(app->context,app->rejected_promises[i]);JS_FreeValue(app->context,app->rejection_reasons[i]);}
         JS_FreeValue(app->context,app->translations);JS_FreeValue(app->context,app->lifecycle_handler);JS_FreeValue(app->context,app->notification_handler);
-        JS_FreeValue(app->context,app->navigation_handler);JS_FreeValue(app->context,app->task_handler);
+        JS_FreeValue(app->context,app->navigation_handler);JS_FreeValue(app->context,app->back_handler);JS_FreeValue(app->context,app->task_handler);
         for(unsigned i=0;i<MAX_PAGES;++i)JS_FreeValue(app->context,app->page_roots[i]);
         for(unsigned i=0;i<6;++i)JS_FreeValue(app->context,app->changes[i]);
         JS_FreeContext(app->context);app->context=NULL;
@@ -2172,7 +2273,7 @@ static void destroy_js(instance_t *app)
 static esp_err_t initialize_js(instance_t *app)
 {
     int64_t startup_started=esp_timer_get_time();
-    app->translations=app->lifecycle_handler=app->notification_handler=app->navigation_handler=app->task_handler=JS_UNDEFINED;
+    app->translations=app->lifecycle_handler=app->notification_handler=app->navigation_handler=app->back_handler=app->task_handler=JS_UNDEFINED;
     for(unsigned i=0;i<MAX_PAGES;++i)app->page_roots[i]=JS_UNDEFINED;
     for(unsigned i=0;i<6;++i){app->changes[i]=JS_UNDEFINED;app->revisions[i]=group_revision(app,i);}
     for(unsigned i=0;i<MAX_JOBS;++i)app->rejected_promises[i]=app->rejection_reasons[i]=JS_UNDEFINED;
@@ -2260,7 +2361,7 @@ static void run_batch(instance_t *app)
         if(JS_IsFunction(app->context,handler)){
             JSValue argument=JS_UNDEFINED;
             if(input.event==EVENT_CHANGE){node_type_t type=node->model.type;argument=type==TEXT_INPUT ? JS_NewString(app->context,input.text) : type==SWITCH || type==CHECKBOX ? JS_NewBool(app->context,input.value) : JS_NewInt32(app->context,input.value);}
-            else if((input.event==EVENT_SUBMIT && node->model.type==TEXT_INPUT) || input.event==EVENT_DISMISS)argument=JS_NewString(app->context,input.text);
+            else if((input.event==EVENT_SUBMIT && node->model.type==TEXT_INPUT) || input.event==EVENT_DISMISS || input.event==EVENT_SWIPE)argument=JS_NewString(app->context,input.text);
             if(ouse_budget_slice_done(&app->budget)){
                 if(xQueueSendToFront(app->events,&input,0)!=pdTRUE){model_lock(app);++app->dropped_events;model_unlock(app);}
                 JS_FreeValue(app->context,argument);JS_FreeValue(app->context,handler);break;
@@ -2424,7 +2525,7 @@ static instance_t *allocate_instance(const ouse_script_package_t *package)
     if(ouse_task_owner_open(package->id,&app->owner)!=ESP_OK){free(app);return NULL;}
     app->model_lock=xSemaphoreCreateMutex();app->events=xQueueCreate(MAX_EVENTS,sizeof(input_event_t));
     app->page=copy_resource(package->page,strlen(package->page),true);app->script=copy_resource(package->script,strlen(package->script),true);strcpy(app->id,package->id);app->background_allowed=package->background_allowed;app->notifications_allowed=package->notifications_allowed;
-    app->network_allowed=package->network_allowed;app->media_allowed=package->media_allowed;app->alarms_allowed=package->alarms_allowed;app->files_allowed=package->files_allowed;
+    app->network_allowed=package->network_allowed;app->media_allowed=package->media_allowed;app->alarms_allowed=package->alarms_allowed;app->files_allowed=package->files_allowed;app->sdcard_allowed=package->sdcard_allowed;
     if(!app->model_lock || !app->events || !app->page || !app->script){release_instance(app);return NULL;}
     size_t bytes=0;
     for(unsigned i=0;i<package->image_count;++i){const ouse_script_image_t *source=&package->images[i];
@@ -2463,6 +2564,9 @@ static bool back_app(void *opaque)
     if(!app->built)return false;
     for(unsigned i=app->node_count;i>0;--i)if(app->nodes[i-1].overlay && !lv_obj_has_flag(app->nodes[i-1].overlay,LV_OBJ_FLAG_HIDDEN))
         return dismiss_modal(app,i-1,"back");
+    model_lock(app);bool intercepted=app->back_enabled;
+    if(intercepted){app->back_pending=true;app->back_generation=app->generation;}
+    model_unlock(app);if(intercepted){wake_worker();return true;}
     return request_navigation(app,NAV_BACK,0);
 }
 static void pause_app(void *opaque)
@@ -2488,7 +2592,7 @@ static void close_app(void *opaque)
 {
     ouse_script_app_t *state=opaque;instance_t *app=state->instance;if(!app)return;
     state->instance=NULL;model_lock(app);app->closed=true;app->visible=false;app->background_active=false;++app->generation;model_unlock(app);
-    ouse_task_owner_close(&app->owner);
+    ouse_task_owner_close(&app->owner);ouse_sd_browser_forget(&app->owner);
     if(app->pump){lv_timer_delete(app->pump);app->pump=NULL;}
     ouse_ime_hide_root(app->root);
     if(app->built)for(unsigned i=0;i<app->node_count;++i){node_t *node=&app->nodes[i];if(node->object){lv_obj_remove_event_cb(node->object,input_event);if(node->model.type==DROPDOWN)lv_dropdown_close(node->object);if(node->model.type==TEXT_INPUT)ouse_ime_detach(node->object);node->object=node->caption=node->subtitle=node->overlay=NULL;}}

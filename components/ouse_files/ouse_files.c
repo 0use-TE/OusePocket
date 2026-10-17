@@ -250,6 +250,7 @@ esp_err_t ouse_files_init(sdmmc_card_t *card)
     }
     state.mounted=true;state.present=true;medium=card;scan();
     if(xTaskCreate(worker,"ouse_files",8192,NULL,2,NULL)!=pdPASS){error=ESP_ERR_NO_MEM;goto failed;}
+    if(ouse_sd_browser_init()!=ESP_OK)ESP_LOGW("OuseFiles","SD browser unavailable: no worker memory");
     return ESP_OK;
 failed:
     if(jobs)vQueueDelete(jobs);

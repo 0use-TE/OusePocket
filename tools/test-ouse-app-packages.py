@@ -5,6 +5,8 @@ The schema is extracted verbatim from the production runtime, without LVGL I/O.
 """
 from pathlib import Path
 import os, subprocess
+import bpk
+import argparse
 
 ROOT=Path(__file__).resolve().parents[1]
 OUT=ROOT/'.tools/ouse-app-packages-check';OUT.mkdir(exist_ok=True)
@@ -28,7 +30,7 @@ fixture=r'''
 #include <stdio.h>
 #include <string.h>
 #define MAX_TEXT 256
-#define MAX_NODES 96
+#define MAX_NODES 128
 /* TYPES */
 typedef struct {
  JSContext *context;bool dp_units,parsing_page,interrupted;int budget;
@@ -44,13 +46,14 @@ static bool ouse_budget_exceeded(int *unused){(void)unused;return false;}
 esp_err_t ouse_script_prepare(ouse_script_app_t *state,const ouse_script_package_t *package,ouse_app_definition_t *definition)
 {assert(state&&package&&definition&&package->api==1);return ESP_OK;}
 int main(int argc,char **argv){
- assert(argc==4);
+ assert(argc>=2);
  for(int index=1;index<argc;++index){
   FILE *file=fopen(argv[index],"rb");assert(file);fseek(file,0,SEEK_END);long size=ftell(file);rewind(file);
   unsigned char *bytes=malloc(size+1);assert(bytes&&fread(bytes,1,size,file)==(size_t)size);fclose(file);
   ouse_bpk_t *package=NULL;assert(ouse_bpk_parse(bytes,size,&package)==ESP_OK&&package);
   bytes[size]=0;ouse_bpk_t *invalid=NULL;assert(ouse_bpk_parse(bytes,size+1,&invalid)!=ESP_OK&&!invalid);free(bytes);
-  if(!strcmp(package->id,"user.music")){assert(package->assets[0].size==480044);assert(package->assets[0].data[0]=='R');}
+  if(!strcmp(package->id,"user.music")){assert(package->package.image_count==1 && package->images[0].image->header.w==128);assert(package->package.files_allowed && !package->package.sdcard_allowed);}
+  if(!strcmp(package->id,"user.explorer")){assert(package->package.sdcard_allowed && !package->package.files_allowed && !package->package.network_allowed);}
   JSRuntime *rt=JS_NewRuntime();assert(rt);JS_SetMemoryLimit(rt,OUSE_RUNTIME_MEMORY_LIMIT);JSContext *ctx=JS_NewContext(rt);assert(ctx);
   JSValue compiled=JS_Eval(ctx,package->script,strlen(package->script),"app.js",JS_EVAL_TYPE_GLOBAL|JS_EVAL_FLAG_COMPILE_ONLY);assert(!JS_IsException(compiled));JS_FreeValue(ctx,compiled);
   JSValue doc=JS_ParseJSON(ctx,package->page,strlen(package->page),"page.json");assert(!JS_IsException(doc));
@@ -60,6 +63,7 @@ int main(int argc,char **argv){
    JSValue entry=count==1&&JS_IsUndefined(pages)?JS_DupValue(ctx,doc):JS_GetPropertyUint32(ctx,pages,page);
    JSValue root=JS_GetPropertyStr(ctx,entry,"root");instance_t *app=calloc(1,sizeof(*app));assert(app);
    app->context=ctx;app->dp_units=true;app->parsing_page=true;app->worker_ui.app_width=320;app->worker_ui.app_height=416;app->worker_ui.density=160;
+   app->image_count=package->package.image_count;memcpy(app->images,package->package.images,app->image_count*sizeof(app->images[0]));
    app->translations=JS_UNDEFINED;
    bool valid=parse_node(app,root,-1,0);
    if(!valid)fprintf(stderr,"invalid %s page %u at node %u (%s)\n",package->id,page,app->node_count,app->node_count?app->nodes[app->node_count-1].model.id:"");
@@ -67,7 +71,7 @@ int main(int argc,char **argv){
   }
   JS_FreeValue(ctx,pages);JS_FreeValue(ctx,doc);JS_FreeContext(ctx);JS_FreeRuntime(rt);ouse_bpk_free(package);
  }
- puts("PASS delivered BPKs: actual native ZIP/resource limits, 480044-byte audio asset, QuickJS compile and every production node schema, trailing-byte rejection");
+ puts("PASS current BPKs: native ZIP/resource limits, SD capability isolation, QuickJS compile, production node schemas and trailing-byte rejection");
 }
 '''
 for name,value in [('TYPES',types),('HELPERS',helpers),('WIDGETS',widgets),('SCHEMA',schema),('NODES',nodes)]:fixture=fixture.replace('/* '+name+' */',value)
@@ -86,4 +90,8 @@ command+=['/I'+str(p) for p in includes]
 command+=list(map(str,[OUT/'packages.c',ROOT/'components/ouse_installer/ouse_bpk.c',ROOT/'components/ouse_installer/ouse_protocol.c',ROOT/'.tools/ouse-runtime-check/quickjs-native.lib']))+['/Fe'+str(OUT/'packages.exe')]
 result=subprocess.run(command,cwd=OUT,env=env,capture_output=True,text=True,errors='replace')
 assert result.returncode==0,(result.stdout,result.stderr)
-subprocess.run([str(OUT/'packages.exe')]+[str(ROOT/'dist/bpk'/f'{name}.bpk') for name in ['music','alarm','service-test']],cwd=OUT,check=True,timeout=15)
+parser=argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--apps',nargs='+',default=['music','alarm','service-test','explorer'])
+names=parser.parse_args().apps
+for name in names:bpk.pack(ROOT/'apps'/name,OUT/f'{name}.bpk')
+subprocess.run([str(OUT/'packages.exe')]+[str(OUT/f'{name}.bpk') for name in names],cwd=OUT,check=True,timeout=15)

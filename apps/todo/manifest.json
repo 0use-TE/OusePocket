@@ -1,0 +1,11 @@
+{
+  "runtime": "ouse-core",
+  "api": 1,
+  "id": "user.todo",
+  "name": "Todo",
+  "names": {
+    "zh_CN": "待办",
+    "en": "Todo"
+  },
+  "icon": "icon.bin"
+}

@@ -1,0 +1,11 @@
+{
+  "runtime": "ouse-core",
+  "api": 1,
+  "id": "user.g2048",
+  "name": "2048",
+  "names": {
+    "zh_CN": "2048",
+    "en": "2048"
+  },
+  "icon": "icon.bin"
+}

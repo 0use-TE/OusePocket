@@ -1,0 +1,19 @@
+{
+  "runtime": "ouse-core",
+  "api": 1,
+  "id": "user.dice",
+  "name": "Dice",
+  "names": {
+    "zh_CN": "骰子",
+    "en": "Dice"
+  },
+  "icon": "icon.bin",
+  "assets": [
+    { "id": "face1", "type": "image", "path": "assets/face1.bin" },
+    { "id": "face2", "type": "image", "path": "assets/face2.bin" },
+    { "id": "face3", "type": "image", "path": "assets/face3.bin" },
+    { "id": "face4", "type": "image", "path": "assets/face4.bin" },
+    { "id": "face5", "type": "image", "path": "assets/face5.bin" },
+    { "id": "face6", "type": "image", "path": "assets/face6.bin" }
+  ]
+}

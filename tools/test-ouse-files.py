@@ -97,6 +97,7 @@ static void *queued[8];static int queued_count;
 static int mount_failure,http_status=200,cancelled,terminal,terminal_error,not_ready;
 static int64_t now;
 static int formats;
+esp_err_t ouse_sd_browser_init(void){return ESP_OK;}
 void *heap_caps_aligned_alloc(size_t alignment,size_t bytes,unsigned caps){assert(alignment==64 && caps==(MALLOC_CAP_INTERNAL|MALLOC_CAP_DMA));return malloc(bytes);}
 void heap_caps_free(void *ptr){free(ptr);}
 int f_mkfs(const char *drive,const MKFS_PARM *options,void *work,unsigned bytes){assert(!strcmp(drive,"0:") && work && bytes==4096);assert(options->fmt==FM_FAT32 && options->n_fat==2 && options->align==2048 && options->au_size==32768);++formats;return FR_OK;}

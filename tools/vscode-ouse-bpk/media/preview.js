@@ -336,10 +336,15 @@
   function box(el, node) {
     if (node.fontSize !== undefined && (!Number.isInteger(node.fontSize) || node.fontSize < 8 || node.fontSize > 84)) throw new Error("fontSize must be an integer 8..84");
     if (node.width === 'fill') el.classList.add('fill-w');
-    else if (typeof node.width === 'number') el.style.width = node.width + 'px';
+    else if (typeof node.width === 'number') { el.style.width = node.width + 'px'; el.style.minWidth = node.width + 'px'; }
     if (node.height === 'fill') el.classList.add('fill-h');
     else if (node.height === 'content') el.classList.add('content-h');
-    else if (typeof node.height === 'number') el.style.height = node.height + 'px';
+    else if (typeof node.height === 'number') { el.style.height = node.height + 'px'; el.style.minHeight = node.height + 'px'; }
+    if (typeof node.x === 'number' || typeof node.y === 'number') {
+      el.style.position = 'absolute';
+      el.style.left = (node.x || 0) + 'px';
+      el.style.top = (node.y || 0) + 'px';
+    }
     if (typeof node.fontSize === 'number') el.dataset.sp = String(node.fontSize);
   }
 
@@ -559,11 +564,14 @@
         panel.classList.add(node.layout === 'row' ? 'row' : 'column');
         if (node.padding !== undefined) panel.style.padding = (node.padding || 0) + 'px';
         if (node.gap !== undefined) panel.style.gap = (node.gap || 0) + 'px';
-      } else {
-        el.classList.add(node.layout === 'row' ? 'row' : 'column');
+      } else if (node.layout === 'row' || node.layout === 'column') {
+        el.classList.add(node.layout);
         if (node.scroll || type === 'list') el.classList.add('scroll');
         if (node.padding !== undefined) el.style.padding = (node.padding || 0) + 'px';
         if (node.gap !== undefined) el.style.gap = (node.gap || 0) + 'px';
+      } else {
+        el.style.position = 'relative';
+        if (node.padding !== undefined) el.style.padding = (node.padding || 0) + 'px';
       }
     }
     if (node.style && typeof node.style.flexGrow === 'number') el.style.flexGrow = String(node.style.flexGrow);
@@ -729,7 +737,7 @@
       },
       on(id, event, fn) {
         const item = widget(id);
-        const names = ['click', 'change', 'focus', 'blur', 'submit', 'dismiss'];
+        const names = ['click', 'change', 'focus', 'blur', 'submit', 'dismiss', 'swipe'];
         if (!names.includes(event) || (fn !== null && typeof fn !== 'function')) {
           throw new Error('on(id, event, function|null): invalid binding');
         }
@@ -837,6 +845,22 @@
         item.forcedDisabled = !enabled;
         item.style = Object.assign({}, item.style, { disabled: !enabled });
         refreshItemStyle(item);
+      },
+      getScroll(id) {
+        const item = widget(id);
+        const el = item.el;
+        if (!el) return { y: 0, bottom: 0, height: 0, pending: false };
+        const top = el.scrollTop || 0;
+        const height = el.clientHeight || 0;
+        const bottom = Math.max(0, (el.scrollHeight || 0) - top - height);
+        return { y: top, bottom, height, pending: false };
+      },
+      scrollTo(id, y) {
+        const item = widget(id);
+        const el = item.el;
+        const target = Math.max(0, Number(y) || 0);
+        if (el) el.scrollTop = target;
+        return true;
       },
       focus(id) {
         const item = widget(id);

@@ -1,0 +1,14 @@
+{
+  "runtime": "ouse-core",
+  "api": 1,
+  "id": "user.weather",
+  "name": "Weather",
+  "names": {
+    "zh_CN": "天气",
+    "en": "Weather"
+  },
+  "icon": "icon.bin",
+  "capabilities": {
+    "network": true
+  }
+}

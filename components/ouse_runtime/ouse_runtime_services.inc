@@ -250,6 +250,8 @@ static JSValue files_api(JSContext *context,JSValueConst self,int argc,JSValueCo
         ouse_files_state_t state={0};if(!app->validation_only)ouse_files_get(&state);
         JSValue value=JS_NewObject(context);
         JS_SetPropertyStr(context,value,"mounted",JS_NewBool(context,state.mounted));
+        ouse_sd_state_t card={0};if(!app->validation_only)ouse_sd_get(&card);
+        JS_SetPropertyStr(context,value,"detected",JS_NewBool(context,state.mounted ? state.present : card.detected));
         JS_SetPropertyStr(context,value,"present",JS_NewBool(context,state.present));
         JS_SetPropertyStr(context,value,"ready",JS_NewBool(context,state.ready));
         JS_SetPropertyStr(context,value,"busy",JS_NewBool(context,state.busy));
@@ -273,6 +275,39 @@ static JSValue files_api(JSContext *context,JSValueConst self,int argc,JSValueCo
             JS_SetPropertyUint32(context,array,index,entry);
         }
         return array;
+    }
+    if(operation==4){
+        if(!app->sdcard_allowed || app->validation_only)return JS_FALSE;
+        char path[OUSE_SD_PATH_MAX];double offset=0;
+        if(argc!=2 || !JS_IsString(argv[0]) || !JS_IsNumber(argv[1]))return JS_ThrowTypeError(context,"files.browse expects an SD path and offset");
+        size_t length=0;const char *source=JS_ToCStringLen(context,&length,argv[0]);if(!source)return JS_EXCEPTION;
+        if(length>=sizeof(path) || memchr(source,0,length)){JS_FreeCString(context,source);return JS_FALSE;}
+        memcpy(path,source,length+1);JS_FreeCString(context,source);
+        if(JS_ToFloat64(context,&offset,argv[1]) || !isfinite(offset) || floor(offset)!=offset || offset<0 || offset>UINT32_MAX-OUSE_SD_PAGE_SIZE)return JS_ThrowTypeError(context,"Invalid directory offset");
+        uint32_t id=0;model_lock(app);
+        esp_err_t error=app->closed ? ESP_ERR_INVALID_STATE : ouse_sd_browser_request(&app->owner,path,(uint32_t)offset,&id);
+        model_unlock(app);return error==ESP_OK ? JS_NewUint32(context,id) : JS_FALSE;
+    }
+    if(operation==5){
+        if(!app->sdcard_allowed || app->validation_only)return JS_NULL;
+        uint32_t id;if(argc!=1 || JS_ToUint32(context,&id,argv[0]))return JS_ThrowTypeError(context,"files.directory expects a task ID");
+        ouse_sd_directory_t *directory=ouse_psram_calloc(1,sizeof(*directory));if(!directory)return JS_ThrowOutOfMemory(context);
+        if(!ouse_sd_browser_result(&app->owner,id,directory)){free(directory);return JS_NULL;}
+        JSValue value=JS_NewObject(context),entries=JS_NewArray(context);
+        JS_SetPropertyStr(context,value,"path",JS_NewString(context,directory->path));
+        JS_SetPropertyStr(context,value,"offset",JS_NewUint32(context,directory->offset));
+        JS_SetPropertyStr(context,value,"pending",JS_NewBool(context,directory->pending));
+        JS_SetPropertyStr(context,value,"more",JS_NewBool(context,directory->more));
+        JS_SetPropertyStr(context,value,"error",JS_NewString(context,esp_err_to_name(directory->error)));
+        for(unsigned index=0;index<directory->count;++index){ouse_sd_entry_t *item=&directory->entries[index];JSValue entry=JS_NewObject(context);
+            JS_SetPropertyStr(context,entry,"name",JS_NewString(context,item->name));
+            JS_SetPropertyStr(context,entry,"path",JS_NewString(context,item->path));
+            JS_SetPropertyStr(context,entry,"bytes",JS_NewFloat64(context,(double)item->bytes));
+            JS_SetPropertyStr(context,entry,"directory",JS_NewBool(context,item->directory));
+            JS_SetPropertyStr(context,entry,"accessible",JS_NewBool(context,item->accessible));
+            JS_SetPropertyUint32(context,entries,index,entry);
+        }
+        JS_SetPropertyStr(context,value,"entries",entries);free(directory);return value;
     }
     if(!app->files_allowed || app->validation_only)return JS_FALSE;
     if(operation==2)return JS_NewBool(context,ouse_files_refresh());
@@ -397,5 +432,6 @@ static JSValue system_capabilities(JSContext *context,JSValueConst self,int argc
     JS_SetPropertyStr(context,granted,"alarms",JS_NewBool(context,app->alarms_allowed));
     JS_SetPropertyStr(context,granted,"media",JS_NewBool(context,app->media_allowed));
     JS_SetPropertyStr(context,granted,"files",JS_NewBool(context,app->files_allowed));
+    JS_SetPropertyStr(context,granted,"sdcard",JS_NewBool(context,app->sdcard_allowed));
     JS_SetPropertyStr(context,object,"granted",granted);return object;
 }

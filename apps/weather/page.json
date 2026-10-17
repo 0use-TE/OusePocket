@@ -1,0 +1,84 @@
+{
+  "api": 1,
+  "units": "dp",
+  "root": {
+    "type": "container",
+    "id": "page",
+    "width": "fill",
+    "height": "fill",
+    "layout": "column",
+    "padding": 12,
+    "gap": 8,
+    "scroll": true,
+    "style": { "backgroundColor": "$background" },
+    "children": [
+      { "type": "toolbar", "id": "title", "text": "天气", "width": "fill", "height": 44 },
+      {
+        "type": "label",
+        "id": "date",
+        "text": "—",
+        "width": "fill",
+        "height": "content",
+        "fontSize": 14,
+        "style": { "textColor": "$secondary", "textAlign": "center" }
+      },
+      {
+        "type": "container",
+        "id": "searchRow",
+        "width": "fill",
+        "height": 44,
+        "layout": "row",
+        "gap": 8,
+        "children": [
+          { "type": "textInput", "id": "query", "placeholder": "搜索中国城市", "width": "fill", "height": 44, "maxLength": 32 },
+          { "type": "button", "id": "search", "text": "搜索", "width": 64, "height": 44 }
+        ]
+      },
+      {
+        "type": "container",
+        "id": "actions",
+        "width": "fill",
+        "height": 40,
+        "layout": "row",
+        "gap": 8,
+        "children": [
+          { "type": "button", "id": "auto", "text": "自动定位", "width": "fill", "height": 40 },
+          { "type": "button", "id": "refresh", "text": "刷新", "width": "fill", "height": 40, "style": { "backgroundColor": "$accent", "textColor": "#ffffff", "radius": 12 } }
+        ]
+      },
+      {
+        "type": "container",
+        "id": "hits",
+        "width": "fill",
+        "height": "content",
+        "layout": "column",
+        "gap": 6,
+        "style": { "hidden": true },
+        "children": [
+          { "type": "button", "id": "hit0", "text": "", "width": "fill", "height": 40, "fontSize": 14, "style": { "hidden": true, "radius": 10, "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1 } },
+          { "type": "button", "id": "hit1", "text": "", "width": "fill", "height": 40, "fontSize": 14, "style": { "hidden": true, "radius": 10, "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1 } },
+          { "type": "button", "id": "hit2", "text": "", "width": "fill", "height": 40, "fontSize": 14, "style": { "hidden": true, "radius": 10, "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1 } },
+          { "type": "button", "id": "hit3", "text": "", "width": "fill", "height": 40, "fontSize": 14, "style": { "hidden": true, "radius": 10, "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1 } },
+          { "type": "button", "id": "hit4", "text": "", "width": "fill", "height": 40, "fontSize": 14, "style": { "hidden": true, "radius": 10, "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1 } }
+        ]
+      },
+      {
+        "type": "container",
+        "id": "card",
+        "width": "fill",
+        "height": "content",
+        "layout": "column",
+        "padding": 16,
+        "gap": 8,
+        "style": { "backgroundColor": "$surface", "radius": 18, "borderColor": "$border", "borderWidth": 1 },
+        "children": [
+          { "type": "label", "id": "place", "text": "自动定位", "width": "fill", "height": "content", "fontSize": 20, "style": { "textColor": "$text", "textAlign": "center" } },
+          { "type": "label", "id": "temp", "text": "--°", "width": "fill", "height": "content", "fontSize": 48, "style": { "textColor": "$text", "textAlign": "center" } },
+          { "type": "label", "id": "desc", "text": "尚未获取", "width": "fill", "height": "content", "fontSize": 18, "style": { "textColor": "$secondary", "textAlign": "center" } },
+          { "type": "label", "id": "detail", "text": "湿度 -- · 风速 --", "width": "fill", "height": "content", "fontSize": 14, "style": { "textColor": "$secondary", "textAlign": "center" } }
+        ]
+      },
+      { "type": "label", "id": "status", "text": "", "width": "fill", "height": "content", "fontSize": 14, "style": { "hidden": true, "textAlign": "center", "textColor": "$secondary" } }
+    ]
+  }
+}

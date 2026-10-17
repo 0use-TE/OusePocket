@@ -161,7 +161,7 @@ static bool capabilities(JSContext *ctx,JSValue doc,ouse_bpk_t *p)
     if(valid)valid=JS_GetOwnPropertyNames(ctx,&keys,&count,caps,JS_GPN_STRING_MASK|JS_GPN_ENUM_ONLY)==0;
     for(uint32_t i=0;valid && i<count;++i){
         const char *key=JS_AtomToCString(ctx,keys[i].atom);
-        valid=key && (!strcmp(key,"background") || !strcmp(key,"notifications") || !strcmp(key,"network") || !strcmp(key,"media") || !strcmp(key,"alarms") || !strcmp(key,"files"));
+        valid=key && (!strcmp(key,"background") || !strcmp(key,"notifications") || !strcmp(key,"network") || !strcmp(key,"media") || !strcmp(key,"alarms") || !strcmp(key,"files") || !strcmp(key,"sdcard"));
         if(key)JS_FreeCString(ctx,key);
     }
     JSValue background=JS_GetPropertyStr(ctx,caps,"background");
@@ -172,9 +172,9 @@ static bool capabilities(JSContext *ctx,JSValue doc,ouse_bpk_t *p)
     valid=valid && (JS_IsUndefined(notifications) || JS_IsBool(notifications));
     if(valid)p->package.notifications_allowed=JS_ToBool(ctx,notifications)>0;
     JS_FreeValue(ctx,notifications);
-    const char *services[]={"network","media","alarms","files"};
-    bool *allowed[]={&p->package.network_allowed,&p->package.media_allowed,&p->package.alarms_allowed,&p->package.files_allowed};
-    for(unsigned i=0;i<4;++i){JSValue value=JS_GetPropertyStr(ctx,caps,services[i]);
+    const char *services[]={"network","media","alarms","files","sdcard"};
+    bool *allowed[]={&p->package.network_allowed,&p->package.media_allowed,&p->package.alarms_allowed,&p->package.files_allowed,&p->package.sdcard_allowed};
+    for(unsigned i=0;i<sizeof(services)/sizeof(services[0]);++i){JSValue value=JS_GetPropertyStr(ctx,caps,services[i]);
         valid=valid && (JS_IsUndefined(value) || JS_IsBool(value));
         if(valid)*allowed[i]=JS_ToBool(ctx,value)>0;
         JS_FreeValue(ctx,value);

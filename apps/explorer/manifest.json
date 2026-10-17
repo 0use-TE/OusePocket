@@ -1,0 +1,13 @@
+{
+  "runtime": "ouse-core",
+  "api": 1,
+  "id": "user.explorer",
+  "name": "Files",
+  "names": {"zh_CN": "资源管理器", "en": "Files"},
+  "icon": "icon.bin",
+  "capabilities": {"sdcard": true},
+  "assets": [
+    {"id": "folder", "type": "image", "path": "assets/folder.bin"},
+    {"id": "document", "type": "image", "path": "assets/document.bin"}
+  ]
+}

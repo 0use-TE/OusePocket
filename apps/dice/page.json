@@ -1,0 +1,232 @@
+{
+  "api": 1,
+  "units": "dp",
+  "root": {
+    "type": "container",
+    "id": "page",
+    "width": "fill",
+    "height": "fill",
+    "layout": "column",
+    "padding": 12,
+    "gap": 10,
+    "style": { "backgroundColor": "$background" },
+    "children": [
+      {
+        "type": "container",
+        "id": "header",
+        "width": "fill",
+        "height": 40,
+        "layout": "row",
+        "gap": 8,
+        "children": [
+          { "type": "label", "id": "title", "text": "骰子", "width": "fill", "height": 40, "fontSize": 20, "style": { "textColor": "$text" } },
+          {
+            "type": "button",
+            "id": "countBtn",
+            "text": "1颗",
+            "width": 72,
+            "height": 40,
+            "fontSize": 15,
+            "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 12 }
+          }
+        ]
+      },
+      {
+        "type": "container",
+        "id": "stage",
+        "width": "fill",
+        "height": "fill",
+        "layout": "column",
+        "gap": 8,
+        "padding": 8,
+        "style": { "backgroundColor": "$surface", "radius": 18, "borderColor": "$border", "borderWidth": 1 },
+        "children": [
+          {
+            "type": "container",
+            "id": "solo",
+            "width": "fill",
+            "height": "fill",
+            "layout": "column",
+            "children": [
+              { "type": "container", "id": "soloT", "width": "fill", "height": "fill" },
+              {
+                "type": "container", "id": "soloRow", "width": "fill", "height": 160, "layout": "row",
+                "children": [
+                  { "type": "container", "id": "soloL", "width": "fill", "height": "fill" },
+                  { "type": "image", "id": "dieSolo", "src": "face1", "width": 160, "height": 160 },
+                  { "type": "container", "id": "soloR", "width": "fill", "height": "fill" }
+                ]
+              },
+              { "type": "container", "id": "soloB", "width": "fill", "height": "fill" }
+            ]
+          },
+          {
+            "type": "container",
+            "id": "pair",
+            "width": "fill",
+            "height": "fill",
+            "layout": "row",
+            "style": { "hidden": true },
+            "children": [
+              {
+                "type": "container", "id": "pairL", "width": "fill", "height": "fill", "layout": "column",
+                "children": [
+                  { "type": "container", "id": "pairLT", "width": "fill", "height": "fill" },
+                  {
+                    "type": "container", "id": "pairLMid", "width": "fill", "height": 112, "layout": "row",
+                    "children": [
+                      { "type": "container", "id": "pairLL", "width": 12, "height": "fill" },
+                      { "type": "image", "id": "dieL", "src": "face1", "width": 112, "height": 112 },
+                      { "type": "container", "id": "pairLR", "width": "fill", "height": "fill" }
+                    ]
+                  },
+                  { "type": "container", "id": "pairLB", "width": "fill", "height": "fill" }
+                ]
+              },
+              {
+                "type": "container", "id": "pairR", "width": "fill", "height": "fill", "layout": "column",
+                "children": [
+                  { "type": "container", "id": "pairRT", "width": "fill", "height": "fill" },
+                  {
+                    "type": "container", "id": "pairRMid", "width": "fill", "height": 112, "layout": "row",
+                    "children": [
+                      { "type": "container", "id": "pairRL", "width": "fill", "height": "fill" },
+                      { "type": "image", "id": "dieR", "src": "face1", "width": 112, "height": 112 },
+                      { "type": "container", "id": "pairRR", "width": 12, "height": "fill" }
+                    ]
+                  },
+                  { "type": "container", "id": "pairRB", "width": "fill", "height": "fill" }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "container",
+            "id": "grid",
+            "width": "fill",
+            "height": "fill",
+            "layout": "column",
+            "gap": 8,
+            "style": { "hidden": true },
+            "children": [
+              {
+                "type": "container",
+                "id": "row0",
+                "width": "fill",
+                "height": "fill",
+                "layout": "row",
+                "gap": 6,
+                "children": [
+                  {
+                    "type": "container", "id": "slot0", "width": "fill", "height": "fill", "layout": "row",
+                    "children": [
+                      { "type": "container", "id": "sp0l", "width": "fill", "height": "fill" },
+                      { "type": "image", "id": "die0", "src": "face1", "width": 64, "height": 64 },
+                      { "type": "container", "id": "sp0r", "width": "fill", "height": "fill" }
+                    ]
+                  },
+                  {
+                    "type": "container", "id": "slot1", "width": "fill", "height": "fill", "layout": "row", "style": { "hidden": true },
+                    "children": [
+                      { "type": "container", "id": "sp1l", "width": "fill", "height": "fill" },
+                      { "type": "image", "id": "die1", "src": "face1", "width": 64, "height": 64 },
+                      { "type": "container", "id": "sp1r", "width": "fill", "height": "fill" }
+                    ]
+                  },
+                  {
+                    "type": "container", "id": "slot2", "width": "fill", "height": "fill", "layout": "row", "style": { "hidden": true },
+                    "children": [
+                      { "type": "container", "id": "sp2l", "width": "fill", "height": "fill" },
+                      { "type": "image", "id": "die2", "src": "face1", "width": 64, "height": 64 },
+                      { "type": "container", "id": "sp2r", "width": "fill", "height": "fill" }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "container",
+                "id": "row1",
+                "width": "fill",
+                "height": "fill",
+                "layout": "row",
+                "gap": 6,
+                "style": { "hidden": true },
+                "children": [
+                  {
+                    "type": "container", "id": "slot3", "width": "fill", "height": "fill", "layout": "row", "style": { "hidden": true },
+                    "children": [
+                      { "type": "container", "id": "sp3l", "width": "fill", "height": "fill" },
+                      { "type": "image", "id": "die3", "src": "face1", "width": 64, "height": 64 },
+                      { "type": "container", "id": "sp3r", "width": "fill", "height": "fill" }
+                    ]
+                  },
+                  {
+                    "type": "container", "id": "slot4", "width": "fill", "height": "fill", "layout": "row", "style": { "hidden": true },
+                    "children": [
+                      { "type": "container", "id": "sp4l", "width": "fill", "height": "fill" },
+                      { "type": "image", "id": "die4", "src": "face1", "width": 64, "height": 64 },
+                      { "type": "container", "id": "sp4r", "width": "fill", "height": "fill" }
+                    ]
+                  },
+                  {
+                    "type": "container", "id": "slot5", "width": "fill", "height": "fill", "layout": "row", "style": { "hidden": true },
+                    "children": [
+                      { "type": "container", "id": "sp5l", "width": "fill", "height": "fill" },
+                      { "type": "image", "id": "die5", "src": "face1", "width": 64, "height": 64 },
+                      { "type": "container", "id": "sp5r", "width": "fill", "height": "fill" }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "label",
+        "id": "sum",
+        "text": "1",
+        "width": "fill",
+        "height": 36,
+        "fontSize": 20,
+        "style": { "textAlign": "center", "textColor": "$text" }
+      },
+      {
+        "type": "button",
+        "id": "roll",
+        "text": "掷骰子",
+        "width": "fill",
+        "height": 56,
+        "fontSize": 20,
+        "style": { "backgroundColor": "$accent", "textColor": "#ffffff", "radius": 16 }
+      },
+      {
+        "type": "bottomSheet",
+        "id": "countSheet",
+        "text": "颗数",
+        "width": "fill",
+        "height": "content",
+        "padding": 16,
+        "gap": 8,
+        "children": [
+          {
+            "type": "container", "id": "pickRow0", "width": "fill", "height": 48, "layout": "row", "gap": 8,
+            "children": [
+              { "type": "button", "id": "pick1", "text": "1", "width": "fill", "height": 48, "fontSize": 16 },
+              { "type": "button", "id": "pick2", "text": "2", "width": "fill", "height": 48, "fontSize": 16 },
+              { "type": "button", "id": "pick3", "text": "3", "width": "fill", "height": 48, "fontSize": 16 }
+            ]
+          },
+          {
+            "type": "container", "id": "pickRow1", "width": "fill", "height": 48, "layout": "row", "gap": 8,
+            "children": [
+              { "type": "button", "id": "pick4", "text": "4", "width": "fill", "height": 48, "fontSize": 16 },
+              { "type": "button", "id": "pick5", "text": "5", "width": "fill", "height": 48, "fontSize": 16 },
+              { "type": "button", "id": "pick6", "text": "6", "width": "fill", "height": 48, "fontSize": 16 }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

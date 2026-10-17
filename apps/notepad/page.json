@@ -1,0 +1,101 @@
+{
+  "api": 1,
+  "units": "dp",
+  "initialPage": "home",
+  "pages": [
+    {
+      "id": "home",
+      "root": {
+        "type": "container",
+        "id": "root",
+        "width": "fill",
+        "height": "fill",
+        "layout": "column",
+        "padding": 12,
+        "gap": 8,
+        "style": { "backgroundColor": "$background" },
+        "children": [
+          {
+            "type": "container",
+            "id": "heading",
+            "width": "fill",
+            "height": 44,
+            "layout": "row",
+            "gap": 8,
+            "children": [
+              { "type": "label", "id": "title", "text": "记事本", "width": "fill", "height": 40, "fontSize": 22, "style": { "textColor": "$text" } },
+              { "type": "button", "id": "add", "text": "新建", "width": 72, "height": 40 }
+            ]
+          },
+          { "type": "label", "id": "status", "text": "", "width": "fill", "height": "content", "fontSize": 14, "style": { "hidden": true, "textColor": "$secondary" } },
+          {
+            "type": "container",
+            "id": "list",
+            "width": "fill",
+            "height": "fill",
+            "layout": "column",
+            "gap": 8,
+            "scroll": true,
+            "children": [
+              { "type": "button", "id": "item0", "text": "", "width": "fill", "height": 64, "fontSize": 16, "style": { "hidden": true, "radius": 14, "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1 } },
+              { "type": "button", "id": "item1", "text": "", "width": "fill", "height": 64, "fontSize": 16, "style": { "hidden": true, "radius": 14, "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1 } },
+              { "type": "button", "id": "item2", "text": "", "width": "fill", "height": 64, "fontSize": 16, "style": { "hidden": true, "radius": 14, "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1 } },
+              { "type": "button", "id": "item3", "text": "", "width": "fill", "height": 64, "fontSize": 16, "style": { "hidden": true, "radius": 14, "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1 } },
+              { "type": "button", "id": "item4", "text": "", "width": "fill", "height": 64, "fontSize": 16, "style": { "hidden": true, "radius": 14, "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1 } },
+              { "type": "button", "id": "item5", "text": "", "width": "fill", "height": 64, "fontSize": 16, "style": { "hidden": true, "radius": 14, "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1 } },
+              { "type": "button", "id": "item6", "text": "", "width": "fill", "height": 64, "fontSize": 16, "style": { "hidden": true, "radius": 14, "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1 } },
+              { "type": "button", "id": "item7", "text": "", "width": "fill", "height": 64, "fontSize": 16, "style": { "hidden": true, "radius": 14, "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1 } },
+              { "type": "button", "id": "item8", "text": "", "width": "fill", "height": 64, "fontSize": 16, "style": { "hidden": true, "radius": 14, "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1 } },
+              { "type": "button", "id": "item9", "text": "", "width": "fill", "height": 64, "fontSize": 16, "style": { "hidden": true, "radius": 14, "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1 } },
+              { "type": "button", "id": "item10", "text": "", "width": "fill", "height": 64, "fontSize": 16, "style": { "hidden": true, "radius": 14, "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1 } },
+              { "type": "button", "id": "item11", "text": "", "width": "fill", "height": 64, "fontSize": 16, "style": { "hidden": true, "radius": 14, "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1 } }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "edit",
+      "root": {
+        "type": "container",
+        "id": "editRoot",
+        "width": "fill",
+        "height": "fill",
+        "layout": "column",
+        "padding": 12,
+        "gap": 10,
+        "style": { "backgroundColor": "$background" },
+        "children": [
+          {
+            "type": "container",
+            "id": "editHeading",
+            "width": "fill",
+            "height": 44,
+            "layout": "row",
+            "gap": 8,
+            "children": [
+              { "type": "button", "id": "back", "text": "返回", "width": 64, "height": 40 },
+              { "type": "label", "id": "editTitle", "text": "编辑", "width": "fill", "height": 40, "fontSize": 20, "style": { "textColor": "$text" } },
+              { "type": "button", "id": "remove", "text": "删除", "width": 64, "height": 40 }
+            ]
+          },
+          { "type": "textInput", "id": "name", "placeholder": "标题", "width": "fill", "height": 44, "maxLength": 48 },
+          { "type": "textInput", "id": "body", "placeholder": "正文", "width": "fill", "height": 160, "maxLength": 256 },
+          { "type": "label", "id": "hint", "text": "正文最多 256 字", "width": "fill", "height": "content", "fontSize": 12, "style": { "textColor": "$secondary" } },
+          {
+            "type": "container",
+            "id": "editActions",
+            "width": "fill",
+            "height": 44,
+            "layout": "row",
+            "gap": 8,
+            "children": [
+              { "type": "button", "id": "save", "text": "保存", "width": "fill", "height": 44, "style": { "backgroundColor": "$accent", "textColor": "#ffffff", "radius": 12 } }
+            ]
+          },
+          { "type": "label", "id": "editStatus", "text": "", "width": "fill", "height": "content", "fontSize": 14, "style": { "hidden": true, "textColor": "$secondary" } }
+        ]
+      }
+    }
+  ]
+}

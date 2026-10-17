@@ -1,0 +1,11 @@
+{
+  "runtime": "ouse-core",
+  "api": 1,
+  "id": "user.guess",
+  "name": "Guess",
+  "names": {
+    "zh_CN": "猜数字",
+    "en": "Guess"
+  },
+  "icon": "icon.bin"
+}

@@ -28,4 +28,18 @@ esp_err_t ouse_files_upload_end(void);
 void ouse_files_upload_abort(void);
 esp_err_t ouse_files_discard_partial(const char *path);
 void ouse_files_upload_poll(void);
+
+#define OUSE_SD_PATH_MAX 1024
+#define OUSE_SD_PAGE_SIZE 8
+typedef struct {char name[256],path[OUSE_SD_PATH_MAX];uint64_t bytes;bool directory,accessible;} ouse_sd_entry_t;
+typedef struct {
+    char path[OUSE_SD_PATH_MAX];uint32_t id,offset;
+    unsigned count;bool pending,more;esp_err_t error;
+    ouse_sd_entry_t entries[OUSE_SD_PAGE_SIZE];
+} ouse_sd_directory_t;
+esp_err_t ouse_sd_browser_init(void);
+bool ouse_sd_browser_path(const char *path,char *absolute,size_t capacity);
+esp_err_t ouse_sd_browser_request(const ouse_task_owner_t *owner,const char *path,uint32_t offset,uint32_t *id);
+bool ouse_sd_browser_result(const ouse_task_owner_t *owner,uint32_t id,ouse_sd_directory_t *out);
+void ouse_sd_browser_forget(const ouse_task_owner_t *owner);
 esp_err_t ouse_files_checksum(const char *path,size_t *size,uint32_t *crc);

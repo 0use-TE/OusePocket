@@ -83,7 +83,7 @@ def fixtures(output):
         if i<2:
             children.append(dict(type='textInput',id='input',width='fill',height=44,placeholder='Input',inputType='text',keyboardMode='resize'))
             children.append(dict(type='dialog',id='modal',text='Page modal',width=230,height=100,children=[dict(type='label',id='modalText',text='Close with Back',width='fill',height='content')]))
-        # More than 96 nodes across the document, while every live page stays
+        # More than 128 nodes across the document, while every live page stays
         # comfortably below the per-page limit. Padding nodes are not visible.
         if i<2:children.extend(dict(type='label',id='extra'+str(n),text='extra',width=1,height=1,style=dict(hidden=True)) for n in range(8))
         pages.append(dict(id='home' if i==0 else 'p'+str(i),root=dict(type='container',id='page',layout='column',scroll=True,padding=12,gap=4,width='fill',height='fill',children=children)))

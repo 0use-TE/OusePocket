@@ -85,7 +85,7 @@
 }
 ```
 
-`Ouse.ui` 提供 setText/getText、setValue/getValue、setImage、on、setStyle、focus/blur、show/hide/isVisible、setEnabled。设置值不会合成用户 change 事件。`on(id,event,fn)` 的事件为 click、change、focus、blur、submit、dismiss；传 null 解除当前监听。
+`Ouse.ui` 提供 setText/getText、setValue/getValue、setImage、on、setStyle、focus/blur、show/hide/isVisible、setEnabled。设置值不会合成用户 change 事件。`on(id,event,fn)` 的事件为 click、change、focus、blur、submit、dismiss、swipe；传 null 解除当前监听。`swipe` 回调参数为 `"up"` / `"down"` / `"left"` / `"right"`；滑动成功后不会再派发同一次接触的 click。
 
 ## 子页面与导航
 
@@ -113,7 +113,7 @@
 }
 ```
 
-最多定义 16 页，导航栈最多 8 层；page.json 总大小仍为 32 KiB。每页独立验证，单页最多 96 节点，跨页可复用节点 ID。安装时验证所有页的布局和资源引用，不执行 app.js。运行时只建立当前页的模型与 LVGL 对象，其他页面保留静态 JSON 定义，不建立隐藏控件。
+最多定义 16 页，导航栈最多 8 层；page.json 总大小仍为 32 KiB。每页独立验证，单页最多 128 节点，跨页可复用节点 ID。安装时验证所有页的布局和资源引用，不执行 app.js。运行时只建立当前页的模型与 LVGL 对象，其他页面保留静态 JSON 定义，不建立隐藏控件。
 
 | 方法 | 返回与行为 |
 | --- | --- |
@@ -299,7 +299,7 @@ BPK ZIP 必须恰好包含 `manifest.json`、`page.json`、`app.js`、`icon.bin`
 
 - 整包上限为 524,288 字节，USB 串口协议是 OPK1，与 BPK 格式无关。
 - 清单上限为 8,192 字节；页面和脚本各最多 32,768 字节。
-- 每页最多 96 个 JSON 节点，根深度 0、最多到深度 8；节点 ID 最多 31 个 UTF-8 字节且在该页唯一，文本与词条值最多 256 字节，中英文词表各最多 128 条。最多 16 页，导航栈最多 8 层。
+- 每页最多 128 个 JSON 节点，根深度 0、最多到深度 8；节点 ID 最多 31 个 UTF-8 字节且在该页唯一，文本与词条值最多 256 字节，中英文词表各最多 128 条。最多 16 页，导航栈最多 8 层。
 - 每应用 JS 堆限制 512 KiB，共享工作任务栈 64 KiB，QuickJS 栈限制 40 KiB；常规前台每轮 12 ms、后台 4 ms。上下文与 JSON 文档初始化、每页 schema 校验、初始页面模型、隔离编译验证、首次脚本求值分别使用 100 ms；切页的单页模型解析也独立计 100 ms，页间校验让出一个调度 tick。该值不代表整个打开或验证流程的总耗时。预算不能抢占任意原生 C 调用；编译验证调用者最多等待 2 秒，与单阶段预算分开计算。
 - 每应用 8 个计时器，延迟/周期 100～60,000 ms；输入队列 16 个事件，每轮最多处理 4 个；每个调度片段最多处理 8 个 Promise job，剩余微任务延后至下一可运行片段，不因第 9 个 job 直接判定应用失败。
 - 输入框 maxLength 为 1～256、默认 128；下拉框最多 24 项、全部选项字符串最多 512 字节。
