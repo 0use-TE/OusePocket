@@ -13,6 +13,7 @@
 #include "ouse_alarm.h"
 #include "ouse_clock.h"
 #include "ouse_media.h"
+#include "ouse_files.h"
 #include "ouse_usb.h"
 #include "ouse_metrics.h"
 #include "ouse_health.h"
@@ -176,7 +177,7 @@ typedef struct instance {
     JSValue task_handler;
     char background_reason[64];
     int64_t background_since_us;
-    bool background_allowed, notifications_allowed, network_allowed, media_allowed, alarms_allowed;
+    bool background_allowed, notifications_allowed, network_allowed, media_allowed, alarms_allowed, files_allowed;
     JSRuntime *runtime;
     JSContext *context;
     lv_obj_t *root, *viewport;    // UI only
@@ -1161,6 +1162,9 @@ static void install_api(instance_t *app)
     JSValue media=JS_NewObject(context);const char *media_methods[]={"play","pause","resume","stop","get"};
     for(int i=0;i<5;++i)JS_SetPropertyStr(context,media,media_methods[i],JS_NewCFunctionMagic(context,media_api,media_methods[i],i==0 ? 1 : 0,JS_CFUNC_generic_magic,i));
     JS_SetPropertyStr(context,api,"media",media);
+    JSValue files=JS_NewObject(context);const char *file_methods[]={"get","list","refresh","download"};
+    for(int index=0;index<4;++index)JS_SetPropertyStr(context,files,file_methods[index],JS_NewCFunctionMagic(context,files_api,file_methods[index],index==1 ? 2 : 0,JS_CFUNC_generic_magic,index));
+    JS_SetPropertyStr(context,api,"files",files);
     JSValue navigation=JS_NewObject(context);
     const char *navigation_methods[]={"push","back","replace","get","onChange"};
     for(int i=0;i<5;++i)JS_SetPropertyStr(context,navigation,navigation_methods[i],JS_NewCFunctionMagic(context,navigation_api,navigation_methods[i],i==1 || i==3 ? 0 : 1,JS_CFUNC_generic_magic,i));
@@ -2420,7 +2424,7 @@ static instance_t *allocate_instance(const ouse_script_package_t *package)
     if(ouse_task_owner_open(package->id,&app->owner)!=ESP_OK){free(app);return NULL;}
     app->model_lock=xSemaphoreCreateMutex();app->events=xQueueCreate(MAX_EVENTS,sizeof(input_event_t));
     app->page=copy_resource(package->page,strlen(package->page),true);app->script=copy_resource(package->script,strlen(package->script),true);strcpy(app->id,package->id);app->background_allowed=package->background_allowed;app->notifications_allowed=package->notifications_allowed;
-    app->network_allowed=package->network_allowed;app->media_allowed=package->media_allowed;app->alarms_allowed=package->alarms_allowed;
+    app->network_allowed=package->network_allowed;app->media_allowed=package->media_allowed;app->alarms_allowed=package->alarms_allowed;app->files_allowed=package->files_allowed;
     if(!app->model_lock || !app->events || !app->page || !app->script){release_instance(app);return NULL;}
     size_t bytes=0;
     for(unsigned i=0;i<package->image_count;++i){const ouse_script_image_t *source=&package->images[i];

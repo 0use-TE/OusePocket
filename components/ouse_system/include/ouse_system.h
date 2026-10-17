@@ -24,6 +24,7 @@ typedef struct {
     uint8_t requested_brightness, saved_brightness;
     uint8_t requested_theme, saved_theme; // 0 light, 1 dark
     bool requested_debug, saved_debug;
+    uint8_t requested_navigation, saved_navigation;
     esp_err_t last_error;
 } ouse_settings_state_t;
 
@@ -39,6 +40,7 @@ esp_err_t ouse_system_request_brightness(uint8_t brightness);
 esp_err_t ouse_system_request_theme(uint8_t theme);
 esp_err_t ouse_system_request_ui(uint8_t locale, uint8_t font_percent);
 esp_err_t ouse_system_request_debug(bool enabled);
+esp_err_t ouse_system_request_navigation(uint8_t mode);
 bool ouse_system_debug_enabled(void);
 esp_err_t ouse_system_request_settings(uint8_t brightness, uint8_t theme);
 esp_err_t ouse_system_get_settings_state(ouse_settings_state_t *state);

@@ -1,14 +1,22 @@
 "use strict";
-const SAMPLE={name:"致爱丽丝 · 30 秒",asset:"sample"};
-let tracks=[SAMPLE],selected=0,mode=0,page="player",loaded=false;
-let wanted=false,pending=-1,taskId=0,handled=0,saving=false,dirty=false;
-let cache=Object.create(null);
+let tracks=[],remote=[],selected=0,mode=0,page="player",loaded=false,listPage=0;
+let wanted=false,pending=-1,taskId=0,handled=0,saving=false,dirty=false,downloadId=0;
+let cache=Object.create(null),libraryRevision=-1,cardReady=false,lastResult="";
+const titles={"fur-elise-30s.wav":"致爱丽丝 · 30 秒","mozart-allegro.wav":"莫扎特 · K545 快板","mozart-andante.wav":"莫扎特 · K545 行板","mozart-rondo.wav":"莫扎特 · K545 回旋曲"};
 function visible(id,show){if(show)Ouse.ui.show(id);else Ouse.ui.hide(id);}
 function text(id,value){value=String(value);if(cache[id]!==value){cache[id]=value;Ouse.ui.setText(id,value);}}
 function fmt(ms){const s=Math.floor(Math.max(0,ms)/1000);return Math.floor(s/60)+":"+(s%60<10?"0":"")+(s%60);}
 function persist(){
  dirty=true;if(saving)return;saving=true;dirty=false;
- Ouse.storage.set("library",{version:1,tracks:tracks.slice(1),selected,mode}).then(()=>{saving=false;if(dirty)persist();},()=>{saving=false;dirty=false;});
+ Ouse.storage.set("library",{version:2,tracks:remote,selectedPath:tracks[selected]?(tracks[selected].path||tracks[selected].url):"",mode}).then(()=>{saving=false;if(dirty)persist();},()=>{saving=false;dirty=false;});
+}
+function syncLibrary(){
+ const sd=Ouse.files.get();if(sd.revision===libraryRevision&&sd.ready===cardReady)return false;
+ const current=tracks[selected],key=current&&(current.path||current.url);libraryRevision=sd.revision;cardReady=sd.ready;
+ const files=[];if(sd.ready)for(let offset=0;offset<Math.min(sd.count,64);offset+=8)for(const item of Ouse.files.list(offset,8)){
+  const file=item.path.slice(item.path.lastIndexOf("/")+1);files.push({name:titles[file]||file.replace(/\.wav$/i,""),path:item.path});
+ }
+ tracks=files.concat(remote);selected=Math.max(0,tracks.findIndex(track=>(track.path||track.url)===key));listPage=Math.min(listPage,Math.max(0,Math.ceil(tracks.length/8)-1));return true;
 }
 function endLease(){wanted=false;Ouse.background.end();}
 function lease(){wanted=Ouse.background.begin("music-playlist");}
@@ -17,12 +25,13 @@ function play(index){
  const media=Ouse.media.get();
  if(media&&media.active){pending=index;endLease();if(!Ouse.media.stop())pending=-1;return;}
  pending=-1;selected=index;handled=0;
- try{taskId=Ouse.media.play(tracks[index].asset?{asset:tracks[index].asset}:{url:tracks[index].url});}catch(error){return;}
- if(!taskId){endLease();return;}
+ try{taskId=Ouse.media.play(tracks[index].path?{path:tracks[index].path}:{url:tracks[index].url});}catch(error){lastResult=error.message;return;}
+ if(!taskId){endLease();lastResult="无法播放，请检查 SD 卡和 WAV 格式";return;}
  lease();persist();refresh();
 }
 function status(media){
- if(!media)return "尚未播放";
+ if(!tracks.length)return "请插入 SD 卡并打开曲库";
+ if(!media)return lastResult||"准备就绪";
  if(media.errorCode)return "播放失败："+media.error;
  if(!media.active)return "已停止";
  if(media.interrupted)return "闹铃优先，等待恢复";
@@ -30,6 +39,7 @@ function status(media){
  return media.buffering?"正在缓冲":"正在播放";
 }
 function refresh(){
+ const changed=syncLibrary();if(changed&&page==="library"){bindPage();return;}
  const media=Ouse.media.get();
  if(wanted&&!Ouse.background.isActive())wanted=false;
  if(media&&!media.active){
@@ -40,45 +50,63 @@ function refresh(){
    endLease();
   }
  }
- if(page!=="player")return;
- text("track",tracks[selected].name);text("state",status(media));text("time",media?fmt(media.positionMs)+" / "+fmt(media.durationMs):"0:00 / 0:00");
+ if(page==="library"){
+  const sd=Ouse.files.get();text("listStatus",downloadId&&sd.downloadTaskId===downloadId?"已下载 "+Math.floor(sd.downloadBytes/1024)+" KiB":lastResult||("SD 曲库 · "+tracks.length+" 首 · "+(listPage+1)+"/"+Math.max(1,Math.ceil(tracks.length/8))));return;
+ }
+ text("track",tracks[selected]?tracks[selected].name:"没有可播放的音乐");text("state",status(media));
+ text("source",tracks[selected]&&tracks[selected].path?"SD CARD · 本地音乐":"NETWORK · 网络音乐");
+ text("time",media?fmt(media.positionMs)+" / "+fmt(media.durationMs):"0:00 / 0:00");
  const progress=media&&media.durationMs?Math.min(100,Math.floor(media.positionMs*100/media.durationMs)):0;
  if(cache.progress!==progress){cache.progress=progress;Ouse.ui.setValue("progress",progress);}
  text("pause",media&&media.active&&media.paused?"继续":"暂停");text("mode",["单曲播放","顺序播放","单曲循环"][mode]);
- Ouse.ui.setEnabled("play",loaded);Ouse.ui.setEnabled("pause",!!(media&&media.active));
+ Ouse.ui.setEnabled("play",loaded&&tracks.length>0);Ouse.ui.setEnabled("pause",!!(media&&media.active));
  Ouse.ui.setEnabled("previous",loaded&&selected>0);Ouse.ui.setEnabled("next",loaded&&selected+1<tracks.length);
 }
 function bind(id,fn){Ouse.ui.on(id,"click",()=>{fn();});}
 function bindPage(){
  cache=Object.create(null);
  if(page==="player"){
-  bind("play",()=>play(selected));bind("previous",()=>play(selected-1));bind("next",()=>play(selected+1));
+  bind("play",()=>{const media=Ouse.media.get();if(media&&media.active){if(media.paused){if(Ouse.media.resume())lease();}else if(Ouse.media.pause())endLease();refresh();}else play(selected);});
+  bind("previous",()=>play(selected-1));bind("next",()=>play(selected+1));
   bind("pause",()=>{const media=Ouse.media.get();if(!media||!media.active)return;if(media.paused){if(Ouse.media.resume())lease();}else if(Ouse.media.pause())endLease();refresh();});
   bind("stop",()=>{pending=-1;endLease();Ouse.media.stop();});
   bind("mode",()=>{mode=(mode+1)%3;persist();refresh();});bind("library",()=>Ouse.navigation.push("library"));refresh();
  }else{
   bind("back",()=>Ouse.navigation.back());
-  for(let i=0;i<8;i++){
-   const track=tracks[i];visible("row"+i,!!track);if(!track)continue;
-   text("item"+i,(selected===i?"> ":"")+track.name);bind("item"+i,()=>{play(i);Ouse.navigation.back();});Ouse.ui.setEnabled("remove"+i,i>0);
-   bind("remove"+i,()=>{const media=Ouse.media.get();if(media&&media.active){text("listStatus","先停止播放，再修改列表");return;}tracks.splice(i,1);if(selected===i)selected=0;else if(selected>i)--selected;persist();bindPage();});
+  bind("list_previous",()=>{if(listPage>0){--listPage;bindPage();}});
+  bind("list_next",()=>{if((listPage+1)*8<tracks.length){++listPage;bindPage();}});
+  bind("rescan",()=>{Ouse.files.refresh();lastResult="正在刷新 SD 卡曲库";});
+  Ouse.ui.setEnabled("list_previous",listPage>0);Ouse.ui.setEnabled("list_next",(listPage+1)*8<tracks.length);
+  for(let row=0;row<8;row++){
+   const index=listPage*8+row,track=tracks[index];visible("row"+row,!!track);if(!track)continue;
+   text("item"+row,(selected===index?"> ":"")+track.name);bind("item"+row,()=>{play(index);Ouse.navigation.back();});Ouse.ui.setEnabled("remove"+row,!!track.url);
+   bind("remove"+row,()=>{const media=Ouse.media.get();if(media&&media.active){text("listStatus","先停止播放，再修改列表");return;}remote=remote.filter(item=>item.url!==track.url);libraryRevision=-1;syncLibrary();persist();bindPage();});
   }
   bind("add",()=>{
    const name=Ouse.ui.getText("name").trim(),url=Ouse.ui.getText("url").trim();
-   if(tracks.length>=8){text("listStatus","最多保存 8 首，含内置片段");return;}
+   if(remote.length>=8){text("listStatus","最多保存 8 个网络地址");return;}
    if(!/^https?:\/\/[^\s]+$/.test(url)||url.length>256){text("listStatus","请填写有效的 HTTP 或 HTTPS 地址");return;}
-   if(tracks.some(t=>t.url===url)){text("listStatus","这个地址已经在列表中");return;}
-   tracks.push({name:(name||"网络音频").slice(0,24),url});persist();bindPage();text("listStatus","已加入列表");Ouse.ui.setText("url","");Ouse.ui.setText("name","");
-  });Ouse.ui.setEnabled("add",loaded);
+   if(remote.some(track=>track.url===url)){text("listStatus","这个地址已经在列表中");return;}
+   remote.push({name:(name||"网络音频").slice(0,24),url});libraryRevision=-1;syncLibrary();persist();bindPage();text("listStatus","已加入网络列表");
+  });
+  bind("download",()=>{
+   const name=Ouse.ui.getText("name").trim(),url=Ouse.ui.getText("url").trim();
+   if(!/^[A-Za-z0-9_-]{1,64}$/.test(name)){text("listStatus","下载文件名请用英文、数字或短横线");return;}
+   try{downloadId=Ouse.files.download({url,path:"Music/"+name+".wav"});}catch(error){downloadId=0;}
+   lastResult=downloadId?"下载已开始，完成后自动加入曲库":"无法下载，请检查 SD 卡、地址和同名文件";refresh();
+  });
+  bind("cancel_download",()=>{if(downloadId)Ouse.tasks.cancel(downloadId);});
+  Ouse.ui.setEnabled("add",loaded);refresh();
  }
 }
-Ouse.navigation.onChange(event=>{page=event.page;bindPage();});Ouse.tasks.onComplete(()=>refresh());
+Ouse.navigation.onChange(event=>{page=event.page;bindPage();});
+Ouse.tasks.onComplete(event=>{if(event.id===downloadId){downloadId=0;lastResult=event.state==="succeeded"?"下载完成":("下载未完成："+(event.error||event.state));}refresh();});
 Ouse.notifications.onOpen(()=>{if(page!=="player")Ouse.navigation.back();refresh();});Ouse.timers.setInterval(refresh,1000);
-globalThis.app={onResume:refresh,onClose(){pending=-1;endLease();}};bindPage();
+globalThis.app={onResume(){libraryRevision=-1;refresh();},onClose(){pending=-1;endLease();}};
+bindPage();
 Ouse.storage.get("library").then(value=>{
- if(value&&value.version===1&&Array.isArray(value.tracks)){
-  tracks=[SAMPLE].concat(value.tracks.filter(t=>t&&typeof t.name==="string"&&typeof t.url==="string"&&/^https?:\/\/[^\s]+$/.test(t.url)&&t.url.length<=256).slice(0,7).map(t=>({name:t.name.slice(0,24),url:t.url})));
-  selected=Number.isInteger(value.selected)&&value.selected>=0&&value.selected<tracks.length?value.selected:0;
+ if(value&&(value.version===1||value.version===2)&&Array.isArray(value.tracks)){
+  remote=value.tracks.filter(track=>track&&typeof track.name==="string"&&typeof track.url==="string"&&/^https?:\/\/[^\s]+$/.test(track.url)&&track.url.length<=256).slice(0,8).map(track=>({name:track.name.slice(0,24),url:track.url}));
   mode=Number.isInteger(value.mode)&&value.mode>=0&&value.mode<=2?value.mode:0;
- }loaded=true;bindPage();
+ }libraryRevision=-1;syncLibrary();if(value&&value.selectedPath){const index=tracks.findIndex(track=>(track.path||track.url)===value.selectedPath);if(index>=0)selected=index;}loaded=true;bindPage();
 },()=>{loaded=true;bindPage();});

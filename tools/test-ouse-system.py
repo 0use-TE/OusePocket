@@ -85,6 +85,8 @@ static uint8_t queue_data[32], disk=65, staged, disk_theme=1, staged_theme;
 static uint8_t disk_locale=1, staged_locale, disk_font=115;
 static uint8_t disk_debug=1, staged_debug;
 static bool debug_missing;
+static uint8_t disk_navigation, staged_navigation;
+static bool navigation_missing;
 static int init_error, commit_error, task_fail;
 static bool inject, check_pending;
 static jmp_buf finished;
@@ -104,6 +106,7 @@ esp_err_t nvs_open(const char *name, int mode, nvs_handle_t *h) {
 esp_err_t nvs_get_u8(nvs_handle_t h, const char *key, uint8_t *v) {
     (void)h; if (!strcmp(key,"locale")) { *v=disk_locale; return ESP_OK; }
     if (!strcmp(key,"debug")) { *v=disk_debug; return debug_missing ? ESP_ERR_NVS_NOT_FOUND : ESP_OK; }
+    if (!strcmp(key,"navigation")) { *v=disk_navigation; return navigation_missing ? ESP_ERR_NVS_NOT_FOUND : ESP_OK; }
     if (!strcmp(key,"font")) { assert(!"obsolete font key must not be read"); }
     if (!strcmp(key,"theme")) { *v=disk_theme; return ESP_OK; }
     assert(!strcmp(key,"brightness")); *v=disk; return disk ? ESP_OK : ESP_ERR_NVS_NOT_FOUND;
@@ -111,6 +114,7 @@ esp_err_t nvs_get_u8(nvs_handle_t h, const char *key, uint8_t *v) {
 esp_err_t nvs_set_u8(nvs_handle_t h, const char *key, uint8_t v) {
     (void)h; if (!strcmp(key,"locale")) staged_locale=v;
     else if (!strcmp(key,"debug")) staged_debug=v;
+    else if (!strcmp(key,"navigation")) staged_navigation=v;
     else if (!strcmp(key,"font")) assert(!"obsolete font key must not be written");
     else if (!strcmp(key,"theme")) staged_theme=v;
     else { assert(!strcmp(key,"brightness")); staged=v; } return ESP_OK;
@@ -119,7 +123,7 @@ esp_err_t nvs_commit(nvs_handle_t h) {
     (void)h; ++commits;
     if (inject) { inject=false; assert(ouse_system_request_brightness(90)==ESP_OK); check_pending=true; }
     if (commit_error) return commit_error;
-    disk=staged; disk_theme=staged_theme; disk_locale=staged_locale; disk_debug=staged_debug; return ESP_OK;
+    disk=staged; disk_theme=staged_theme; disk_locale=staged_locale; disk_debug=staged_debug; disk_navigation=staged_navigation; return ESP_OK;
 }
 void nvs_close(nvs_handle_t h) { (void)h; }
 QueueHandle_t xQueueCreate(unsigned n, unsigned size) { assert(n==1 && size<=sizeof(queue_data)); item_size=size; return (void *)1; }
@@ -154,6 +158,9 @@ int main(int argc, char **argv) {
     if (!strcmp(argv[1],"task-fail")) task_fail=1;
     if (!strcmp(argv[1],"missing")) disk=0;
     if (!strcmp(argv[1],"debug-missing")) debug_missing=true;
+    if (!strcmp(argv[1],"navigation-missing")) navigation_missing=true;
+    if (!strcmp(argv[1],"navigation-buttons")) disk_navigation=1;
+    if (!strcmp(argv[1],"navigation-invalid")) disk_navigation=255;
     if (!strcmp(argv[1],"invalid")) disk=255;
     esp_err_t result=ouse_system_init(&brightness);
     assert(ouse_system_init(&brightness)==ESP_ERR_INVALID_STATE);
@@ -167,6 +174,8 @@ int main(int argc, char **argv) {
     }
     assert(result==ESP_OK && brightness==(disk==65 ? 65 : 45));
     assert(ouse_system_get_settings_state(&s)==ESP_OK && s.requested_theme==1);
+    assert(s.requested_navigation==(!strcmp(argv[1],"navigation-buttons") ? 1 : 0));
+    assert(s.saved_navigation==s.requested_navigation);
     assert(ouse_system_request_theme(2)==ESP_ERR_INVALID_ARG);
     assert(ouse_system_request_brightness(0)==ESP_ERR_INVALID_ARG);
     assert(ouse_system_request_brightness(75)==ESP_OK && !commits);
@@ -207,7 +216,18 @@ int main(int argc, char **argv) {
     drain();assert(!disk_debug);
     assert(ouse_system_get_settings_state(&s)==ESP_OK && s.last_error==ESP_FAIL && !s.saved_debug);
     commit_error=ESP_OK;assert(ouse_system_request_debug(true)==ESP_OK);drain();assert(disk_debug);
-    puts("PASS persistence backend: boot restore, deferred commit, failure/retry, coalescing, stale completion and live developer settings");
+    assert(ouse_system_request_navigation(2)==ESP_ERR_INVALID_ARG);
+    assert(ouse_system_request_navigation(1)==ESP_OK);
+    assert(ouse_system_get_settings_state(&s)==ESP_OK && s.requested_navigation==1);
+    assert(ouse_system_request_brightness(79)==ESP_OK);drain();
+    assert(disk_navigation==1 && disk==79 && disk_debug);
+    assert(ouse_system_get_settings_state(&s)==ESP_OK && s.saved_navigation==1);
+    assert(ouse_system_request_navigation(1)==ESP_OK && !queue_items);
+    commit_error=ESP_FAIL;assert(ouse_system_request_navigation(0)==ESP_OK);drain();
+    assert(disk_navigation==1);
+    assert(ouse_system_get_settings_state(&s)==ESP_OK && !s.requested_navigation && s.saved_navigation==1 && s.last_error==ESP_FAIL);
+    commit_error=ESP_OK;assert(ouse_system_request_navigation(0)==ESP_OK);drain();assert(!disk_navigation);
+    puts("PASS persistence backend: boot restore, deferred commit, failure/retry, coalescing, stale completion, developer settings and navigation modes");
     return 0;
 }
 '''
@@ -227,6 +247,6 @@ system = ROOT / "components/ouse_system"
 subprocess.run([str(compiler), "/nologo", "/utf-8", "/std:c11", "/UNDEBUG", "/I"+str(OUT),
     "/I"+str(system/"include"), "/I"+str(ROOT/"components/ouse_tasks/include"), str(ROOT/"components/ouse_tasks/ouse_tasks.c"), str(system/"ouse_system.c"), str(OUT/"check.c"),
     "/Fe"+str(OUT/"check.exe")], cwd=OUT, env=env, check=True)
-for case in ["normal", "missing", "debug-missing", "invalid", "nvs-fail", "task-fail"]:
+for case in ["normal", "missing", "debug-missing", "navigation-missing", "navigation-buttons", "navigation-invalid", "invalid", "nvs-fail", "task-fail"]:
     subprocess.run([str(OUT/"check.exe"), case], check=True)
 print("PASS real backend compiled; NVS/task failure degrades without erase or desktop dependency")

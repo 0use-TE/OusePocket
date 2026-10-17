@@ -10,15 +10,16 @@
   "icon": "icon.bin",
   "capabilities": {
     "media": true,
+    "files": true,
     "network": true,
     "background": true,
     "notifications": true
   },
   "assets": [
     {
-      "id": "sample",
-      "type": "binary",
-      "path": "assets/fur-elise-30s.wav"
+      "id": "cover",
+      "type": "image",
+      "path": "assets/record.bin"
     },
     {
       "id": "license",

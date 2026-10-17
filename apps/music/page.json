@@ -10,39 +10,93 @@
         "id": "root",
         "width": "fill",
         "height": "fill",
-        "layout": "column",
-        "scroll": true,
         "padding": 12,
-        "gap": 10,
+        "style": {
+          "backgroundColor": "#F7F8FC"
+        },
         "children": [
           {
-            "type": "toolbar",
+            "type": "label",
             "id": "title",
             "text": "音乐",
+            "x": 0,
+            "y": 0,
+            "width": 100,
+            "height": 28,
+            "fontSize": 22,
+            "style": {
+              "textColor": "#202846",
+              "textAlign": "left"
+            }
+          },
+          {
+            "type": "button",
+            "id": "library",
+            "text": "曲库",
+            "width": 64,
+            "height": 30,
+            "fontSize": 14,
+            "x": 232,
+            "y": 0
+          },
+          {
+            "type": "image",
+            "id": "record",
+            "src": "cover",
+            "x": 84,
+            "y": 38,
+            "width": 128,
+            "height": 128
+          },
+          {
+            "type": "label",
+            "id": "source",
+            "text": "SD CARD · 本地音乐",
+            "x": 0,
+            "y": 172,
             "width": "fill",
-            "height": 44
+            "height": 18,
+            "fontSize": 12,
+            "style": {
+              "textColor": "#7D86A4",
+              "textAlign": "center"
+            }
           },
           {
             "type": "label",
             "id": "track",
-            "text": "致爱丽丝 · 30 秒",
+            "text": "正在读取 SD 曲库",
+            "x": 0,
+            "y": 194,
             "width": "fill",
-            "height": "content",
-            "fontSize": 24
+            "height": 28,
+            "fontSize": 20,
+            "style": {
+              "textColor": "#202846",
+              "textAlign": "center"
+            }
           },
           {
             "type": "label",
             "id": "state",
-            "text": "尚未播放",
+            "text": "准备就绪",
+            "x": 0,
+            "y": 224,
             "width": "fill",
-            "height": "content",
-            "fontSize": 16
+            "height": 20,
+            "fontSize": 13,
+            "style": {
+              "textColor": "#7D86A4",
+              "textAlign": "center"
+            }
           },
           {
             "type": "progressBar",
             "id": "progress",
-            "width": "fill",
-            "height": 8,
+            "x": 8,
+            "y": 250,
+            "width": 280,
+            "height": 5,
             "min": 0,
             "max": 100,
             "value": 0
@@ -51,46 +105,74 @@
             "type": "label",
             "id": "time",
             "text": "0:00 / 0:00",
+            "x": 0,
+            "y": 260,
             "width": "fill",
-            "height": "content",
-            "fontSize": 16
+            "height": 18,
+            "fontSize": 12,
+            "style": {
+              "textColor": "#7D86A4",
+              "textAlign": "center"
+            }
           },
           {
             "type": "container",
             "id": "transport",
-            "width": "fill",
-            "height": "content",
+            "x": 44,
+            "y": 286,
+            "width": 208,
+            "height": 56,
             "layout": "row",
-            "gap": 8,
+            "gap": 20,
             "children": [
               {
                 "type": "button",
                 "id": "previous",
-                "text": "上一首",
-                "width": "fill",
-                "height": 44
+                "text": "<<",
+                "width": 56,
+                "height": 56,
+                "fontSize": 14,
+                "style": {
+                  "radius": 28,
+                  "backgroundColor": "#E7ECF8",
+                  "textColor": "#29365D"
+                }
               },
               {
                 "type": "button",
                 "id": "play",
                 "text": "播放",
-                "width": "fill",
-                "height": 44
+                "width": 56,
+                "height": 56,
+                "fontSize": 14,
+                "style": {
+                  "radius": 28,
+                  "backgroundColor": "#4078EF",
+                  "textColor": "#FFFFFF"
+                }
               },
               {
                 "type": "button",
                 "id": "next",
-                "text": "下一首",
-                "width": "fill",
-                "height": 44
+                "text": ">>",
+                "width": 56,
+                "height": 56,
+                "fontSize": 14,
+                "style": {
+                  "radius": 28,
+                  "backgroundColor": "#E7ECF8",
+                  "textColor": "#29365D"
+                }
               }
             ]
           },
           {
             "type": "container",
             "id": "actions",
+            "x": 0,
+            "y": 350,
             "width": "fill",
-            "height": "content",
+            "height": 30,
             "layout": "row",
             "gap": 8,
             "children": [
@@ -98,39 +180,25 @@
                 "type": "button",
                 "id": "pause",
                 "text": "暂停",
-                "width": "fill",
-                "height": 44
+                "width": 84,
+                "height": 30,
+                "fontSize": 14
               },
               {
                 "type": "button",
                 "id": "stop",
                 "text": "停止",
-                "width": "fill",
-                "height": 44
-              }
-            ]
-          },
-          {
-            "type": "container",
-            "id": "options",
-            "width": "fill",
-            "height": "content",
-            "layout": "row",
-            "gap": 8,
-            "children": [
+                "width": 84,
+                "height": 30,
+                "fontSize": 14
+              },
               {
                 "type": "button",
                 "id": "mode",
                 "text": "单曲播放",
-                "width": "fill",
-                "height": 44
-              },
-              {
-                "type": "button",
-                "id": "library",
-                "text": "播放列表",
-                "width": "fill",
-                "height": 44
+                "width": 112,
+                "height": 30,
+                "fontSize": 14
               }
             ]
           }
@@ -141,19 +209,19 @@
       "id": "library",
       "root": {
         "type": "container",
-        "id": "root",
+        "id": "listRoot",
         "width": "fill",
         "height": "fill",
         "layout": "column",
         "scroll": true,
         "padding": 12,
-        "gap": 10,
+        "gap": 8,
         "children": [
           {
             "type": "container",
-            "id": "header",
+            "id": "heading",
             "width": "fill",
-            "height": "content",
+            "height": 40,
             "layout": "row",
             "gap": 8,
             "children": [
@@ -162,47 +230,57 @@
                 "id": "back",
                 "text": "返回",
                 "width": 64,
-                "height": 44
+                "height": 40,
+                "fontSize": 14
               },
               {
-                "type": "toolbar",
-                "id": "heading",
-                "text": "播放列表",
-                "width": "fill",
-                "height": 44
+                "type": "label",
+                "id": "listTitle",
+                "text": "SD 音乐库",
+                "width": 144,
+                "height": 40,
+                "fontSize": 20
+              },
+              {
+                "type": "button",
+                "id": "rescan",
+                "text": "刷新",
+                "width": 64,
+                "height": 40,
+                "fontSize": 14
               }
             ]
           },
           {
             "type": "label",
             "id": "listStatus",
-            "text": "最多 8 首，支持 PCM16 WAV",
             "width": "fill",
             "height": "content",
-            "fontSize": 14
+            "fontSize": 13
           },
           {
             "type": "container",
             "id": "row0",
             "width": "fill",
-            "height": "content",
+            "height": 46,
             "layout": "row",
             "gap": 8,
             "children": [
               {
                 "type": "button",
                 "id": "item0",
-                "text": "-",
-                "width": "fill",
-                "height": 56,
+                "text": "",
+                "width": 228,
+                "height": 46,
                 "fontSize": 14
               },
               {
                 "type": "button",
                 "id": "remove0",
-                "text": "删除",
+                "text": "移除",
                 "width": 60,
-                "height": 44
+                "height": 46,
+                "fontSize": 14
               }
             ]
           },
@@ -210,24 +288,25 @@
             "type": "container",
             "id": "row1",
             "width": "fill",
-            "height": "content",
+            "height": 46,
             "layout": "row",
             "gap": 8,
             "children": [
               {
                 "type": "button",
                 "id": "item1",
-                "text": "-",
-                "width": "fill",
-                "height": 56,
+                "text": "",
+                "width": 228,
+                "height": 46,
                 "fontSize": 14
               },
               {
                 "type": "button",
                 "id": "remove1",
-                "text": "删除",
+                "text": "移除",
                 "width": 60,
-                "height": 44
+                "height": 46,
+                "fontSize": 14
               }
             ]
           },
@@ -235,24 +314,25 @@
             "type": "container",
             "id": "row2",
             "width": "fill",
-            "height": "content",
+            "height": 46,
             "layout": "row",
             "gap": 8,
             "children": [
               {
                 "type": "button",
                 "id": "item2",
-                "text": "-",
-                "width": "fill",
-                "height": 56,
+                "text": "",
+                "width": 228,
+                "height": 46,
                 "fontSize": 14
               },
               {
                 "type": "button",
                 "id": "remove2",
-                "text": "删除",
+                "text": "移除",
                 "width": 60,
-                "height": 44
+                "height": 46,
+                "fontSize": 14
               }
             ]
           },
@@ -260,24 +340,25 @@
             "type": "container",
             "id": "row3",
             "width": "fill",
-            "height": "content",
+            "height": 46,
             "layout": "row",
             "gap": 8,
             "children": [
               {
                 "type": "button",
                 "id": "item3",
-                "text": "-",
-                "width": "fill",
-                "height": 56,
+                "text": "",
+                "width": 228,
+                "height": 46,
                 "fontSize": 14
               },
               {
                 "type": "button",
                 "id": "remove3",
-                "text": "删除",
+                "text": "移除",
                 "width": 60,
-                "height": 44
+                "height": 46,
+                "fontSize": 14
               }
             ]
           },
@@ -285,24 +366,25 @@
             "type": "container",
             "id": "row4",
             "width": "fill",
-            "height": "content",
+            "height": 46,
             "layout": "row",
             "gap": 8,
             "children": [
               {
                 "type": "button",
                 "id": "item4",
-                "text": "-",
-                "width": "fill",
-                "height": 56,
+                "text": "",
+                "width": 228,
+                "height": 46,
                 "fontSize": 14
               },
               {
                 "type": "button",
                 "id": "remove4",
-                "text": "删除",
+                "text": "移除",
                 "width": 60,
-                "height": 44
+                "height": 46,
+                "fontSize": 14
               }
             ]
           },
@@ -310,24 +392,25 @@
             "type": "container",
             "id": "row5",
             "width": "fill",
-            "height": "content",
+            "height": 46,
             "layout": "row",
             "gap": 8,
             "children": [
               {
                 "type": "button",
                 "id": "item5",
-                "text": "-",
-                "width": "fill",
-                "height": 56,
+                "text": "",
+                "width": 228,
+                "height": 46,
                 "fontSize": 14
               },
               {
                 "type": "button",
                 "id": "remove5",
-                "text": "删除",
+                "text": "移除",
                 "width": 60,
-                "height": 44
+                "height": 46,
+                "fontSize": 14
               }
             ]
           },
@@ -335,24 +418,25 @@
             "type": "container",
             "id": "row6",
             "width": "fill",
-            "height": "content",
+            "height": 46,
             "layout": "row",
             "gap": 8,
             "children": [
               {
                 "type": "button",
                 "id": "item6",
-                "text": "-",
-                "width": "fill",
-                "height": 56,
+                "text": "",
+                "width": 228,
+                "height": 46,
                 "fontSize": 14
               },
               {
                 "type": "button",
                 "id": "remove6",
-                "text": "删除",
+                "text": "移除",
                 "width": 60,
-                "height": 44
+                "height": 46,
+                "fontSize": 14
               }
             ]
           },
@@ -360,49 +444,121 @@
             "type": "container",
             "id": "row7",
             "width": "fill",
-            "height": "content",
+            "height": 46,
             "layout": "row",
             "gap": 8,
             "children": [
               {
                 "type": "button",
                 "id": "item7",
-                "text": "-",
-                "width": "fill",
-                "height": 56,
+                "text": "",
+                "width": 228,
+                "height": 46,
                 "fontSize": 14
               },
               {
                 "type": "button",
                 "id": "remove7",
-                "text": "删除",
+                "text": "移除",
                 "width": 60,
-                "height": 44
+                "height": 46,
+                "fontSize": 14
               }
             ]
           },
           {
+            "type": "container",
+            "id": "paging",
+            "width": "fill",
+            "height": 38,
+            "layout": "row",
+            "gap": 8,
+            "children": [
+              {
+                "type": "button",
+                "id": "list_previous",
+                "text": "上一页",
+                "width": 144,
+                "height": 38,
+                "fontSize": 14
+              },
+              {
+                "type": "button",
+                "id": "list_next",
+                "text": "下一页",
+                "width": 144,
+                "height": 38,
+                "fontSize": 14
+              }
+            ]
+          },
+          {
+            "type": "label",
+            "id": "downloadTitle",
+            "text": "添加网络音乐 / 下载 WAV 到 SD",
+            "width": "fill",
+            "height": "content",
+            "fontSize": 15
+          },
+          {
             "type": "textInput",
             "id": "name",
-            "placeholder": "曲目名称",
+            "placeholder": "下载文件名（英文、数字、短横线）",
             "width": "fill",
-            "height": 44,
-            "maxLength": 24
+            "height": 42,
+            "maxLength": 64,
+            "inputType": "text"
           },
           {
             "type": "textInput",
             "id": "url",
-            "placeholder": "HTTP 或 HTTPS 的 WAV 地址",
+            "placeholder": "http(s)://.../music.wav",
             "width": "fill",
-            "height": 44,
-            "maxLength": 240
+            "height": 42,
+            "maxLength": 256,
+            "inputType": "text"
           },
           {
-            "type": "button",
-            "id": "add",
-            "text": "加入列表",
+            "type": "container",
+            "id": "downloadActions",
             "width": "fill",
-            "height": 44
+            "height": 42,
+            "layout": "row",
+            "gap": 8,
+            "children": [
+              {
+                "type": "button",
+                "id": "add",
+                "text": "网络播放",
+                "width": 90,
+                "height": 42,
+                "fontSize": 14
+              },
+              {
+                "type": "button",
+                "id": "download",
+                "text": "下载到 SD",
+                "width": 108,
+                "height": 42,
+                "fontSize": 14
+              },
+              {
+                "type": "button",
+                "id": "cancel_download",
+                "text": "取消",
+                "width": 82,
+                "height": 42,
+                "fontSize": 14
+              }
+            ]
+          },
+          {
+            "type": "label",
+            "id": "formatNote",
+            "text": "当前支持 PCM16 WAV，8–48 kHz。不会覆盖已有文件，SD 音乐只读展示，不在此删除。",
+            "width": "fill",
+            "height": "content",
+            "fontSize": 12
           }
         ]
       }

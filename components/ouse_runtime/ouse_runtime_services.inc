@@ -243,6 +243,46 @@ static JSValue alarms_api(JSContext *context,JSValueConst self,int argc,JSValueC
     esp_err_t error=app->closed || app->faulted ? ESP_ERR_INVALID_STATE : ouse_alarm_submit(&app->owner,(ouse_alarm_action_t)operation,&spec,snooze,&id);
     model_unlock(app);return error==ESP_OK ? JS_NewUint32(context,id) : JS_FALSE;
 }
+static JSValue files_api(JSContext *context,JSValueConst self,int argc,JSValueConst *argv,int operation)
+{
+    (void)self;instance_t *app=from_js(context);
+    if(operation==0){
+        ouse_files_state_t state={0};if(!app->validation_only)ouse_files_get(&state);
+        JSValue value=JS_NewObject(context);
+        JS_SetPropertyStr(context,value,"mounted",JS_NewBool(context,state.mounted));
+        JS_SetPropertyStr(context,value,"present",JS_NewBool(context,state.present));
+        JS_SetPropertyStr(context,value,"ready",JS_NewBool(context,state.ready));
+        JS_SetPropertyStr(context,value,"busy",JS_NewBool(context,state.busy));
+        JS_SetPropertyStr(context,value,"totalBytes",JS_NewFloat64(context,(double)state.total_bytes));
+        JS_SetPropertyStr(context,value,"freeBytes",JS_NewFloat64(context,(double)state.free_bytes));
+        JS_SetPropertyStr(context,value,"count",JS_NewInt32(context,state.count));
+        JS_SetPropertyStr(context,value,"revision",JS_NewInt32(context,state.revision));
+        JS_SetPropertyStr(context,value,"downloadTaskId",JS_NewUint32(context,state.download_id));
+        JS_SetPropertyStr(context,value,"downloadBytes",JS_NewFloat64(context,(double)state.download_bytes));
+        JS_SetPropertyStr(context,value,"error",JS_NewString(context,esp_err_to_name(state.error)));
+        return value;
+    }
+    if(operation==1){
+        JSValue array=JS_NewArray(context);if(!app->files_allowed || app->validation_only)return array;
+        double offset=0,limit=8;
+        if(argc!=2 || !JS_IsNumber(argv[0]) || !JS_IsNumber(argv[1]) || JS_ToFloat64(context,&offset,argv[0]) || JS_ToFloat64(context,&limit,argv[1]) || !isfinite(offset) || !isfinite(limit) || floor(offset)!=offset || floor(limit)!=limit || offset<0 || offset>63 || limit<1 || limit>8){JS_FreeValue(context,array);return JS_ThrowTypeError(context,"files.list expects offset 0..63 and limit 1..8");}
+        ouse_file_entry_t entries[8];unsigned count=ouse_files_list((unsigned)offset,entries,(unsigned)limit);
+        for(unsigned index=0;index<count;++index){JSValue entry=JS_NewObject(context);
+            JS_SetPropertyStr(context,entry,"path",JS_NewString(context,entries[index].path));
+            JS_SetPropertyStr(context,entry,"bytes",JS_NewFloat64(context,(double)entries[index].bytes));
+            JS_SetPropertyUint32(context,array,index,entry);
+        }
+        return array;
+    }
+    if(!app->files_allowed || app->validation_only)return JS_FALSE;
+    if(operation==2)return JS_NewBool(context,ouse_files_refresh());
+    char path[OUSE_FILES_PATH_MAX],url[OUSE_NET_URL_MAX+1];
+    if(!app->network_allowed)return JS_FALSE;
+    if(argc!=1 || !JS_IsObject(argv[0]) || !net_string(context,argv[0],"path",path,sizeof(path),"") || !net_string(context,argv[0],"url",url,sizeof(url),""))return JS_ThrowTypeError(context,"files.download expects {url,path}");
+    uint32_t id=0;model_lock(app);
+    esp_err_t error=app->closed ? ESP_ERR_INVALID_STATE : ouse_files_download(&app->owner,url,path,&id);
+    model_unlock(app);return error==ESP_OK ? JS_NewUint32(context,id) : JS_FALSE;
+}
 static JSValue media_api(JSContext *context,JSValueConst self,int argc,JSValueConst *argv,int operation)
 {
     (void)self;instance_t *app=from_js(context);
@@ -266,14 +306,16 @@ static JSValue media_api(JSContext *context,JSValueConst self,int argc,JSValueCo
         if(argc)return JS_ThrowTypeError(context,"Media control expects no arguments");
         return JS_NewBool(context,(operation==3 ? ouse_media_stop(app->id) : ouse_media_pause(app->id,operation==1))==ESP_OK);
     }
-    char asset[32],url[OUSE_NET_URL_MAX+1];
+    char asset[32],url[OUSE_NET_URL_MAX+1],path[OUSE_FILES_PATH_MAX];
     if(argc!=1 || !JS_IsObject(argv[0]) || JS_IsNull(argv[0]) ||
-       !net_string(context,argv[0],"asset",asset,sizeof(asset),"") || !net_string(context,argv[0],"url",url,sizeof(url),"")){
+       !net_string(context,argv[0],"asset",asset,sizeof(asset),"") || !net_string(context,argv[0],"url",url,sizeof(url),"") || !net_string(context,argv[0],"path",path,sizeof(path),"")){
         if(JS_HasException(context))return JS_EXCEPTION;
         return JS_ThrowTypeError(context,"media.play expects {asset} or {url}");
     }
-    if((!asset[0] && !url[0]) || (asset[0] && url[0]))return JS_ThrowTypeError(context,"Choose exactly one media source");
+    if((!!asset[0]+!!url[0]+!!path[0])!=1)return JS_ThrowTypeError(context,"Choose exactly one media source");
+    if(!strncmp(url,"sd:",3))return JS_ThrowTypeError(context,"Use path for SD media");
     if(url[0] && !app->network_allowed)return JS_FALSE;
+    if(path[0]){if(!app->files_allowed)return JS_FALSE;snprintf(url,sizeof(url),"sd:%s",path);}
     const void *data=NULL;size_t size=0;
     if(asset[0]){
         for(unsigned i=0;i<app->asset_count;++i)if(!strcmp(app->assets[i].id,asset) && app->assets[i].type==OUSE_SCRIPT_ASSET_BINARY){data=app->assets[i].data;size=app->assets[i].size;break;}
@@ -354,5 +396,6 @@ static JSValue system_capabilities(JSContext *context,JSValueConst self,int argc
     JS_SetPropertyStr(context,granted,"notifications",JS_NewBool(context,app->notifications_allowed));
     JS_SetPropertyStr(context,granted,"alarms",JS_NewBool(context,app->alarms_allowed));
     JS_SetPropertyStr(context,granted,"media",JS_NewBool(context,app->media_allowed));
+    JS_SetPropertyStr(context,granted,"files",JS_NewBool(context,app->files_allowed));
     JS_SetPropertyStr(context,object,"granted",granted);return object;
 }

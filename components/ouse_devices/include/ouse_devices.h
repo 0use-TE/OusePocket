@@ -8,6 +8,14 @@
 extern "C" {
 #endif
 #define OUSE_WIFI_AP_MAX 12
+typedef struct {
+    bool probing,detected,readable;
+    uint64_t capacity_bytes;
+    uint32_t sector_bytes;
+    char name[8];
+    esp_err_t error;
+} ouse_sd_state_t;
+esp_err_t ouse_sd_get(ouse_sd_state_t *state);
 typedef enum { OUSE_AUDIO_STOP,OUSE_AUDIO_TEST,OUSE_AUDIO_CAPTURE,OUSE_AUDIO_REPLAY,OUSE_AUDIO_RING,OUSE_AUDIO_MEDIA,OUSE_AUDIO_USB } ouse_audio_action_t;
 typedef enum { OUSE_WIFI_ENABLE,OUSE_WIFI_SCAN,OUSE_WIFI_CONNECT,OUSE_WIFI_DISCONNECT,OUSE_WIFI_FORGET } ouse_wifi_action_t;
 // Owned submission returns the registry ID. NULL owner means system service.

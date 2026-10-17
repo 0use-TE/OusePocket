@@ -5,6 +5,7 @@ esp_err_t ouse_apps_validate(const ouse_app_definition_t *app);
 esp_err_t ouse_apps_register(const ouse_app_definition_t *app);
 void ouse_apps_seal(void);
 void ouse_apps_swipe_offset(int offset);
+void ouse_apps_resize(int height);
 esp_err_t ouse_apps_background_fast(void);
 
 esp_err_t ouse_apps_user_check(const char *id);

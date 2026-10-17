@@ -36,7 +36,7 @@ typedef struct {
     bool background_allowed; // manifest capabilities.background
     bool notifications_allowed; // manifest capabilities.notifications
     bool network_allowed; // manifest capabilities.network
-    bool media_allowed, alarms_allowed;
+    bool media_allowed, alarms_allowed, files_allowed;
 } ouse_script_package_t;
 typedef struct { const ouse_script_package_t *package; void *instance; } ouse_script_app_t;
 typedef struct {

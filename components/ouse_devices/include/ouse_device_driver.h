@@ -2,6 +2,7 @@
 // Board worker boundary; credentials are never included in public snapshots.
 #pragma once
 #include "ouse_devices.h"
+void ouse_devices_publish_sd(const ouse_sd_state_t *state);
 typedef struct {
     unsigned sleep_seconds,volume;
     bool muted,wifi_enabled;

@@ -32,7 +32,7 @@ esp_err_t ouse_debug_state(char *out,size_t cap)
         used+=(size_t)w;first=false;
     }
     if(used+3>cap)return ESP_ERR_NO_MEM;
-    int tail=snprintf(out+used,cap-used,"],\"page\":%u,\"pages\":%u,\"per_page\":12,\"bar_offset\":%d}",page+1,pages,shell.bar_offset);
+    int tail=snprintf(out+used,cap-used,"],\"page\":%u,\"pages\":%u,\"per_page\":12,\"bar_offset\":%d,\"navigation\":%u}",page+1,pages,shell.bar_offset,ouse_shell_navigation());
     if(tail<0 || (size_t)tail>=cap-used)return ESP_ERR_NO_MEM;
     return ESP_OK;
 }
@@ -74,7 +74,8 @@ static void visit(writer_t *w,lv_obj_t *obj,unsigned depth)
         lv_dropdown_get_selected_str(obj,selection,sizeof(selection));text=selection;
     }
     quoted(w,text);
-    append(w,",\"fg\":\"#%06lX\",\"bg\":\"#%06lX\",\"bg_opa\":%u,\"border\":\"#%06lX\",\"border_width\":%ld,\"radius\":%ld,\"disabled\":%s,\"checked\":%s}",
+    append(w,",\"scroll_y\":%ld,\"fg\":\"#%06lX\",\"bg\":\"#%06lX\",\"bg_opa\":%u,\"border\":\"#%06lX\",\"border_width\":%ld,\"radius\":%ld,\"disabled\":%s,\"checked\":%s}",
+        (long)lv_obj_get_scroll_y(obj),
         (unsigned long)lv_color_to_u32(lv_obj_get_style_text_color(obj,0))&0xffffffUL,
         (unsigned long)lv_color_to_u32(lv_obj_get_style_bg_color(obj,0))&0xffffffUL,
         (unsigned)lv_obj_get_style_bg_opa(obj,0),

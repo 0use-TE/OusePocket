@@ -9,9 +9,12 @@ typedef struct {
     esp_err_t (*settings_state)(ouse_settings_state_t *);
     void (*back)(void);
     void (*open_settings)(unsigned page);
+    void (*navigation_changed)(int height);
 } ouse_shell_config_t;
 void ouse_shell_init(const ouse_shell_config_t *config);
 void ouse_shell_foreground(void);
+void ouse_shell_set_navigation(unsigned mode);
+unsigned ouse_shell_navigation(void);
 typedef struct {
     bool quick,recents,tracking,notifications;
     int quick_y,back_progress,recent_scroll_x;

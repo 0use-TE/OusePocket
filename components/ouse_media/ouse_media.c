@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include "ouse_media.h"
+#include "ouse_files.h"
 #include "ouse_wave.h"
 #include "ouse_net.h"
 #include "ouse_notifications.h"
@@ -86,7 +87,20 @@ static void worker(void *unused)
         }
         esp_err_t error=ESP_OK;ouse_wave_init(&source->wave,output,source);
         if(claimed && !stop(source)){
-            if(source->url[0]){
+            if(!strncmp(source->url,"sd:",3)) {
+                FILE *file=ouse_files_open(source->url+3);
+                if(!file)error=ESP_ERR_NOT_FOUND;
+                else {
+                    unsigned char buffer[1024];size_t total=0;
+                    while(error==ESP_OK && !stop(source)) {
+                        size_t count=fread(buffer,1,sizeof(buffer),file);
+                        if(!count){if(ferror(file))error=ESP_FAIL;break;}
+                        total+=count;if(total>128U*1024*1024){error=ESP_ERR_INVALID_SIZE;break;}
+                        error=decode(source,buffer,count);vTaskDelay(1);
+                    }
+                    fclose(file);
+                }
+            }else if(source->url[0]){
                 ouse_http_request_t request={.url=source->url,.method="GET",.timeout_ms=15000};
                 ouse_http_response_t *response=calloc(1,sizeof(*response));
                 if(!response)error=ESP_ERR_NO_MEM;
@@ -133,7 +147,10 @@ esp_err_t ouse_media_play(const ouse_task_owner_t *owner,const char *url,const v
     *id=0;
     if(!owner || !owner->app_id[0] || (url && (data || size)) || (!url && (!data || !size || size>OUSE_MEDIA_ASSET_MAX)))return ESP_ERR_INVALID_ARG;
     if(!sources)return ESP_ERR_INVALID_STATE;
-    if(url){ouse_http_request_t request={.url=url,.method="GET",.timeout_ms=15000};if(ouse_http_validate(&request)!=ESP_OK)return ESP_ERR_INVALID_ARG;}
+    if(url){
+        if(!strncmp(url,"sd:",3)){char absolute[180];if(!ouse_files_path(url+3,absolute,sizeof(absolute)))return ESP_ERR_INVALID_ARG;}
+        else{ouse_http_request_t request={.url=url,.method="GET",.timeout_ms=15000};if(ouse_http_validate(&request)!=ESP_OK)return ESP_ERR_INVALID_ARG;}
+    }
     source_t *source=calloc(1,sizeof(*source));if(!source)return ESP_ERR_NO_MEM;
     if(url)strcpy(source->url,url);
     else{source->data=malloc(size);if(!source->data){free(source);return ESP_ERR_NO_MEM;}memcpy(source->data,data,size);source->size=size;}

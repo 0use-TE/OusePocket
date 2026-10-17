@@ -194,9 +194,9 @@ def validate(data):
     for locale, value in names.items():
         _name(value, f"names.{locale}")
     capabilities = manifest.get("capabilities", {})
-    if (not isinstance(capabilities, dict) or set(capabilities) - {"background", "notifications", "network", "media", "alarms"} or
+    if (not isinstance(capabilities, dict) or set(capabilities) - {"background", "notifications", "network", "media", "alarms", "files"} or
             any(type(value) is not bool for value in capabilities.values())):
-        raise ValueError("capabilities supports only background/notifications/network/media/alarms: true/false")
+        raise ValueError("capabilities supports only background/notifications/network/media/alarms/files: true/false")
     _icon(content["icon.bin"])
     assets = _assets(manifest)
     if set(content) != set(FILES) | {asset["path"] for asset in assets}:
@@ -337,7 +337,7 @@ class Client:
             self.serial.flush()
             deadline = time.monotonic() + timeout
             while time.monotonic() < deadline:
-                data = self.serial.read(1024)
+                data = self.serial.read(min(1024, self.serial.in_waiting or 1))
                 self.pending.extend(data)
                 while b"\n" in self.pending:
                     line, _, tail = self.pending.partition(b"\n")

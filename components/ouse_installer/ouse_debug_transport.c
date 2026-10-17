@@ -7,6 +7,7 @@
 #include "ouse_storage.h"
 #include "ouse_usb.h"
 #include "ouse_devices.h"
+#include "ouse_files.h"
 #include "ouse_protocol.h"
 #include "esp_heap_caps.h"
 #include "esp_attr.h"
@@ -312,6 +313,24 @@ esp_err_t ouse_debug_command(const char *verb,const char *payload,char *out,size
         return n<0 || (size_t)n>=cap ? ESP_ERR_NO_MEM : ESP_OK;
     }
     if(!strcmp(verb,"DBG_HEAP"))return heap_state(out,cap);
+    if(!strcmp(verb,"DBG_SDLAYOUT")){
+        extern esp_err_t ouse_board_sd_layout(char *,size_t) __attribute__((weak));
+        return ouse_board_sd_layout ? ouse_board_sd_layout(out,cap) : ESP_ERR_NOT_SUPPORTED;
+    }
+    if(!strcmp(verb,"DBG_SDFORMAT")){
+        extern esp_err_t ouse_board_sd_format(const char *) __attribute__((weak));
+        esp_err_t error=ouse_board_sd_format ? ouse_board_sd_format(payload) : ESP_ERR_NOT_SUPPORTED;
+        if(error==ESP_OK)snprintf(out,cap,"formatted=FAT32");
+        return error;
+    }
+    if(!strcmp(verb,"DBG_SD")){
+        ouse_sd_state_t state;esp_err_t error=ouse_sd_get(&state);if(error!=ESP_OK)return error;
+        ouse_files_state_t files;ouse_files_get(&files);
+        int length=snprintf(out,cap,"probing=%u,detected=%u,readable=%u,capacity=%llu,sector=%lu,name=%.7s,error=%s,mounted=%u,ready=%u,files=%u,free=%llu,fs_error=%s,mount_result=%d",
+            state.probing,state.detected,state.readable,(unsigned long long)state.capacity_bytes,
+            (unsigned long)state.sector_bytes,state.name,esp_err_to_name(state.error),files.mounted,files.ready,files.count,(unsigned long long)files.free_bytes,esp_err_to_name(files.error),files.mount_result);
+        return length<0 || (size_t)length>=cap ? ESP_ERR_NO_MEM : ESP_OK;
+    }
     if(!strcmp(verb,"DBG_USB")){
         ouse_usb_state_t s;ouse_usb_get(&s);ouse_audio_state_t a;ouse_audio_get(&a);
         extern void ouse_usb_driver_diag(uint32_t*,uint32_t*,uint32_t*);uint32_t packets,bytes,feedback;ouse_usb_driver_diag(&packets,&bytes,&feedback);
@@ -319,6 +338,28 @@ esp_err_t ouse_debug_command(const char *verb,const char *payload,char *out,size
             s.mounted,s.suspended,s.audio_enabled,s.speaker,s.microphone,s.audio_running,(unsigned long)s.audio_task,s.error,a.volume,a.muted,
             (unsigned long)s.speaker_samples,(unsigned long)s.speaker_nonzero,(unsigned long)s.speaker_peak,(unsigned long)s.underruns,(unsigned long)s.overruns,(unsigned long)packets,(unsigned long)bytes,(unsigned long)feedback);
         return n<0 || (size_t)n>=cap ? ESP_ERR_NO_MEM : ESP_OK;
+    }
+    if(!strcmp(verb,"DBG_FINFO")){
+        size_t size;uint32_t crc;esp_err_t error=ouse_files_checksum(payload,&size,&crc);
+        if(error==ESP_OK)snprintf(out,cap,"%u:%08lx",(unsigned)size,(unsigned long)crc);
+        return error;
+    }
+    if(!strcmp(verb,"DBG_FBEGIN")){
+        char path[128];unsigned size;unsigned long crc;int used=0;
+        if(sscanf(payload,"%127[^:]:%u:%lx%n",path,&size,&crc,&used)!=3 || payload[used])return ESP_ERR_INVALID_ARG;
+        esp_err_t error=ouse_files_upload_begin(path,size,(uint32_t)crc);if(error==ESP_OK)snprintf(out,cap,"ready=1");return error;
+    }
+    if(!strcmp(verb,"DBG_FDATA")){
+        unsigned offset;int used=0;unsigned char data[512];size_t length;
+        if(sscanf(payload,"%x:%n",&offset,&used)!=1 || !used || !ouse_hex_decode(payload+used,data,sizeof(data),&length))return ESP_ERR_INVALID_ARG;
+        esp_err_t error=ouse_files_upload_data(offset,data,length);if(error==ESP_OK)snprintf(out,cap,"%u",offset+(unsigned)length);return error;
+    }
+    if(!strcmp(verb,"DBG_FEND")){esp_err_t error=ouse_files_upload_end();if(error==ESP_OK)snprintf(out,cap,"saved=1");return error;}
+    if(!strcmp(verb,"DBG_FABORT")){
+        ouse_files_upload_abort();
+        esp_err_t error=!strcmp(payload,"-") ? ESP_OK : ouse_files_discard_partial(payload);
+        if(error==ESP_OK)snprintf(out,cap,"aborted=1");
+        return error;
     }
     if(!strcmp(verb,"DBG_CHECK")){
         if(!heap_caps_check_integrity_all(true))return ESP_FAIL;
@@ -389,10 +430,12 @@ esp_err_t ouse_debug_command(const char *verb,const char *payload,char *out,size
 }
 void ouse_debug_poll(void)
 {
+    ouse_files_upload_poll();
     static bool disabled;
     if(ouse_system_debug_enabled()){disabled=false;return;}
     if(disabled)return;
     if(call_ui(U_RESET)!=ESP_OK)return;
+    ouse_files_upload_abort();
     (void)idle_wait(true);
     free(resource);resource=NULL;resource_size=0;
     disabled=true;

@@ -8,6 +8,7 @@ static struct {
     ouse_power_state_t power;
     ouse_audio_state_t audio;
     ouse_wifi_state_t wifi;
+    ouse_sd_state_t sd;
     ouse_audio_request_t audio_request;
     ouse_wifi_request_t wifi_request;
     ouse_device_save_state_t save;
@@ -35,6 +36,12 @@ void ouse_devices_get_config(ouse_device_config_t *config) {lock();*config=devic
 GET(ouse_power_get,power,ouse_power_state_t)
 GET(ouse_audio_get,audio,ouse_audio_state_t)
 GET(ouse_wifi_get,wifi,ouse_wifi_state_t)
+GET(ouse_sd_get,sd,ouse_sd_state_t)
+void ouse_devices_publish_sd(const ouse_sd_state_t *state)
+{
+    if(!state)return;
+    lock();devices.sd=*state;devices.sd.name[sizeof(devices.sd.name)-1]=0;unlock();
+}
 uint32_t ouse_devices_revision(unsigned group) {lock();uint32_t r=group==0 ? devices.power.revision : group==1 ? devices.audio.revision : devices.wifi.revision;unlock();return r;}
 void ouse_devices_set_available(unsigned group,bool available,esp_err_t error)
 {

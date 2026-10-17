@@ -14,8 +14,8 @@
 extern "C" {
 #endif
 
-#define OUSE_CORE_VERSION "0.15.0"
-#define OUSE_CORE_API_VERSION 16
+#define OUSE_CORE_VERSION "0.17.0"
+#define OUSE_CORE_API_VERSION 18
 
 // Immutable board specifications; these describe hardware, not current usage.
 typedef struct {

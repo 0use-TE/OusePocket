@@ -105,16 +105,18 @@ uint32_t ouse_widget_app_color(const char *id)
 lv_obj_t *ouse_widget_app_icon(lv_obj_t *parent,const ouse_app_info_t *info,int size)
 {
     if(!info->icon_image)return ouse_widget_icon(parent,info->icon,size,ouse_widget_app_color(info->id));
-    // The application supplies all icon pixels, including alpha. Keep a fixed
-    // dp box and preserve aspect ratio without adding the system symbol/tile.
-    lv_obj_t *image=lv_image_create(parent);
+    lv_obj_t *frame=ouse_widget_box(parent,OUSE_STYLE_DESKTOP,size/4);
+    lv_obj_set_size(frame,ouse_ui_dp(size),ouse_ui_dp(size));
+    lv_obj_set_style_bg_opa(frame,LV_OPA_TRANSP,0);
+    lv_obj_set_style_clip_corner(frame,true,0);
+    lv_obj_t *image=lv_image_create(frame);
     lv_obj_remove_style_all(image);
     lv_obj_remove_flag(image,LV_OBJ_FLAG_CLICKABLE|LV_OBJ_FLAG_SCROLLABLE);
     lv_image_set_src(image,info->icon_image);
     lv_obj_set_size(image,ouse_ui_dp(size),ouse_ui_dp(size));
     lv_image_set_inner_align(image,LV_IMAGE_ALIGN_CONTAIN);
     lv_image_set_antialias(image,true);
-    return image;
+    return frame;
 }
 void ouse_widget_app_name(lv_obj_t *label,const ouse_app_info_t *info)
 {

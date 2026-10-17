@@ -15,7 +15,7 @@
 #include "sdkconfig.h"
 #include <string.h>
 
-typedef struct { uint8_t brightness, theme, locale, font_percent; bool debug; uint32_t sequence; } save_request_t;
+typedef struct { uint8_t brightness, theme, locale, font_percent, navigation; bool debug; uint32_t sequence; } save_request_t;
 static QueueHandle_t requests;
 static SemaphoreHandle_t producers;
 static portMUX_TYPE state_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -49,12 +49,13 @@ static void settings_worker(void *argument)
             if (error == ESP_OK) error = nvs_set_u8(handle, "theme", request.theme);
             if (error == ESP_OK) error = nvs_set_u8(handle, "locale", request.locale);
             if (error == ESP_OK) error = nvs_set_u8(handle, "debug", request.debug);
+            if (error == ESP_OK) error = nvs_set_u8(handle, "navigation", request.navigation);
             if (error == ESP_OK) error = nvs_commit(handle);
             nvs_close(handle);
         }
         if(task_id)ouse_task_finish(task_id,error,false);
         portENTER_CRITICAL(&state_lock);
-        if (error == ESP_OK) { settings.saved_brightness = request.brightness; settings.saved_theme = request.theme; settings.saved_locale=request.locale; settings.saved_font_percent=request.font_percent; settings.saved_debug=request.debug; }
+        if (error == ESP_OK) { settings.saved_brightness = request.brightness; settings.saved_theme = request.theme; settings.saved_locale=request.locale; settings.saved_font_percent=request.font_percent; settings.saved_debug=request.debug; settings.saved_navigation=request.navigation; }
         if (sequence == request.sequence) {
             settings.pending = false;
             settings.last_error = error;
@@ -97,6 +98,10 @@ esp_err_t ouse_system_init(uint8_t *brightness)
         esp_err_t debug_error=nvs_get_u8(handle,"debug",&debug);
         if(debug_error==ESP_OK && debug<=1)settings.requested_debug=settings.saved_debug=debug;
         if(debug_error!=ESP_OK && debug_error!=ESP_ERR_NVS_NOT_FOUND){nvs_close(handle);settings.last_error=debug_error;return debug_error;}
+        uint8_t navigation=0;
+        esp_err_t navigation_error=nvs_get_u8(handle,"navigation",&navigation);
+        if(navigation_error==ESP_OK && navigation<=1)settings.requested_navigation=settings.saved_navigation=navigation;
+        if(navigation_error!=ESP_OK && navigation_error!=ESP_ERR_NVS_NOT_FOUND){nvs_close(handle);settings.last_error=navigation_error;return navigation_error;}
         nvs_close(handle);
         if (theme_error!=ESP_OK && theme_error!=ESP_ERR_NVS_NOT_FOUND) { settings.last_error=theme_error; return theme_error; }
         if (error == ESP_OK && saved >= 10 && saved <= 100) {
@@ -122,7 +127,7 @@ esp_err_t ouse_system_init(uint8_t *brightness)
     return ESP_OK;
 }
 
-static esp_err_t request_settings(int brightness, int theme, int locale, int font_percent,int debug)
+static esp_err_t request_settings(int brightness, int theme, int locale, int font_percent,int debug,int navigation)
 {
     if (!requests) return ESP_ERR_INVALID_STATE;
     if(!ouse_tasks_submission_begin())return ESP_ERR_INVALID_STATE;
@@ -133,17 +138,19 @@ static esp_err_t request_settings(int brightness, int theme, int locale, int fon
     if (locale<0) locale=settings.requested_locale;
     if (font_percent<0) font_percent=settings.requested_font_percent;
     if(debug<0)debug=settings.requested_debug;
-    if (!settings.pending && settings.last_error == ESP_OK && settings.saved_brightness == brightness && settings.saved_theme == theme && settings.saved_locale==locale && settings.saved_font_percent==font_percent && settings.saved_debug==(bool)debug) {
+    if(navigation<0)navigation=settings.requested_navigation;
+    if (!settings.pending && settings.last_error == ESP_OK && settings.saved_brightness == brightness && settings.saved_theme == theme && settings.saved_locale==locale && settings.saved_font_percent==font_percent && settings.saved_debug==(bool)debug && settings.saved_navigation==navigation) {
         portEXIT_CRITICAL(&state_lock);
         xSemaphoreGive(producers);
         ouse_tasks_submission_end();
         return ESP_OK;
     }
-    save_request_t request = {.brightness = (uint8_t)brightness, .theme = (uint8_t)theme, .locale=(uint8_t)locale, .font_percent=(uint8_t)font_percent, .debug=debug!=0, .sequence = ++sequence};
+    save_request_t request = {.brightness = (uint8_t)brightness, .theme = (uint8_t)theme, .locale=(uint8_t)locale, .font_percent=(uint8_t)font_percent, .debug=debug!=0, .navigation=(uint8_t)navigation, .sequence = ++sequence};
     settings.requested_brightness = (uint8_t)brightness;
     settings.requested_theme = (uint8_t)theme;
     settings.requested_locale=(uint8_t)locale; settings.requested_font_percent=(uint8_t)font_percent;
     settings.requested_debug=debug!=0;
+    settings.requested_navigation=(uint8_t)navigation;
     settings.pending = true;
     settings.last_error = ESP_OK;
     portEXIT_CRITICAL(&state_lock);
@@ -156,32 +163,37 @@ static esp_err_t request_settings(int brightness, int theme, int locale, int fon
 esp_err_t ouse_system_request_brightness(uint8_t brightness)
 {
     if (brightness<10 || brightness>100) return ESP_ERR_INVALID_ARG;
-    return request_settings(brightness,-1,-1,-1,-1);
+    return request_settings(brightness,-1,-1,-1,-1,-1);
 }
 esp_err_t ouse_system_request_theme(uint8_t theme)
 {
     if (theme>1) return ESP_ERR_INVALID_ARG;
-    return request_settings(-1,theme,-1,-1,-1);
+    return request_settings(-1,theme,-1,-1,-1,-1);
 }
 esp_err_t ouse_system_request_settings(uint8_t brightness, uint8_t theme)
 {
     if (brightness<10 || brightness>100 || theme>1) return ESP_ERR_INVALID_ARG;
-    return request_settings(brightness,theme,-1,-1,-1);
+    return request_settings(brightness,theme,-1,-1,-1,-1);
 }
 
 esp_err_t ouse_system_request_ui(uint8_t locale,uint8_t font_percent)
 {
     if (locale>1 || font_percent!=100) return ESP_ERR_INVALID_ARG;
-    return request_settings(-1,-1,locale,font_percent,-1);
+    return request_settings(-1,-1,locale,font_percent,-1,-1);
 }
 
 esp_err_t ouse_system_request_debug(bool enabled)
 {
 #if CONFIG_OUSE_DEVICE_DEBUG
-    return request_settings(-1,-1,-1,-1,enabled);
+    return request_settings(-1,-1,-1,-1,enabled,-1);
 #else
     (void)enabled;return ESP_ERR_NOT_SUPPORTED;
 #endif
+}
+esp_err_t ouse_system_request_navigation(uint8_t mode)
+{
+    if(mode>1)return ESP_ERR_INVALID_ARG;
+    return request_settings(-1,-1,-1,-1,-1,mode);
 }
 bool ouse_system_debug_enabled(void)
 {

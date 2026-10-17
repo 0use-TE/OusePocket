@@ -5,6 +5,7 @@
 #include "ouse_shell.h"
 #include "ouse_widgets.h"
 #include "ouse_devices.h"
+#include "ouse_files.h"
 #include "ouse_device_ui.h"
 #include "ouse_dialog.h"
 #include "ouse_screen.h"
@@ -36,6 +37,8 @@ typedef struct {
     lv_obj_t *grid,*display_page,*appearance_page,*language_page,*account_page;
     lv_obj_t *theme_value,*theme_switch,*display_value,*language_value;
     lv_obj_t *locale_marks[2],*device_pages[3];
+    lv_obj_t *navigation_marks[2];
+    lv_obj_t *sd_value;
     unsigned settings_page;
     size_t app_count;
     lv_timer_t *status_timer;
@@ -114,6 +117,7 @@ static void preference_labels(void)
     theme_label();
     if(core.language_value)ouse_ui_text(core.language_value,ouse_ui_locale() ? "English" : "简体中文");
     for(unsigned i=0;i<2;++i)if(core.locale_marks[i])lv_label_set_text(core.locale_marks[i],ouse_ui_locale()==i ? LV_SYMBOL_OK : "");
+    for(unsigned i=0;i<2;++i)if(core.navigation_marks[i])lv_label_set_text(core.navigation_marks[i],ouse_shell_navigation()==i ? LV_SYMBOL_OK : "");
 }
 static void retry_settings(void);
 static void settings_error(const char *message) {ouse_dialog_show(message,"重试",retry_settings);}
@@ -162,6 +166,16 @@ static void refresh_status(lv_timer_t *timer)
     if(core.display_value){ouse_ui_unbind_text(core.display_value);lv_label_set_text_fmt(core.display_value,"%u%%",core.brightness);}
     ouse_device_ui_refresh();
     ouse_health_ui_refresh();
+    if(core.sd_value) {
+        ouse_sd_state_t sd={0};ouse_sd_get(&sd);
+        ouse_ui_unbind_text(core.sd_value);
+        if(sd.probing)lv_label_set_text(core.sd_value,ouse_ui_locale() ? "Detecting" : "正在检测");
+        else if(sd.detected){ouse_files_state_t files;ouse_files_get(&files);
+            lv_label_set_text_fmt(core.sd_value,"%s · %llu MiB\n%s · %llu MiB",sd.name,(unsigned long long)(sd.capacity_bytes/(1024*1024)),
+                files.ready ? (ouse_ui_locale() ? "Free" : "可用") : (ouse_ui_locale() ? "Unavailable" : "文件系统不可用"),(unsigned long long)(files.free_bytes/(1024*1024)));
+        }
+        else lv_label_set_text_fmt(core.sd_value,"%s: %s",ouse_ui_locale() ? "Not identified" : "未识别",esp_err_to_name(sd.error));
+    }
 }
 static void retry_settings(void)
 {
@@ -318,7 +332,7 @@ static void account_header(lv_obj_t *parent,bool navigation)
         lv_obj_set_style_text_font(arrow,&lv_font_montserrat_24,0);ouse_theme_apply(arrow,OUSE_STYLE_MUTED,0);
     }
 }
-static void specification(lv_obj_t *group,const char *title,const char *value)
+static lv_obj_t *specification(lv_obj_t *group,const char *title,const char *value)
 {
     lv_obj_t *row=ouse_widget_box(group,OUSE_STYLE_PANEL,0);
     lv_obj_set_width(row,LV_PCT(100));lv_obj_set_height(row,LV_SIZE_CONTENT);
@@ -326,6 +340,7 @@ static void specification(lv_obj_t *group,const char *title,const char *value)
     lv_obj_set_flex_flow(row,LV_FLEX_FLOW_COLUMN);
     lv_obj_t *label=ouse_widget_text(row,title,13);lv_obj_set_width(label,LV_PCT(100));ouse_theme_apply(label,OUSE_STYLE_MUTED,0);
     label=ouse_widget_text(row,value && *value ? value : "未知",16);lv_obj_set_width(label,LV_PCT(100));
+    return label;
 }
 static void hardware_page(lv_obj_t *parent)
 {
@@ -341,6 +356,7 @@ static void hardware_page(lv_obj_t *parent)
     specification(group,"处理器",h ? h->processor : NULL);
     specification(group,"运行内存",h ? h->memory : NULL);
     specification(group,"机身存储",h ? h->storage : NULL);
+    core.sd_value=specification(group,"SD 卡","正在检测");
     section(parent,"硬件");group=settings_card(parent);
     specification(group,"屏幕",h ? h->display : NULL);
     specification(group,"触摸",h ? h->touch : NULL);
@@ -360,6 +376,13 @@ static void debug_changed(lv_event_t *event)
         else lv_obj_remove_state(core.debug_switch,LV_STATE_CHECKED);
         ouse_dialog_show("操作失败，请重试",NULL,NULL);
     }
+}
+static void choose_navigation(lv_event_t *event)
+{
+    unsigned mode=(unsigned)(uintptr_t)lv_event_get_user_data(event);
+    if(ouse_system_request_navigation((uint8_t)mode)!=ESP_OK){settings_error("设置未能保存，请重试");return;}
+    ouse_shell_set_navigation(mode);
+    preference_labels();
 }
 static esp_err_t settings_open(lv_obj_t *root,void *context)
 {
@@ -395,6 +418,9 @@ static esp_err_t settings_open(lv_obj_t *root,void *context)
     lv_obj_delete(lv_obj_get_child(row,-1));
     core.theme_switch=ouse_widget_switch(row);
     lv_obj_add_event_cb(core.theme_switch,toggle_theme,LV_EVENT_VALUE_CHANGED,NULL);
+    section(core.appearance_page,"系统导航");
+    core.navigation_marks[0]=choice(core.appearance_page,"全面屏手势",choose_navigation,0);
+    core.navigation_marks[1]=choice(core.appearance_page,"三键导航",choose_navigation,1);
     core.language_page=settings_column(root);page_heading(core.language_page,"语言",true);
     section(core.language_page,"语言");
     core.locale_marks[0]=choice(core.language_page,"简体中文",choose_language,0);
@@ -426,6 +452,8 @@ static void settings_close(void *context)
     core.display_page=core.appearance_page=core.language_page=core.account_page=NULL;
     core.health_page=core.usb_page=NULL;ouse_health_ui_close();
     core.developer_page=core.debug_switch=NULL;
+    memset(core.navigation_marks,0,sizeof(core.navigation_marks));
+    core.sd_value=NULL;
     ouse_device_ui_close();memset(core.device_pages,0,sizeof(core.device_pages));memset(core.locale_marks,0,sizeof(core.locale_marks));
     core.settings = NULL; core.info = NULL; core.slider = NULL;
     core.brightness_text = NULL;
@@ -451,6 +479,14 @@ static void launcher_scrolled(lv_event_t *event)
     core.launcher_page=page;
     for(unsigned index=0;index<core.launcher_pages;++index)
         if(core.page_dots[index])lv_obj_set_style_bg_opa(core.page_dots[index],index==page ? LV_OPA_COVER : LV_OPA_30,0);
+}
+static void navigation_layout(int navigation_height)
+{
+    int height=lv_obj_get_height(core.screen);
+    lv_obj_set_height(core.home,height-ouse_ui_dp(40)-navigation_height);
+    lv_obj_set_height(core.grid,height-ouse_ui_dp(70)-navigation_height);
+    ouse_apps_resize(height-ouse_ui_dp(40)-navigation_height);
+    rebuild_launcher();
 }
 void ouse_core_launcher_state(unsigned *page,unsigned *pages)
 {
@@ -582,7 +618,7 @@ esp_err_t ouse_core_start(const ouse_core_config_t *config)
     ouse_apps_seal();
     rebuild_launcher();
     ouse_shell_config_t shell = {.screen=core.screen,.touch=core.port.touch,.brightness=shell_brightness,
-        .set_brightness=apply_brightness,.save_brightness=shell_save,.settings_state=shell_settings_state,.back=shell_back,.open_settings=shell_settings_page};
+        .set_brightness=apply_brightness,.save_brightness=shell_save,.settings_state=shell_settings_state,.back=shell_back,.open_settings=shell_settings_page,.navigation_changed=navigation_layout};
     ouse_screen_init(port,core.brightness);
     ouse_shell_init(&shell);
     ouse_dialog_init(core.screen);

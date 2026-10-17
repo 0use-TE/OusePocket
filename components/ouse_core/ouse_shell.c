@@ -33,6 +33,11 @@ static OUSE_PSRAM_BSS struct {
     quick_tile_t wifi_tile,power_tile,sound_tile,theme_tile;
     lv_obj_t *recents,*strip,*clear,*cards[OUSE_APP_CAPACITY],*card_titles[OUSE_APP_CAPACITY];
     lv_obj_t *shield,*back_indicator,*back_arrow,*flight,*flight_image,*pill;
+    lv_obj_t *bottom_guard;
+    lv_obj_t *navigation_buttons[3],*navigation_icons[3];
+    unsigned navigation;
+    lv_point_t navigation_start;
+    bool navigation_cancelled;
     lv_image_dsc_t images[OUSE_APP_CAPACITY],flight_source;
     ouse_app_info_t items[OUSE_APP_CAPACITY];
     lv_timer_t *gesture_timer;
@@ -80,6 +85,10 @@ static void overlay_status(bool overlay)
     lv_obj_set_style_bg_color(shell.status,color,0);
     if(shell.nav)lv_obj_set_style_bg_color(shell.nav,color,0);
     lv_obj_move_foreground(shell.status);
+    if(shell.nav && !visible(shell.quick_layer)) {
+        if(shell.bottom_guard && !shell.navigation)lv_obj_move_foreground(shell.bottom_guard);
+        lv_obj_move_foreground(shell.nav);
+    }
 }
 static void clear_cards(void)
 {
@@ -143,6 +152,7 @@ static void pill_motion(void *unused,int32_t offset)
 { (void)unused;if(shell.pill)lv_obj_set_style_translate_y(shell.pill,offset,0); }
 static void settle_pill(bool recent)
 {
+    if(shell.navigation)return;
     lv_anim_delete(shell.pill,pill_motion);
     lv_anim_t animation;lv_anim_init(&animation);lv_anim_set_var(&animation,shell.pill);
     lv_anim_set_exec_cb(&animation,pill_motion);
@@ -542,6 +552,12 @@ static void layout_quick(void)
 static void refresh(lv_timer_t *timer)
 {
     (void)timer;char time[8],date[64];ouse_navigation_clock(time);
+    if(shell.navigation && !shell.g.claimed && !shell.card_animating)lv_obj_move_foreground(shell.nav);
+    lv_color_t navigation_color=lv_color_hex(ouse_theme_colors().text);
+    for(unsigned index=0;index<3;++index)if(shell.navigation_icons[index]) {
+        if(index==0)lv_obj_set_style_line_color(shell.navigation_icons[index],navigation_color,0);
+        else lv_obj_set_style_border_color(shell.navigation_icons[index],navigation_color,0);
+    }
     // Keep foreground chrome consistent even for apps without theme callbacks.
     if(!visible(shell.recents) && !visible(shell.flight) && !visible(shell.quick_layer))overlay_status(false);
     lv_label_set_text(shell.clock,time);
@@ -607,7 +623,59 @@ static void back_action(void)
     else shell.config.back();
 }
 static void home_tap(lv_event_t *event)
-{ (void)event;if(ouse_dialog_active()||ouse_device_ui_modal())return;ouse_shell_foreground();(void)ouse_app_background(); }
+{
+    if(event) {
+        lv_point_t point;lv_indev_get_point(shell.config.touch,&point);
+        if(shell.navigation || abs(point.x-shell.g.start.x)+abs(point.y-shell.g.start.y)>D(8))return;
+    }
+    if(ouse_dialog_active()||ouse_device_ui_modal())return;
+    ouse_shell_foreground();(void)ouse_app_background();
+}
+static void navigation_clicked(lv_event_t *event)
+{
+    lv_event_code_t code=lv_event_get_code(event);
+    if(code==LV_EVENT_PRESSED){lv_indev_get_point(shell.config.touch,&shell.navigation_start);shell.navigation_cancelled=false;return;}
+    if(code==LV_EVENT_PRESSING || code==LV_EVENT_RELEASED) {
+        lv_point_t point;lv_indev_get_point(shell.config.touch,&point);
+        if(abs(point.x-shell.navigation_start.x)+abs(point.y-shell.navigation_start.y)>D(10))shell.navigation_cancelled=true;
+        return;
+    }
+    if(code!=LV_EVENT_CLICKED || shell.navigation_cancelled)return;
+    unsigned action=(unsigned)(uintptr_t)lv_event_get_user_data(event);
+    if(action==0){back_action();return;}
+    if(ouse_ime_active())ouse_ime_hide();
+    if(ouse_dialog_active())ouse_dialog_dismiss();
+    if(ouse_device_ui_modal())ouse_device_ui_close_modal();
+    if(action==1)home_tap(NULL);
+    else if(visible(shell.recents))dismiss_recent(NULL);
+    else {ouse_shell_foreground();show_recents();}
+}
+static void draw_navigation_back(lv_event_t *event)
+{
+    lv_area_t bounds;lv_obj_get_coords(lv_event_get_target_obj(event),&bounds);
+    lv_point_precise_t points[]={
+        {bounds.x1+D(14),bounds.y1},{bounds.x1,bounds.y1+D(8)},
+        {bounds.x1+D(14),bounds.y1+D(16)},{bounds.x1+D(14),bounds.y1}
+    };
+    lv_draw_line_dsc_t line;lv_draw_line_dsc_init(&line);
+    line.color=lv_color_hex(ouse_theme_colors().text);line.width=D(2);
+    for(unsigned index=0;index<3;++index){line.p1=points[index];line.p2=points[index+1];lv_draw_line(lv_event_get_layer(event),&line);}
+}
+unsigned ouse_shell_navigation(void) { return shell.navigation; }
+void ouse_shell_set_navigation(unsigned mode)
+{
+    if(mode>1 || !shell.nav)return;
+    ouse_shell_foreground();
+    shell.navigation=mode;
+    lv_anim_delete(shell.pill,pill_motion);pill_motion(NULL,0);
+    int height=D(mode ? 40 : 24);
+    rect(shell.nav,0,shell.height-height,shell.width,height);
+    lv_obj_set_height(shell.recents,shell.height-height);
+    if(mode)hide(shell.pill);else show(shell.pill);
+    if(mode)hide(shell.bottom_guard);else show(shell.bottom_guard);
+    for(unsigned index=0;index<3;++index){if(mode)show(shell.navigation_buttons[index]);else hide(shell.navigation_buttons[index]);}
+    if(shell.config.navigation_changed)shell.config.navigation_changed(height);
+}
 static void gesture_step(lv_timer_t *timer)
 {
     (void)timer;
@@ -721,6 +789,7 @@ static void pointer_event(lv_event_t *event)
     lv_indev_get_point(shell.config.touch,&shell.g.start);shell.g.last=shell.g.anchor=shell.g.start;
     shell.g.last_move=shell.g.last_tick=lv_tick_get();
     lv_point_t p=shell.g.start;
+    if(shell.navigation && p.y>=shell.height-D(40))return;
     bool quick=visible(shell.quick_layer),recent=visible(shell.recents);
     if((ouse_dialog_active()||ouse_device_ui_modal()) && !(p.x<=D(24)||p.x>=shell.width-D(24)))return;
     lv_obj_t *target=lv_indev_get_active_obj();
@@ -735,8 +804,8 @@ static void pointer_event(lv_event_t *event)
         shell.g.kind=G_CLOSE;shell.g.sheet_start=lv_obj_get_y(shell.sheet);
     } else if(quick && !control) {
         shell.g.kind=G_SWITCH;
-    } else if(!quick && p.y>=shell.height-D(36)){shell.g.kind=G_BOTTOM;shell.g.from_recents=recent;}
-    else if(!control && p.y>D(40) && p.y<shell.height-D(28) && (p.x<=D(24) || p.x>=shell.width-D(24))) {
+    } else if(!shell.navigation && !quick && p.y>=shell.height-D(36)){shell.g.kind=G_BOTTOM;shell.g.from_recents=recent;}
+    else if(!shell.navigation && !control && p.y>D(40) && p.y<shell.height-D(28) && (p.x<=D(24) || p.x>=shell.width-D(24))) {
         shell.g.kind=G_BACK;shell.g.left=p.x<shell.width/2;
         lv_label_set_text(shell.back_arrow,shell.g.left ? LV_SYMBOL_LEFT : LV_SYMBOL_RIGHT);
         lv_anim_delete(shell.back_indicator,back_motion);
@@ -816,9 +885,34 @@ void ouse_shell_init(const ouse_shell_config_t *config)
     rect(handle,shell.width/2-D(28),shell.height-D(18),D(56),D(4));
     hide(shell.notification_panel);
     layout_quick();move_quick(NULL,-shell.quick_height);hide(shell.quick_layer);
+    shell.bottom_guard=ouse_widget_box(config->screen,OUSE_STYLE_DESKTOP,0);
+    rect(shell.bottom_guard,0,shell.height-D(36),shell.width,D(36));
+    lv_obj_set_style_bg_opa(shell.bottom_guard,LV_OPA_TRANSP,0);
+    lv_obj_add_flag(shell.bottom_guard,LV_OBJ_FLAG_CLICKABLE|LV_OBJ_FLAG_PRESS_LOCK);
     lv_obj_t *nav=ouse_widget_box(config->screen,OUSE_STYLE_DESKTOP,0);shell.nav=nav;rect(nav,0,shell.height-D(24),shell.width,D(24));
     lv_obj_add_flag(nav,LV_OBJ_FLAG_CLICKABLE);lv_obj_add_event_cb(nav,home_tap,LV_EVENT_CLICKED,NULL);
     lv_obj_t *pill=ouse_widget_box(nav,OUSE_STYLE_PILL,2);shell.pill=pill;rect(pill,shell.width/2-D(32),D(12),D(64),D(4));
+    for(unsigned index=0;index<3;++index) {
+        lv_obj_t *button=ouse_widget_box(nav,OUSE_STYLE_DESKTOP,0);shell.navigation_buttons[index]=button;
+        rect(button,(int)index*shell.width/3,0,shell.width/3,D(40));
+        lv_obj_set_style_bg_opa(button,LV_OPA_TRANSP,0);
+        lv_obj_add_flag(button,LV_OBJ_FLAG_CLICKABLE);
+        ouse_theme_apply(button,OUSE_STYLE_PRESSED,LV_STATE_PRESSED);
+        lv_obj_set_style_bg_opa(button,LV_OPA_COVER,LV_STATE_PRESSED);
+        lv_obj_add_event_cb(button,navigation_clicked,LV_EVENT_ALL,(void *)(uintptr_t)index);
+        lv_obj_t *icon;
+        if(index==0) {
+            icon=ouse_widget_box(button,OUSE_STYLE_DESKTOP,0);
+            lv_obj_set_size(icon,D(16),D(18));lv_obj_set_style_bg_opa(icon,LV_OPA_TRANSP,0);
+            lv_obj_add_event_cb(icon,draw_navigation_back,LV_EVENT_DRAW_MAIN,NULL);
+        } else {
+            icon=ouse_widget_box(button,OUSE_STYLE_DESKTOP,index==1 ? 100 : 2);
+            lv_obj_set_size(icon,D(16),D(16));lv_obj_set_style_bg_opa(icon,LV_OPA_TRANSP,0);
+            lv_obj_set_style_border_width(icon,D(2),0);
+        }
+        shell.navigation_icons[index]=icon;lv_obj_center(icon);
+        lv_obj_remove_flag(icon,LV_OBJ_FLAG_CLICKABLE);hide(button);
+    }
     shell.flight=ouse_widget_box(config->screen,OUSE_STYLE_APP,24);lv_obj_set_style_clip_corner(shell.flight,true,0);
     shell.flight_image=lv_image_create(shell.flight);lv_obj_set_size(shell.flight_image,LV_PCT(100),LV_PCT(100));
     lv_image_set_inner_align(shell.flight_image,LV_IMAGE_ALIGN_STRETCH);lv_obj_remove_flag(shell.flight_image,LV_OBJ_FLAG_CLICKABLE);hide(shell.flight);
@@ -830,4 +924,7 @@ void ouse_shell_init(const ouse_shell_config_t *config)
     shell.gesture_timer=lv_timer_create(gesture_step,16,NULL);lv_timer_pause(shell.gesture_timer);
     lv_indev_add_event_cb(config->touch,pointer_event,LV_EVENT_PRESSED,NULL);lv_indev_add_event_cb(config->touch,pointer_event,LV_EVENT_RELEASED,NULL);
     lv_timer_create(refresh,250,NULL);
+    ouse_settings_state_t settings={0};
+    if(config->settings_state)config->settings_state(&settings);
+    ouse_shell_set_navigation(settings.requested_navigation);
 }
