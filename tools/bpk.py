@@ -330,6 +330,7 @@ class Client:
 
     def request(self, verb, payload="-", timeout=4, attempts=3):
         self.sequence += 1
+        diagnostics = []
         request = wire(self.token, self.sequence, verb, payload)
         for _ in range(attempts):
             self.serial.write(request)
@@ -345,8 +346,13 @@ class Client:
                     if reply:
                         status, result = reply
                         if status == "ERR":
-                            raise RuntimeError(f"{verb}: {result}")
+                            detail = "\nDevice diagnostics:\n" + "\n".join(diagnostics) if diagnostics else ""
+                            raise RuntimeError(f"{verb}: {result}{detail}")
                         return result
+                    text = re.sub(r"\x1b\[[0-9;]*m", "", line.decode("utf-8", errors="replace")).strip()
+                    if "OuseUSB:" in text or "OuseJS:" in text:
+                        diagnostics.append(text[:512])
+                        diagnostics = diagnostics[-12:]
                 if len(self.pending) > 8192:
                     self.pending.clear()
         raise TimeoutError(f"{verb}: no reply; check COM port, close serial monitor, wait for OuseUSB READY")
