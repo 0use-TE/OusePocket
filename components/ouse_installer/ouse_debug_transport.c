@@ -33,7 +33,7 @@ extern esp_err_t ouse_board_debug_flush_wait(int enabled, bool *current_enabled,
 
 // Exclusively owned by the existing serial worker. UI callbacks never outlive
 // this static context, including when the caller times out on the PC.
-enum { U_STATE,U_TOUCH,U_HOME,U_OPEN,U_TREE,U_SNAPSHOT,U_FREE,U_UNIT,U_LCD,U_FLUSH,U_REPAINT,U_RUNTIME,U_IME,U_CLOSE };
+enum { U_STATE,U_TOUCH,U_HOME,U_OPEN,U_TREE,U_SNAPSHOT,U_FREE,U_UNIT,U_LCD,U_FLUSH,U_REPAINT,U_RUNTIME,U_IME,U_CLOSE,U_RESET };
 static struct {int action,x,y,down;const char *id;char text[1024];
     esp_err_t error;ouse_debug_image_t image;int dpi,dp;bool lcd_enabled,flush_enabled;
     uint32_t lcd_skipped,flush_waits; } request;
@@ -66,7 +66,13 @@ static esp_err_t idle_wait(bool enabled)
 static void run_ui(void *unused)
 {
     (void)unused;request.error=ESP_OK;
+    if(request.action!=U_RESET && !ouse_system_debug_enabled()){request.error=ESP_ERR_INVALID_STATE;xSemaphoreGive(done);return;}
     switch(request.action){
+    case U_RESET:
+        (void)ouse_debug_touch(0,0,false);
+        if(ouse_board_debug_lcd_transfer)(void)ouse_board_debug_lcd_transfer(1,&request.lcd_enabled,&request.lcd_skipped);
+        if(ouse_board_debug_flush_wait)(void)ouse_board_debug_flush_wait(1,&request.flush_enabled,&request.flush_waits);
+        break;
     case U_STATE:request.error=ouse_debug_state(request.text,sizeof(request.text));break;
     case U_TOUCH:request.error=ouse_debug_touch(request.x,request.y,request.down!=0);break;
     case U_HOME:request.error=ouse_debug_home();break;
@@ -160,7 +166,7 @@ static void pointer(int x,int y,bool pressed)
     TEST_ASSERT_EQUAL(ESP_OK,call_ui(U_TOUCH));vTaskDelay(pdMS_TO_TICKS(35));
 }
 static void open_counter(void)
-{ request.id="ouse.counter";TEST_ASSERT_EQUAL(ESP_OK,call_ui(U_OPEN));vTaskDelay(pdMS_TO_TICKS(100)); }
+{ request.id="ouse.settings";TEST_ASSERT_EQUAL(ESP_OK,call_ui(U_OPEN));vTaskDelay(pdMS_TO_TICKS(100)); }
 static void read_state(void) {TEST_ASSERT_EQUAL(ESP_OK,call_ui(U_STATE));}
 static void test_density_and_heap(void)
 {
@@ -188,14 +194,37 @@ static void test_hold_overview_with_jitter(void)
 static void test_short_swipe_cancels(void)
 {
     open_counter();pointer(160,474,true);pointer(160,456,true);pointer(160,456,false);
-    vTaskDelay(pdMS_TO_TICKS(180));read_state();TEST_ASSERT_NOT_NULL(strstr(request.text,"\"active\":\"ouse.counter\""));
+    vTaskDelay(pdMS_TO_TICKS(180));read_state();TEST_ASSERT_NOT_NULL(strstr(request.text,"\"active\":\"ouse.settings\""));
+}
+static void test_overview_exit(void)
+{
+    test_hold_overview_with_jitter();
+    pointer(160,474,true);pointer(160,440,true);pointer(160,390,true);pointer(160,390,false);
+    vTaskDelay(pdMS_TO_TICKS(160));read_state();
+    TEST_ASSERT_NOT_NULL(strstr(request.text,"\"recents\":false"));
+    TEST_ASSERT_NOT_NULL(strstr(request.text,"\"active\":\"\""));
+    TEST_ASSERT_NOT_NULL(strstr(request.text,"ouse.settings"));
+    TEST_ASSERT_NOT_NULL(strstr(request.text,"\"per_page\":12"));
+}
+static void test_developer_gate(void)
+{
+    esp_err_t disabled=ouse_system_request_debug(false);
+    bool blocked=!ouse_system_debug_enabled();
+    char result[64];esp_err_t command=ouse_debug_command("DBG_HEAP","-",result,sizeof(result));
+    esp_err_t restored=ouse_system_request_debug(true);
+    TEST_ASSERT_EQUAL(ESP_OK,restored);
+    TEST_ASSERT_EQUAL(ESP_OK,disabled);
+    TEST_ASSERT_TRUE(blocked);
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE,command);
 }
 static esp_err_t selftest(char *out,size_t cap)
 {
     UnityBegin("ouse-device");
     RUN_TEST(test_density_and_heap);RUN_TEST(test_input_bounds);RUN_TEST(test_swipe_home);
     RUN_TEST(test_hold_overview_with_jitter);RUN_TEST(test_short_swipe_cancels);
-    int failures=UnityEnd();snprintf(out,cap,"tests=5,failures=%d",failures);return ESP_OK;
+    RUN_TEST(test_developer_gate);
+    RUN_TEST(test_overview_exit);
+    int failures=UnityEnd();snprintf(out,cap,"tests=7,failures=%d",failures);return ESP_OK;
 }
 static esp_err_t heap_state(char *out,size_t cap)
 {
@@ -264,6 +293,7 @@ static esp_err_t notices_snapshot(void)
 }
 esp_err_t ouse_debug_command(const char *verb,const char *payload,char *out,size_t cap)
 {
+    if(!ouse_system_debug_enabled())return ESP_ERR_INVALID_STATE;
     if(!strcmp(verb,"DBG_STORAGE")){
         ouse_storage_stats_t s={0};(void)ouse_storage_get_stats(&s);char json[384];
         int n=snprintf(json,sizeof(json),"{\"ready\":%s,\"revision\":%lu,\"totalBytes\":%zu,\"usedBytes\":%zu,\"freeBytes\":%zu,\"packageBytes\":%zu,\"privateBytes\":%zu,\"packageCount\":%u,\"privateApps\":%u,\"lastError\":\"%s\"}",
@@ -356,4 +386,14 @@ esp_err_t ouse_debug_command(const char *verb,const char *payload,char *out,size
     }
     if(!strcmp(verb,"DBG_TEST"))return selftest(out,cap);
     return ESP_ERR_NOT_SUPPORTED;
+}
+void ouse_debug_poll(void)
+{
+    static bool disabled;
+    if(ouse_system_debug_enabled()){disabled=false;return;}
+    if(disabled)return;
+    if(call_ui(U_RESET)!=ESP_OK)return;
+    (void)idle_wait(true);
+    free(resource);resource=NULL;resource_size=0;
+    disabled=true;
 }

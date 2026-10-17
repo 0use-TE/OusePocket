@@ -192,7 +192,7 @@ static esp_err_t command(ouse_frame_t *f,char *result,size_t cap)
     if(!strcmp(f->verb,"HELLO")){
         snprintf(result,cap,"core=%s,storage=%s,max=%u,transport=uart0-921600,installStages=1",ouse_core_version(),storage_ready?"ready":"unavailable",OUSE_BPK_MAX);
 #if CONFIG_OUSE_DEVICE_DEBUG
-        strncat(result,",debug=1",cap-strlen(result)-1);
+        strncat(result,ouse_system_debug_enabled()?",debug=1":",debug=0",cap-strlen(result)-1);
 #endif
         return ESP_OK;
     }
@@ -263,13 +263,16 @@ static void process_line(char *line)
     static uint32_t token,sequence,checksum;static bool cached;
     static char response[OUSE_WIRE_MAX];
     ouse_frame_t frame;if(!ouse_frame_parse(line,&frame))return;
+    static bool previous_debug;
+    bool debug_enabled=ouse_system_debug_enabled();
+    if(debug_enabled!=previous_debug){cached=false;previous_debug=debug_enabled;}
     if(cached && frame.token==token && frame.sequence==sequence){
         if(frame.checksum==checksum){if(upload)activity=esp_timer_get_time();send_response(response);}
         return; // conflicting retransmission never executes
     }
     if(cached && frame.token==token && frame.sequence<sequence)return;
     publish_status(true,recovery_error);
-    char result[1080]="-";esp_err_t error=command(&frame,result,sizeof(result));
+    char result[OUSE_WIRE_MAX-64]="-";esp_err_t error=command(&frame,result,sizeof(result));
     publish_status(false,recovery_error!=ESP_OK ? recovery_error : error);
     char failure[160];
     snprintf(failure,sizeof(failure),"%s%s%.96s",esp_err_to_name(error),
@@ -320,7 +323,10 @@ static void worker(void *context)
     ESP_LOGI(TAG,"READY; UART0 921600; protocol=OPK1; storage=%s",storage_ready?"ready":"unavailable");
     unsigned char bytes[256];
     for(;;){
-        int n=uart_read_bytes(UART_NUM_0,bytes,1,upload?pdMS_TO_TICKS(1000):portMAX_DELAY);
+#if CONFIG_OUSE_DEVICE_DEBUG
+        ouse_debug_poll();
+#endif
+        int n=uart_read_bytes(UART_NUM_0,bytes,1,pdMS_TO_TICKS(250));
         if(n>0){size_t buffered=0;uart_get_buffered_data_len(UART_NUM_0,&buffered);
             if(buffered>sizeof(bytes)-1)buffered=sizeof(bytes)-1;
             if(buffered){int more=uart_read_bytes(UART_NUM_0,bytes+1,buffered,0);if(more>0)n+=more;}

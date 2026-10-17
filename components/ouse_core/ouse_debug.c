@@ -14,6 +14,7 @@ esp_err_t ouse_debug_open(const char *id)
 esp_err_t ouse_debug_state(char *out,size_t cap)
 {
     ouse_app_stats_t app;ouse_shell_state_t shell;ouse_app_info_t info;
+    unsigned page,pages;ouse_core_launcher_state(&page,&pages);
     if(!out || cap<2)return ESP_ERR_INVALID_ARG;
     esp_err_t error=ouse_app_get_stats(&app);if(error!=ESP_OK)return error;
     ouse_shell_get_state(&shell);
@@ -31,7 +32,8 @@ esp_err_t ouse_debug_state(char *out,size_t cap)
         used+=(size_t)w;first=false;
     }
     if(used+3>cap)return ESP_ERR_NO_MEM;
-    out[used++]=']';out[used++]='}';out[used]=0;
+    int tail=snprintf(out+used,cap-used,"],\"page\":%u,\"pages\":%u,\"per_page\":12,\"bar_offset\":%d}",page+1,pages,shell.bar_offset);
+    if(tail<0 || (size_t)tail>=cap-used)return ESP_ERR_NO_MEM;
     return ESP_OK;
 }
 typedef struct {char *out;size_t used,cap;unsigned nodes;bool failed,first;} writer_t;

@@ -14,8 +14,8 @@
 extern "C" {
 #endif
 
-#define OUSE_CORE_VERSION "0.14.2"
-#define OUSE_CORE_API_VERSION 15
+#define OUSE_CORE_VERSION "0.15.0"
+#define OUSE_CORE_API_VERSION 16
 
 // Immutable board specifications; these describe hardware, not current usage.
 typedef struct {
@@ -66,6 +66,7 @@ esp_err_t ouse_core_set_ui(unsigned locale, unsigned font_percent); // UI task o
 esp_err_t ouse_core_set_brightness(uint8_t percent); // apply and asynchronously save
 esp_err_t ouse_core_preview_brightness(uint8_t percent); // no Flash request
 uint8_t ouse_core_brightness(void);
+void ouse_core_launcher_state(unsigned *page,unsigned *pages);
 esp_err_t ouse_core_sleep_display(void); // UI task; backlight off, not deep sleep
 esp_err_t ouse_core_wake_display(void);
 const char *ouse_core_version(void);

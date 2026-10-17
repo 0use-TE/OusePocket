@@ -42,6 +42,8 @@ fixture = r'''
 #include <stddef.h>
 #define ESP_LOGI(...) ((void)0)
 void lv_obj_add_flag(lv_obj_t *object,lv_obj_flag_t flag){(void)object;(void)flag;}
+int32_t lv_obj_get_y(const lv_obj_t *object){(void)object;return 40;}
+void lv_obj_update_layout(const lv_obj_t *object){(void)object;}
 /* REGISTRY */
 /* REGISTER */
 /* CHECK */

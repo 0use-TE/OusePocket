@@ -87,6 +87,8 @@ lv_obj_t *ouse_widget_icon(lv_obj_t *parent,const char *symbol,int size,uint32_t
     lv_obj_set_style_text_font(glyph,&lv_font_montserrat_24,0);
     lv_obj_set_style_text_color(glyph,lv_color_white(),0);
     int scale=ouse_ui_dp(size<40 ? 192 : 256);
+    lv_obj_set_style_transform_pivot_x(glyph,LV_PCT(50),0);
+    lv_obj_set_style_transform_pivot_y(glyph,LV_PCT(50),0);
     lv_obj_set_style_transform_scale_x(glyph,scale,0);
     lv_obj_set_style_transform_scale_y(glyph,scale,0);
     lv_obj_center(glyph);

@@ -25,6 +25,7 @@ typedef int esp_err_t;
 #define ESP_ERR_NOT_SUPPORTED 0x106
 #define ESP_ERR_NVS_NOT_FOUND 0x1102
 #define CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ 400
+#define CONFIG_OUSE_DEVICE_DEBUG 1
 #define MALLOC_CAP_INTERNAL 1
 #define MALLOC_CAP_8BIT 2
 #define MALLOC_CAP_SPIRAM 4
@@ -82,6 +83,8 @@ static void (*worker)(void *);
 static unsigned item_size, commits, queue_items;
 static uint8_t queue_data[32], disk=65, staged, disk_theme=1, staged_theme;
 static uint8_t disk_locale=1, staged_locale, disk_font=115;
+static uint8_t disk_debug=1, staged_debug;
+static bool debug_missing;
 static int init_error, commit_error, task_fail;
 static bool inject, check_pending;
 static jmp_buf finished;
@@ -100,12 +103,14 @@ esp_err_t nvs_open(const char *name, int mode, nvs_handle_t *h) {
 }
 esp_err_t nvs_get_u8(nvs_handle_t h, const char *key, uint8_t *v) {
     (void)h; if (!strcmp(key,"locale")) { *v=disk_locale; return ESP_OK; }
+    if (!strcmp(key,"debug")) { *v=disk_debug; return debug_missing ? ESP_ERR_NVS_NOT_FOUND : ESP_OK; }
     if (!strcmp(key,"font")) { assert(!"obsolete font key must not be read"); }
     if (!strcmp(key,"theme")) { *v=disk_theme; return ESP_OK; }
     assert(!strcmp(key,"brightness")); *v=disk; return disk ? ESP_OK : ESP_ERR_NVS_NOT_FOUND;
 }
 esp_err_t nvs_set_u8(nvs_handle_t h, const char *key, uint8_t v) {
     (void)h; if (!strcmp(key,"locale")) staged_locale=v;
+    else if (!strcmp(key,"debug")) staged_debug=v;
     else if (!strcmp(key,"font")) assert(!"obsolete font key must not be written");
     else if (!strcmp(key,"theme")) staged_theme=v;
     else { assert(!strcmp(key,"brightness")); staged=v; } return ESP_OK;
@@ -114,7 +119,7 @@ esp_err_t nvs_commit(nvs_handle_t h) {
     (void)h; ++commits;
     if (inject) { inject=false; assert(ouse_system_request_brightness(90)==ESP_OK); check_pending=true; }
     if (commit_error) return commit_error;
-    disk=staged; disk_theme=staged_theme; disk_locale=staged_locale; return ESP_OK;
+    disk=staged; disk_theme=staged_theme; disk_locale=staged_locale; disk_debug=staged_debug; return ESP_OK;
 }
 void nvs_close(nvs_handle_t h) { (void)h; }
 QueueHandle_t xQueueCreate(unsigned n, unsigned size) { assert(n==1 && size<=sizeof(queue_data)); item_size=size; return (void *)1; }
@@ -148,6 +153,7 @@ int main(int argc, char **argv) {
     if (!strcmp(argv[1],"nvs-fail")) init_error=ESP_FAIL;
     if (!strcmp(argv[1],"task-fail")) task_fail=1;
     if (!strcmp(argv[1],"missing")) disk=0;
+    if (!strcmp(argv[1],"debug-missing")) debug_missing=true;
     if (!strcmp(argv[1],"invalid")) disk=255;
     esp_err_t result=ouse_system_init(&brightness);
     assert(ouse_system_init(&brightness)==ESP_ERR_INVALID_STATE);
@@ -192,7 +198,16 @@ int main(int argc, char **argv) {
     assert(ouse_system_request_brightness(77)==ESP_OK);drain();
     assert(disk==77 && disk_theme==0 && disk_locale==0 && disk_font==115);
     assert(ouse_system_get_settings_state(&s)==ESP_OK && s.saved_locale==0 && s.saved_font_percent==100);
-    puts("PASS persistence backend: boot restore, deferred commit, failure/retry, coalescing, stale completion");
+    assert(ouse_system_debug_enabled());
+    assert(ouse_system_request_debug(false)==ESP_OK && !ouse_system_debug_enabled());
+    assert(ouse_system_request_brightness(78)==ESP_OK);
+    drain();assert(!disk_debug && disk==78);
+    assert(ouse_system_get_settings_state(&s)==ESP_OK && !s.saved_debug && !s.requested_debug);
+    commit_error=ESP_FAIL;assert(ouse_system_request_debug(true)==ESP_OK && ouse_system_debug_enabled());
+    drain();assert(!disk_debug);
+    assert(ouse_system_get_settings_state(&s)==ESP_OK && s.last_error==ESP_FAIL && !s.saved_debug);
+    commit_error=ESP_OK;assert(ouse_system_request_debug(true)==ESP_OK);drain();assert(disk_debug);
+    puts("PASS persistence backend: boot restore, deferred commit, failure/retry, coalescing, stale completion and live developer settings");
     return 0;
 }
 '''
@@ -212,6 +227,6 @@ system = ROOT / "components/ouse_system"
 subprocess.run([str(compiler), "/nologo", "/utf-8", "/std:c11", "/UNDEBUG", "/I"+str(OUT),
     "/I"+str(system/"include"), "/I"+str(ROOT/"components/ouse_tasks/include"), str(ROOT/"components/ouse_tasks/ouse_tasks.c"), str(system/"ouse_system.c"), str(OUT/"check.c"),
     "/Fe"+str(OUT/"check.exe")], cwd=OUT, env=env, check=True)
-for case in ["normal", "missing", "invalid", "nvs-fail", "task-fail"]:
+for case in ["normal", "missing", "debug-missing", "invalid", "nvs-fail", "task-fail"]:
     subprocess.run([str(OUT/"check.exe"), case], check=True)
 print("PASS real backend compiled; NVS/task failure degrades without erase or desktop dependency")

@@ -8,6 +8,7 @@
 #include "ouse_ime.h"
 #include "ouse_notifications.h"
 #include "ouse_memory.h"
+#include "ouse_apps_internal.h"
 #include "esp_timer.h"
 #include <stdio.h>
 #include <string.h>
@@ -31,7 +32,7 @@ static OUSE_PSRAM_BSS struct {
     lv_obj_t *gear,*light,*clock,*battery,*status,*nav,*volume_box,*volume_slider,*volume_icon;
     quick_tile_t wifi_tile,power_tile,sound_tile,theme_tile;
     lv_obj_t *recents,*strip,*clear,*cards[OUSE_APP_CAPACITY],*card_titles[OUSE_APP_CAPACITY];
-    lv_obj_t *shield,*back_indicator,*back_arrow,*flight,*flight_image;
+    lv_obj_t *shield,*back_indicator,*back_arrow,*flight,*flight_image,*pill;
     lv_image_dsc_t images[OUSE_APP_CAPACITY],flight_source;
     ouse_app_info_t items[OUSE_APP_CAPACITY];
     lv_timer_t *gesture_timer;
@@ -46,7 +47,7 @@ static OUSE_PSRAM_BSS struct {
         lv_point_t start,last,anchor;
         uint32_t last_move,last_tick;
         int sheet_start,card,back_progress;
-        bool claimed,left,home_started;
+        bool claimed,left,home_started,from_recents;
         char origin[48];
     } g;
     int flight_x,flight_y,flight_w,flight_h;
@@ -85,7 +86,6 @@ static void clear_cards(void)
     shell.card_animating=false;shell.card_anim_index=-1;
     lv_obj_clean(shell.strip); // close decoders before freeing their image data
     for(unsigned i=0;i<shell.count;++i) {
-        lv_free((void *)shell.images[i].data);
         memset(&shell.images[i],0,sizeof(shell.images[i]));shell.cards[i]=shell.card_titles[i]=NULL;
     }
     shell.count=0;
@@ -133,30 +133,38 @@ static void rebound_back(void)
 }
 static void flight_clear(void)
 {
+    ouse_apps_swipe_offset(0);
     lv_anim_delete(shell.flight,NULL);hide(shell.flight);
     lv_image_set_src(shell.flight_image,NULL);
     lv_free((void *)shell.flight_source.data);memset(&shell.flight_source,0,sizeof(shell.flight_source));
     overlay_status(visible(shell.recents));
 }
-static void flight_finish(lv_anim_t *animation) { (void)animation;flight_clear(); }
+static void pill_motion(void *unused,int32_t offset)
+{ (void)unused;if(shell.pill)lv_obj_set_style_translate_y(shell.pill,offset,0); }
+static void settle_pill(bool recent)
+{
+    lv_anim_delete(shell.pill,pill_motion);
+    lv_anim_t animation;lv_anim_init(&animation);lv_anim_set_var(&animation,shell.pill);
+    lv_anim_set_exec_cb(&animation,pill_motion);
+    lv_anim_set_values(&animation,lv_obj_get_style_translate_y(shell.pill,0),recent ? -D(6) : 0);
+    lv_anim_set_duration(&animation,100);lv_anim_set_path_cb(&animation,lv_anim_path_ease_out);lv_anim_start(&animation);
+}
+static void flight_finish(lv_anim_t *animation)
+{ (void)animation;(void)ouse_apps_background_fast();flight_clear();settle_pill(false); }
 static void flight_settle(void *unused,int32_t p)
 {
     (void)unused;
-    int w=shell.flight_w+(D(32)-shell.flight_w)*p/1024;
-    int h=shell.flight_h+(D(42)-shell.flight_h)*p/1024;
-    int x=shell.flight_x+((shell.width-D(32))/2-shell.flight_x)*p/1024;
-    int y=shell.flight_y+(shell.height-D(96)-shell.flight_y)*p/1024;
-    rect(shell.flight,x,y,w,h);lv_obj_set_style_opa(shell.flight,255-255*p/1024,0);
+    int offset=shell.flight_y+(-shell.height-shell.flight_y)*p/1024;
+    ouse_apps_swipe_offset(offset);
 }
 static void flight_home(void)
 {
-    if(!shell.flight_source.data)return;
-    shell.flight_x=lv_obj_get_x(shell.flight);shell.flight_y=lv_obj_get_y(shell.flight);
-    shell.flight_w=lv_obj_get_width(shell.flight);shell.flight_h=lv_obj_get_height(shell.flight);
+    if(!shell.g.origin[0]){settle_pill(false);return;}
+    shell.flight_y=clamp(shell.g.last.y-shell.g.start.y,-shell.height,0);
     lv_anim_t a;lv_anim_init(&a);lv_anim_set_var(&a,shell.flight);lv_anim_set_exec_cb(&a,flight_settle);
-    lv_anim_set_values(&a,0,1024);lv_anim_set_duration(&a,160);lv_anim_set_path_cb(&a,lv_anim_path_ease_out);
+    lv_anim_set_values(&a,0,1024);lv_anim_set_duration(&a,140);lv_anim_set_path_cb(&a,lv_anim_path_ease_out);
     lv_anim_set_completed_cb(&a,flight_finish);
-    if(!lv_anim_start(&a))flight_clear();
+    if(!lv_anim_start(&a))flight_finish(NULL);
 }
 static void begin_home(void)
 {
@@ -164,23 +172,13 @@ static void begin_home(void)
     shell.g.home_started=true;
     ouse_app_stats_t state;
     if(ouse_app_get_stats(&state)==ESP_OK)strcpy(shell.g.origin,state.active_id);
-    (void)ouse_app_background();
-    if(!shell.g.origin[0])return;
-    const lv_image_dsc_t *preview=ouse_app_get_preview(shell.g.origin);
-    if(!preview || preview->data_size>4u*1024*1024)return;
-    uint8_t *copy=lv_malloc(preview->data_size);if(!copy)return;
-    memcpy(copy,preview->data,preview->data_size);shell.flight_source=*preview;shell.flight_source.data=copy;
-    lv_image_set_src(shell.flight_image,&shell.flight_source);lv_obj_set_style_opa(shell.flight,LV_OPA_COVER,0);
-    show(shell.flight);lv_obj_move_foreground(shell.flight);overlay_status(true);
+    overlay_status(true);
 }
 static void follow_home(int dy)
 {
     if(!shell.g.home_started)begin_home();
-    if(!shell.flight_source.data)return;
-    int p=clamp(-dy*1024/(shell.height/2),0,1024);
-    int w=shell.width-shell.width*30*p/102400;
-    int h=(shell.height-D(64))*(1024-p*30/100)/1024;
-    rect(shell.flight,(shell.width-w)/2,D(40)+(-dy)/6,w,h);
+    pill_motion(NULL,-clamp(-dy/8,0,D(12)));
+    if(shell.g.origin[0])ouse_apps_swipe_offset(clamp(dy,-shell.height,0));
 }
 static void claim(void)
 {
@@ -197,11 +195,11 @@ void ouse_shell_foreground(void)
     lv_anim_delete(shell.back_indicator,back_motion);
     hide(shell.quick_layer);hide(shell.recents);hide(shell.shield);hide(shell.back_indicator);
     shell.quick_animating=false;shell.quick_target=false;shell.g.kind=G_NONE;shell.g.claimed=false;
-    flight_clear();clear_cards();overlay_status(false);
+    flight_clear();clear_cards();overlay_status(false);settle_pill(false);
 }
 static void dismiss_recent(lv_event_t *event)
 {
-    (void)event;hide(shell.recents);clear_cards();overlay_status(false);
+    (void)event;hide(shell.recents);clear_cards();overlay_status(false);settle_pill(false);
 }
 static void resume_card(lv_event_t *event)
 {
@@ -224,7 +222,7 @@ static void recent_blank(lv_event_t *event)
 }
 static void show_recents(void)
 {
-    (void)ouse_app_background();flight_clear();clear_cards();
+    flight_clear();clear_cards();(void)ouse_app_background();settle_pill(true);
     shell.recent_generation=ouse_ui_generation();
     hide(shell.quick_layer);show(shell.recents);lv_obj_move_foreground(shell.recents);overlay_status(true);
     for(unsigned i=0;i<OUSE_APP_CAPACITY;++i) {
@@ -244,9 +242,8 @@ static void show_recents(void)
         lv_label_set_long_mode(title,LV_LABEL_LONG_MODE_DOTS);
         const lv_image_dsc_t *source=ouse_app_get_preview(shell.items[i].id);
         if(source && source->data_size<=4u*1024*1024) {
-            uint8_t *copy=lv_malloc(source->data_size);
-            if(copy) {
-                memcpy(copy,source->data,source->data_size);shell.images[i]=*source;shell.images[i].data=copy;
+            {
+                shell.images[i]=*source;
                 lv_obj_t *image=lv_image_create(card);lv_image_set_src(image,&shell.images[i]);
                 rect(image,D(10),D(48),D(204),shell.card_height-D(58));
                 lv_image_set_inner_align(image,LV_IMAGE_ALIGN_CONTAIN);lv_obj_remove_flag(image,LV_OBJ_FLAG_CLICKABLE);
@@ -656,16 +653,18 @@ static void gesture_step(lv_timer_t *timer)
         if(shell.g.claimed)back_motion(NULL,clamp(inward*1024/D(72),0,1024));
     } else if(shell.g.kind==G_BOTTOM) {
         if(!shell.g.claimed && -dy>D(8) && -dy>abs(dx)) {
-            follow_home(dy);claim();
+            if(!shell.g.from_recents)follow_home(dy);
+            claim();
             // Taking the app preview can cost a frame. That time is not a
             // stationary finger hold and must not open overview on a fast swipe.
             shell.g.last_move=lv_tick_get();
         }
         if(shell.g.claimed) {
+            if(shell.g.from_recents){pill_motion(NULL,-clamp(-dy/8+ D(6),D(6),D(12)));return;}
             follow_home(dy);
             // Show overview while still pressed after a brief pause. The
             // movement tolerance above accommodates normal finger jitter.
-            if(-dy>=D(32) && lv_tick_elaps(shell.g.last_move)>=160) {
+            if(-dy>=D(32) && lv_tick_elaps(shell.g.last_move)>=120) {
                 show_recents();shell.g.kind=G_LOCKED;show(shell.shield);lv_obj_move_foreground(shell.shield);
             }
         }
@@ -699,10 +698,12 @@ static void finish_gesture(bool cancel)
         bool commit=!cancel && (shell.g.left ? dx : -dx)>=D(48) && abs(dx)>=abs(dy);
         rebound_back();if(commit)back_action();
     } else if(kind==G_BOTTOM) {
-        if(!cancel && -dy>=D(32))flight_home();
+        if(shell.g.from_recents){if(!cancel && -dy>=D(32))dismiss_recent(NULL);else settle_pill(true);}
+        else if(!cancel && -dy>=D(32))flight_home();
         else {
             char id[48];strcpy(id,shell.g.origin);flight_clear();
             if(id[0])(void)ouse_app_open(id);
+            settle_pill(false);
         }
     } else if(kind==G_CARD && shell.g.card>=0 && (unsigned)shell.g.card<shell.count) {
         settle_card((unsigned)shell.g.card,!cancel && dy<=-D(64));
@@ -734,7 +735,7 @@ static void pointer_event(lv_event_t *event)
         shell.g.kind=G_CLOSE;shell.g.sheet_start=lv_obj_get_y(shell.sheet);
     } else if(quick && !control) {
         shell.g.kind=G_SWITCH;
-    } else if(!quick && p.y>=shell.height-D(36))shell.g.kind=G_BOTTOM;
+    } else if(!quick && p.y>=shell.height-D(36)){shell.g.kind=G_BOTTOM;shell.g.from_recents=recent;}
     else if(!control && p.y>D(40) && p.y<shell.height-D(28) && (p.x<=D(24) || p.x>=shell.width-D(24))) {
         shell.g.kind=G_BACK;shell.g.left=p.x<shell.width/2;
         lv_label_set_text(shell.back_arrow,shell.g.left ? LV_SYMBOL_LEFT : LV_SYMBOL_RIGHT);
@@ -751,7 +752,7 @@ void ouse_shell_get_state(ouse_shell_state_t *out)
         .notification_cards=shell.notification_count,.recents=visible(shell.recents),.tracking=shell.g.claimed,
         .quick_y=lv_obj_get_y(shell.sheet),.back_progress=shell.g.back_progress,.cards=shell.count,
         .recent_scroll_x=lv_obj_get_scroll_x(shell.strip),
-        .snapshot_bytes=shell.flight_source.data_size};
+        .snapshot_bytes=shell.flight_source.data_size,.bar_offset=lv_obj_get_style_translate_y(shell.pill,0)};
     for(unsigned i=0;i<shell.count;++i)out->snapshot_bytes+=shell.images[i].data_size;
 }
 void ouse_shell_init(const ouse_shell_config_t *config)
@@ -817,7 +818,7 @@ void ouse_shell_init(const ouse_shell_config_t *config)
     layout_quick();move_quick(NULL,-shell.quick_height);hide(shell.quick_layer);
     lv_obj_t *nav=ouse_widget_box(config->screen,OUSE_STYLE_DESKTOP,0);shell.nav=nav;rect(nav,0,shell.height-D(24),shell.width,D(24));
     lv_obj_add_flag(nav,LV_OBJ_FLAG_CLICKABLE);lv_obj_add_event_cb(nav,home_tap,LV_EVENT_CLICKED,NULL);
-    lv_obj_t *pill=ouse_widget_box(nav,OUSE_STYLE_PILL,2);rect(pill,shell.width/2-D(32),D(12),D(64),D(4));
+    lv_obj_t *pill=ouse_widget_box(nav,OUSE_STYLE_PILL,2);shell.pill=pill;rect(pill,shell.width/2-D(32),D(12),D(64),D(4));
     shell.flight=ouse_widget_box(config->screen,OUSE_STYLE_APP,24);lv_obj_set_style_clip_corner(shell.flight,true,0);
     shell.flight_image=lv_image_create(shell.flight);lv_obj_set_size(shell.flight_image,LV_PCT(100),LV_PCT(100));
     lv_image_set_inner_align(shell.flight_image,LV_IMAGE_ALIGN_STRETCH);lv_obj_remove_flag(shell.flight_image,LV_OBJ_FLAG_CLICKABLE);hide(shell.flight);

@@ -1,6 +1,8 @@
 // Generated from ui_strings.json by generate-core-font.py.
 static const struct { const char *zh, *en; } ui_strings[] = {
 {"设置","Settings"},
+{"开发者选项","Developer options"},
+{"MCP 设备调试","MCP device debugging"},
 {"计数器","Counter"},
 {"资源监视","Resources"},
 {"接口测试","API test"},

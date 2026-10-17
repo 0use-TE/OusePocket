@@ -19,6 +19,7 @@ typedef struct {
     lv_draw_buf_t *preview;
     lv_image_dsc_t image;
     uint32_t preview_generation;
+    bool preview_deferred;
     uint64_t touched;
     void *context;
 } entry_t;
@@ -29,6 +30,8 @@ static struct {
     entry_t *entries;
     unsigned count;
     int active;
+    int host_y;
+    bool skip_preview;
     bool sealed, transitioning;
     uint32_t opened, closed, failed;
 } apps;
@@ -81,7 +84,8 @@ esp_err_t ouse_apps_init(lv_obj_t *host, void (*changed)(bool))
     if (apps.host) return ESP_ERR_INVALID_STATE;
     apps.entries=ouse_psram_calloc(OUSE_APP_CAPACITY,sizeof(*apps.entries));
     if(!apps.entries)return ESP_ERR_NO_MEM;
-    apps.host = host; apps.changed = changed; apps.active = -1;
+    lv_obj_update_layout(host);
+    apps.host = host; apps.changed = changed; apps.active = -1;apps.host_y=lv_obj_get_y(host);
     lv_obj_add_flag(host, LV_OBJ_FLAG_HIDDEN);
     return ESP_OK;
 }
@@ -136,6 +140,7 @@ static void capture_preview(entry_t *entry)
     free_preview(entry);
     entry->preview=lv_snapshot_take(entry->root,LV_COLOR_FORMAT_RGB565);
     entry->preview_generation=ouse_ui_generation();
+    entry->preview_deferred=false;
     if (entry->preview) lv_draw_buf_to_image(entry->preview,&entry->image);
     if (root_hidden) lv_obj_add_flag(entry->root,LV_OBJ_FLAG_HIDDEN);
     if (host_hidden) lv_obj_add_flag(apps.host,LV_OBJ_FLAG_HIDDEN);
@@ -146,7 +151,8 @@ static void background_instance(void)
     entry_t *entry=&apps.entries[apps.active];
     ouse_ime_hide_root(entry->root);
     if (entry->pause) entry->pause(entry->context);
-    capture_preview(entry);
+    if(apps.skip_preview){free_preview(entry);entry->preview_deferred=true;entry->preview_generation=ouse_ui_generation();}
+    else capture_preview(entry);
     lv_obj_add_flag(entry->root,LV_OBJ_FLAG_HIDDEN);
     apps.active=-1;
     ESP_LOGI("OuseApps","Background: %s",entry->info.id);
@@ -220,6 +226,19 @@ esp_err_t ouse_app_background(void)
     apps.transitioning=false;
     return ESP_OK;
 }
+void ouse_apps_swipe_offset(int offset)
+{
+    if(!apps.host)return;
+    lv_obj_set_y(apps.host,apps.host_y+offset);
+    if(offset && apps.active>=0)apps.changed(false);
+}
+esp_err_t ouse_apps_background_fast(void)
+{
+    apps.skip_preview=true;
+    esp_err_t error=ouse_app_background();
+    apps.skip_preview=false;
+    return error;
+}
 
 esp_err_t ouse_app_close_id(const char *id)
 {
@@ -267,7 +286,7 @@ const lv_image_dsc_t *ouse_app_get_preview(const char *id)
         // Paused scripts receive preference notifications on resume. Discard
         // old previews rather than displaying mixed-language or stale content.
         if(entry->preview && entry->preview_generation!=ouse_ui_generation())free_preview(entry);
-        if(!entry->preview && index==apps.active)capture_preview(entry);
+        if(!entry->preview && (index==apps.active || (entry->preview_deferred && entry->preview_generation==ouse_ui_generation())))capture_preview(entry);
     }
     return index>=0 && apps.entries[index].preview ? &apps.entries[index].image : NULL;
 }

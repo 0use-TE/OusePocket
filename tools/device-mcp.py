@@ -62,7 +62,9 @@ def main():
                 elif method=="tools/call":
                     if device is None:
                         device=Device(args.port,elf=args.elf,baud=args.baud)
-                        if "debug=1" not in device.request("HELLO"):raise RuntimeError("Debug firmware required")
+                        if "debug=1" not in device.request("HELLO"):
+                            device.close();device=None
+                            raise RuntimeError("MCP device debugging is disabled or unavailable. Enable Settings > Developer options > MCP device debugging.")
                     params=message["params"]
                     try:result=execute(device,params["name"],params.get("arguments",{}))
                     except Exception as error:result=dict(isError=True,content=[dict(type="text",text=str(error))])

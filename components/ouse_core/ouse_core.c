@@ -41,7 +41,9 @@ typedef struct {
     lv_timer_t *status_timer;
     ouse_app_info_t icons[OUSE_APP_CAPACITY];
     lv_obj_t *settings;
-    lv_obj_t *health_page,*usb_page;
+    lv_obj_t *health_page,*usb_page,*developer_page,*debug_switch;
+    lv_obj_t *page_dots[OUSE_APP_CAPACITY];
+    unsigned launcher_page,launcher_pages;
     lv_obj_t *slider;
     lv_obj_t *brightness_text;
     lv_obj_t *info;
@@ -90,7 +92,7 @@ static void select_settings_page(unsigned page)
 {
     if(core.settings_page!=page)ouse_device_ui_close_modal();
     core.settings_page=page;
-    lv_obj_t *pages[]={core.settings,core.display_page,core.appearance_page,core.language_page,core.info,core.device_pages[0],core.device_pages[1],core.device_pages[2],core.account_page,core.health_page,core.usb_page};
+    lv_obj_t *pages[]={core.settings,core.display_page,core.appearance_page,core.language_page,core.info,core.device_pages[0],core.device_pages[1],core.device_pages[2],core.account_page,core.health_page,core.usb_page,core.developer_page};
     for(unsigned i=0;i<sizeof(pages)/sizeof(pages[0]);++i)if(pages[i]) {
         if(i==page)lv_obj_remove_flag(pages[i],LV_OBJ_FLAG_HIDDEN);
         else lv_obj_add_flag(pages[i],LV_OBJ_FLAG_HIDDEN);
@@ -350,6 +352,15 @@ static void hardware_page(lv_obj_t *parent)
     section(parent,"软件");group=settings_card(parent);
     specification(group,"系统版本","Ouse Core " OUSE_CORE_VERSION);
 }
+static void debug_changed(lv_event_t *event)
+{
+    bool enabled=lv_obj_has_state(lv_event_get_target_obj(event),LV_STATE_CHECKED);
+    if(ouse_system_request_debug(enabled)!=ESP_OK){
+        if(ouse_system_debug_enabled())lv_obj_add_state(core.debug_switch,LV_STATE_CHECKED);
+        else lv_obj_remove_state(core.debug_switch,LV_STATE_CHECKED);
+        ouse_dialog_show("操作失败，请重试",NULL,NULL);
+    }
+}
 static esp_err_t settings_open(lv_obj_t *root,void *context)
 {
     (void)context;
@@ -367,6 +378,7 @@ static esp_err_t settings_open(lv_obj_t *root,void *context)
     section(core.settings,"系统");
     ouse_widget_row(core.settings,LV_SYMBOL_LIST,"后台活动与服务",NULL,open_settings_page,(void *)(uintptr_t)9,NULL);
     ouse_widget_row(core.settings,LV_SYMBOL_LIST,"系统信息","设备与硬件",open_settings_page,(void *)(uintptr_t)4,NULL);
+    ouse_widget_row(core.settings,LV_SYMBOL_SETTINGS,"开发者选项",NULL,open_settings_page,(void *)(uintptr_t)11,NULL);
     core.display_page=settings_column(root);page_heading(core.display_page,"显示",true);
     lv_obj_t *card=ouse_widget_box(core.display_page,OUSE_STYLE_PANEL,24);
     lv_obj_set_width(card,LV_PCT(100));lv_obj_set_height(card,LV_SIZE_CONTENT);
@@ -393,6 +405,15 @@ static esp_err_t settings_open(lv_obj_t *root,void *context)
     for(unsigned i=0;i<3;++i){core.device_pages[i]=settings_column(root);page_heading(core.device_pages[i],titles[i],true);ouse_device_ui_build(core.device_pages[i],i+5);}
     core.health_page=settings_column(root);page_heading(core.health_page,"后台活动与服务",true);ouse_health_ui_build(core.health_page);
     core.usb_page=settings_column(root);page_heading(core.usb_page,"USB OTG",true);ouse_device_ui_build(core.usb_page,10);
+    core.developer_page=settings_column(root);page_heading(core.developer_page,"开发者选项",true);
+    lv_obj_t *debug_row=ouse_widget_row(core.developer_page,LV_SYMBOL_USB,"MCP 设备调试",NULL,NULL,NULL,NULL);
+    lv_obj_delete(lv_obj_get_child(debug_row,-1));
+    core.debug_switch=ouse_widget_switch(debug_row);
+    if(ouse_system_debug_enabled())lv_obj_add_state(core.debug_switch,LV_STATE_CHECKED);
+    lv_obj_add_event_cb(core.debug_switch,debug_changed,LV_EVENT_VALUE_CHANGED,NULL);
+#if !CONFIG_OUSE_DEVICE_DEBUG
+    lv_obj_add_state(core.debug_switch,LV_STATE_DISABLED);
+#endif
     preference_labels();select_settings_page(0);
     core.status_timer=lv_timer_create(refresh_status,300,NULL);refresh_status(NULL);return ESP_OK;
 }
@@ -404,6 +425,7 @@ static void settings_close(void *context)
     core.status_timer=NULL;core.theme_value=NULL;core.theme_switch=NULL;core.display_value=NULL;core.language_value=NULL;
     core.display_page=core.appearance_page=core.language_page=core.account_page=NULL;
     core.health_page=core.usb_page=NULL;ouse_health_ui_close();
+    core.developer_page=core.debug_switch=NULL;
     ouse_device_ui_close();memset(core.device_pages,0,sizeof(core.device_pages));memset(core.locale_marks,0,sizeof(core.locale_marks));
     core.settings = NULL; core.info = NULL; core.slider = NULL;
     core.brightness_text = NULL;
@@ -420,14 +442,30 @@ static void settings_pause(void *context) {
 }
 static void settings_resume(void *context) { (void)context; if (core.status_timer) lv_timer_resume(core.status_timer); refresh_status(NULL); }
 
+static void launcher_scrolled(lv_event_t *event)
+{
+    (void)event;
+    int width=lv_obj_get_width(core.grid);if(width<=0 || !core.launcher_pages)return;
+    unsigned page=(unsigned)((lv_obj_get_scroll_x(core.grid)+width/2)/width);
+    if(page>=core.launcher_pages)page=core.launcher_pages-1;
+    core.launcher_page=page;
+    for(unsigned index=0;index<core.launcher_pages;++index)
+        if(core.page_dots[index])lv_obj_set_style_bg_opa(core.page_dots[index],index==page ? LV_OPA_COVER : LV_OPA_30,0);
+}
+void ouse_core_launcher_state(unsigned *page,unsigned *pages)
+{
+    if(page)*page=core.launcher_page;
+    if(pages)*pages=core.launcher_pages;
+}
 static void rebuild_launcher(void)
 {
     if (!core.grid) return;
+    unsigned saved_page=core.launcher_page;
     lv_obj_clean(core.grid); lv_obj_update_layout(core.grid);
     int width=lv_obj_get_width(core.grid), height=lv_obj_get_height(core.grid);
-    int cols=width/ouse_ui_dp(92); if(cols<1)cols=1;
+    int cols=3,rows=4;
     int cell_w=width/cols, name_h=2*ouse_ui_font(14)->line_height;
-    int cell_h=ouse_ui_dp(48+8+10)+name_h, rows=height/cell_h; if(rows<1)rows=1;
+    int cell_h=height/rows;
     unsigned capacity=(unsigned)(rows*cols); lv_obj_t *page=NULL;
     for(unsigned i=0;i<core.app_count;++i) {
         (void)ouse_app_get_info(i,&core.icons[i]);
@@ -437,15 +475,25 @@ static void rebuild_launcher(void)
         lv_obj_set_pos(tile,(int)(slot%cols)*cell_w,(int)(slot/cols)*cell_h); lv_obj_set_size(tile,cell_w,cell_h);
         lv_obj_set_style_opa(tile,LV_OPA_70,LV_STATE_PRESSED);
         lv_obj_add_event_cb(tile,launch_app,LV_EVENT_CLICKED,core.icons[i].id);
-        lv_obj_t *icon=ouse_widget_app_icon(tile,&core.icons[i],48);
-        lv_obj_set_pos(icon,(cell_w-ouse_ui_dp(48))/2,0);
-        lv_obj_t *name=text(tile,"",ouse_ui_dp(2),ouse_ui_dp(56),cell_w-ouse_ui_dp(4));
+        int icon_size=40;
+        lv_obj_t *icon=ouse_widget_app_icon(tile,&core.icons[i],icon_size);
+        lv_obj_set_pos(icon,(cell_w-ouse_ui_dp(icon_size))/2,0);
+        lv_obj_t *name=text(tile,"",ouse_ui_dp(2),ouse_ui_dp(icon_size+4),cell_w-ouse_ui_dp(4));
         ouse_widget_app_name(name,&core.icons[i]);
         ouse_ui_use_font(name,14); lv_obj_set_height(name,name_h);
         lv_label_set_long_mode(name,LV_LABEL_LONG_MODE_DOTS); lv_obj_set_style_text_align(name,LV_TEXT_ALIGN_CENTER,0);
         lv_obj_remove_flag(name,LV_OBJ_FLAG_CLICKABLE);
     }
-    lv_obj_scroll_to_x(core.grid,0,LV_ANIM_OFF);
+    for(unsigned index=0;index<OUSE_APP_CAPACITY;++index){if(core.page_dots[index])lv_obj_delete(core.page_dots[index]);core.page_dots[index]=NULL;}
+    core.launcher_pages=(core.app_count+capacity-1)/capacity;
+    core.launcher_page=saved_page;
+    if(core.launcher_page>=core.launcher_pages)core.launcher_page=core.launcher_pages ? core.launcher_pages-1 : 0;
+    if(core.launcher_pages>1)for(unsigned index=0;index<core.launcher_pages;++index){
+        lv_obj_t *dot=panel(core.home,lv_obj_get_width(core.home)/2+(int)(index*12)-(int)(core.launcher_pages*12)/2,lv_obj_get_height(core.home)-ouse_ui_dp(12),ouse_ui_dp(5),ouse_ui_dp(5));
+        core.page_dots[index]=dot;ouse_theme_apply(dot,OUSE_STYLE_PILL,0);lv_obj_set_style_radius(dot,LV_RADIUS_CIRCLE,0);
+    }
+    lv_obj_scroll_to_x(core.grid,(int)core.launcher_page*width,LV_ANIM_OFF);
+    launcher_scrolled(NULL);
 }
 
 static void monitor_errors(lv_timer_t *timer)
@@ -519,7 +567,8 @@ esp_err_t ouse_core_start(const ouse_core_config_t *config)
     lv_obj_set_style_border_width(core.screen, 0, 0);
     ouse_ui_use_font(core.screen,16);
     core.home = panel(core.screen, 0, ouse_ui_dp(40), width, height - ouse_ui_dp(64));
-    core.grid=panel(core.home,ouse_ui_dp(8),ouse_ui_dp(10),width-ouse_ui_dp(16),height-ouse_ui_dp(84));
+    core.grid=panel(core.home,ouse_ui_dp(8),ouse_ui_dp(10),width-ouse_ui_dp(16),height-ouse_ui_dp(94));
+    lv_obj_add_event_cb(core.grid,launcher_scrolled,LV_EVENT_SCROLL,NULL);
     lv_obj_add_flag(core.grid,LV_OBJ_FLAG_SCROLLABLE); lv_obj_set_scroll_dir(core.grid,LV_DIR_HOR);
     lv_obj_set_scroll_snap_x(core.grid,LV_SCROLL_SNAP_START); lv_obj_set_scrollbar_mode(core.grid,LV_SCROLLBAR_MODE_OFF);
     core.app_host = panel(core.screen, 0, ouse_ui_dp(40), width, height - ouse_ui_dp(64));
