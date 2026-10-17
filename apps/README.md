@@ -1,6 +1,6 @@
 # JSON＋JS 应用接口
 
-0.10.0 新增 `Ouse.net.request`、`Ouse.media`、`Ouse.clock`、`Ouse.alarms` 和 `Ouse.system.capabilities`。声明对应 network/media/alarms 能力后调用原生服务，无需后台 JS。接口、支持格式与验证边界见 [原生服务](../docs/0.10.0-services.md)；`service-test` 是新增的独立分类 BPK。
+0.10.0 新增 `Ouse.net.request`、`Ouse.media`、`Ouse.clock`、`Ouse.alarms` 、`Ouse.system.cpu()` 和 `Ouse.system.capabilities`。声明对应 network/media/alarms 能力后调用原生服务，无需后台 JS。接口、支持格式与验证边界见 [原生服务](../docs/0.10.0-services.md)；`service-test` 是新增的独立分类 BPK。
 
 当前 0.9.0 新增任务 ID/终态事件、后台原因与应用/系统诊断；异步音频和 Wi-Fi 接受请求返回任务 ID（拒绝 false），存储 Promise 增加 taskId。执行预算口径已改为任务获调度时间，以下历史说明中的 12/4 ms 不应解释为纯 JS CPU 时间。接口、取消/关闭策略和计时限制统一见 [0.9.0 系统机制](../docs/0.9.0-kernel.md)。
 

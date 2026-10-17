@@ -13,6 +13,7 @@
 #include "ouse_alarm.h"
 #include "ouse_clock.h"
 #include "ouse_media.h"
+#include "ouse_metrics.h"
 #include "src/misc/cache/instance/lv_image_cache.h"
 #include "quickjs.h"
 #include "esp_timer.h"
@@ -1134,6 +1135,7 @@ static void install_api(instance_t *app)
     JS_SetPropertyStr(context,system,"diagnostics",JS_NewCFunctionMagic(context,diagnostics_api,"diagnostics",0,JS_CFUNC_generic_magic,1));
     JS_SetPropertyStr(context,system,"storage",JS_NewCFunction(context,system_storage,"storage",0));
     JS_SetPropertyStr(context,system,"capabilities",JS_NewCFunction(context,system_capabilities,"capabilities",0));
+    JS_SetPropertyStr(context,system,"cpu",JS_NewCFunction(context,system_cpu,"cpu",0));
     JS_SetPropertyStr(context,api,"system",system);
     JSValue timers=JS_NewObject(context);
     JS_SetPropertyStr(context,timers,"setInterval",JS_NewCFunctionMagic(context,timer_create,"setInterval",2,JS_CFUNC_generic_magic,1));

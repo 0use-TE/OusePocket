@@ -5,6 +5,7 @@
 #include "ouse_media.h"
 #include "ouse_alarm.h"
 #include "ouse_clock.h"
+#include "ouse_metrics.h"
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -52,6 +53,7 @@ esp_err_t ouse_net_submit(const ouse_task_owner_t *owner,const ouse_http_request
     return e;
 }
 void ouse_clock_get(ouse_clock_state_t *out){*out=(ouse_clock_state_t){.utc_ms=1704067200000,.valid=true,.synced_this_boot=false};}
+void ouse_cpu_metrics_get(ouse_cpu_metrics_t *out){*out=(ouse_cpu_metrics_t){.core_count=2,.cores={{.available=true,.valid=true,.busy_permille=250,.window_us=1000000},{.available=false,.valid=false}}};}
 void ouse_alarm_get_stats(ouse_alarm_stats_t *out){*out=(ouse_alarm_stats_t){.ready=true};}
 bool ouse_alarm_spec_valid(const ouse_alarm_spec_t *s){return s&&s->id[0]&&s->title[0]&&(s->weekdays||s->at_utc>=OUSE_CLOCK_MIN_UTC);}
 unsigned ouse_alarm_list(const char *id,ouse_alarm_snapshot_t *out,unsigned capacity)
@@ -84,6 +86,7 @@ static void setup(instance_t *app,JSRuntime *runtime)
     JS_SetPropertyStr(app->context,api,"request",JS_NewCFunction(app->context,net_request,"request",1));
     JS_SetPropertyStr(app->context,api,"clock",JS_NewCFunction(app->context,clock_get,"clock",0));
     JS_SetPropertyStr(app->context,api,"caps",JS_NewCFunction(app->context,system_capabilities,"caps",0));
+    JS_SetPropertyStr(app->context,api,"cpu",JS_NewCFunction(app->context,system_cpu,"cpu",0));
     const char *alarms[]={"alarmSet","alarmRemove","alarmDismiss","alarmSnooze","alarmList"};
     const char *media[]={"play","pause","resume","stop","mediaGet"};
     for(int i=0;i<5;++i){JS_SetPropertyStr(app->context,api,alarms[i],JS_NewCFunctionMagic(app->context,alarms_api,alarms[i],1,JS_CFUNC_generic_magic,i));
@@ -101,6 +104,7 @@ int main(void)
 {
     JSRuntime *runtime=JS_NewRuntime();assert(runtime);JS_SetMemoryLimit(runtime,512*1024);instance_t app;setup(&app,runtime);
     net_completions=xQueueCreate(16,sizeof(net_job_t*));
+    evaluate(&app,"check(Ouse.cpu().cores[0].busyPercent===25);check(Ouse.cpu().cores[1].busyPercent===null);check(Ouse.cpu().cores[1].valid===false);");
     evaluate(&app,"check(Ouse.clock().valid&&!Ouse.clock().syncedThisBoot);check(Ouse.caps().network.responseBodyMax===32768);var done=0,received=null,networkError=null;var p=Ouse.request({url:'https://example.test/'});check(p.taskId>0);p.then(r=>{received=JSON.stringify(r);check(r.body==='hello'&&r.status===200);done++;},e=>networkError=String(e));");
     assert(net_job_count==1&&app.references==2);complete_native(0);drain_net_completions();app.visible=false;process_net_results(&app);evaluate(&app,"check(done===0);");
     app.visible=true;process_net_results(&app);evaluate(&app,"");evaluate(&app,"if(done!==1)throw Error(JSON.stringify({done,received,networkError}));");assert(!net_job_count&&app.references==1);

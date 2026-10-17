@@ -1250,7 +1250,10 @@
   });
   Ouse.diagnostics = { get() { return Object.assign({simulated: true, appId: 'preview.app'}, Ouse.lifecycle.get()); } };
   Ouse.clock = {get() {return {utcMs: Date.now(), valid: true, syncedThisBoot: false, lastSyncUptimeMs: 0, source: 'preview-simulated'};} };
+  Ouse.system.cpu = () => ({method: 'preview-simulated', simulated: true, periodMs: 1000, samplerStackBytesPerCore: 2048,
+    cores: [0, 1].map(() => ({available: false, valid: false, busyPercent: null, windowMs: 0, sampledUptimeMs: 0}))});
   Ouse.system.capabilities = () => ({simulated: true, coreVersion: 'development',
+    cpuMetrics: false,
     network: {available: true, requestBodyMax: 8192, responseBodyMax: 32768, pendingPerInstance: 2, headersMax: 12, redirects: false},
     alarms: {available: true, persistent: false, perAppMax: 4, totalMax: 24, powerOffWake: false, automaticDst: false},
     media: {available: false, formats: [], outputRateHz: 16000, outputChannels: 1, bufferBytes: 8192, seek: false},

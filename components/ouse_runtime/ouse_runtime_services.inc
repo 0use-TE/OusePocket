@@ -238,11 +238,29 @@ static JSValue media_api(JSContext *context,JSValueConst self,int argc,JSValueCo
     esp_err_t error=app->closed || app->faulted ? ESP_ERR_INVALID_STATE : ouse_media_play(&app->owner,url[0] ? url : NULL,data,size,&id);
     model_unlock(app);return error==ESP_OK ? JS_NewUint32(context,id) : JS_FALSE;
 }
+static JSValue system_cpu(JSContext *context,JSValueConst self,int argc,JSValueConst *argv)
+{
+    (void)self;(void)argc;(void)argv;ouse_cpu_metrics_t metrics;ouse_cpu_metrics_get(&metrics);
+    JSValue result=JS_NewObject(context),cores=JS_NewArray(context);
+    JS_SetPropertyStr(context,result,"method",JS_NewString(context,"freertos-own-core-idle-runtime-estimate"));
+    JS_SetPropertyStr(context,result,"periodMs",JS_NewInt32(context,OUSE_CPU_SAMPLE_PERIOD_MS));
+    JS_SetPropertyStr(context,result,"samplerStackBytesPerCore",JS_NewInt32(context,OUSE_CPU_SAMPLER_STACK_BYTES));
+    for(unsigned i=0;i<metrics.core_count;++i){const ouse_cpu_core_t *sample=&metrics.cores[i];JSValue core=JS_NewObject(context);
+        JS_SetPropertyStr(context,core,"available",JS_NewBool(context,sample->available));
+        JS_SetPropertyStr(context,core,"valid",JS_NewBool(context,sample->valid));
+        JS_SetPropertyStr(context,core,"busyPercent",sample->valid ? JS_NewFloat64(context,sample->busy_permille/10.0) : JS_NULL);
+        JS_SetPropertyStr(context,core,"windowMs",JS_NewFloat64(context,sample->window_us/1000.0));
+        JS_SetPropertyStr(context,core,"sampledUptimeMs",JS_NewFloat64(context,sample->sampled_us/1000.0));
+        JS_SetPropertyUint32(context,cores,i,core);
+    }
+    JS_SetPropertyStr(context,result,"cores",cores);return result;
+}
 static JSValue system_capabilities(JSContext *context,JSValueConst self,int argc,JSValueConst *argv)
 {
     (void)self;(void)argc;(void)argv;instance_t *app=from_js(context);
     JSValue object=JS_NewObject(context),network=JS_NewObject(context),granted=JS_NewObject(context);
     JS_SetPropertyStr(context,object,"coreVersion",JS_NewString(context,ouse_core_version()));
+    JS_SetPropertyStr(context,object,"cpuMetrics",JS_TRUE);
     JS_SetPropertyStr(context,network,"available",JS_NewBool(context,ouse_net_available()));
     JS_SetPropertyStr(context,network,"requestBodyMax",JS_NewInt32(context,OUSE_NET_BODY_MAX));
     JS_SetPropertyStr(context,network,"responseBodyMax",JS_NewInt32(context,OUSE_NET_RESPONSE_MAX));

@@ -7,6 +7,7 @@
 #include "ouse_installer.h"
 #include "ouse_net.h"
 #include "ouse_media.h"
+#include "ouse_metrics.h"
 
 static esp_err_t save_brightness(void *context, uint8_t percent)
 {
@@ -63,6 +64,8 @@ void app_main(void)
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     ouse_board_start_services();
+    esp_err_t metrics_error=ouse_cpu_metrics_start();
+    if(metrics_error!=ESP_OK)ESP_LOGW("OuseCPU","Some core samplers unavailable: %s",esp_err_to_name(metrics_error));
     esp_err_t network_error=ouse_net_init();
     if(network_error!=ESP_OK)ESP_LOGW("OuseNet","Request service unavailable: %s",esp_err_to_name(network_error));
     esp_err_t media_error=ouse_media_init();

@@ -37,6 +37,8 @@ const char *esp_err_to_name(int error);
 #include <assert.h>
 typedef int portMUX_TYPE;
 typedef int BaseType_t;
+typedef uint32_t TickType_t;
+#define configNUMBER_OF_CORES 2
 typedef void *QueueHandle_t;
 typedef void *SemaphoreHandle_t;
 typedef void *StreamBufferHandle_t;
@@ -65,6 +67,10 @@ int xSemaphoreGive(SemaphoreHandle_t mutex);
 void vSemaphoreDelete(SemaphoreHandle_t mutex);
 int xTaskCreate(void (*fn)(void *),const char *name,unsigned stack,void *arg,unsigned priority,void *task);
 void vTaskDelay(unsigned ticks);
+int xTaskCreatePinnedToCore(void (*fn)(void *),const char *name,unsigned stack,void *arg,unsigned priority,void *task,int core);
+TickType_t xTaskGetTickCount(void);
+void vTaskDelayUntil(TickType_t *wake,TickType_t ticks);
+uint64_t ulTaskGetIdleRunTimeCounterForCore(int core);
 StreamBufferHandle_t xStreamBufferCreate(unsigned size,unsigned trigger);
 size_t xStreamBufferSend(StreamBufferHandle_t buffer,const void *data,size_t size,unsigned wait);
 size_t xStreamBufferReceive(StreamBufferHandle_t buffer,void *data,size_t size,unsigned wait);
@@ -114,7 +120,7 @@ for name, content in headers.items():
 
 includes = [OUT, ROOT/'tools/checks', ROOT/'components/ouse_tasks/include', ROOT/'components/ouse_devices/include',
             ROOT/'components/ouse_alarm/include', ROOT/'components/ouse_media/include', ROOT/'components/ouse_net/include',
-            ROOT/'components/ouse_core/include', Path('D:/esp/v6.1/esp-idf/components/http_parser')]
+            ROOT/'components/ouse_core/include', ROOT/'components/ouse_system/include', Path('D:/esp/v6.1/esp-idf/components/http_parser')]
 common = [str(compiler), '/nologo', '/std:c11', '/O2', '/MD', '/utf-8', '/D_CRT_SECURE_NO_WARNINGS', '/D_CRT_NONSTDC_NO_DEPRECATE']
 common += ['/I'+str(p) for p in includes]
 platform = ROOT/'tools/checks/services-platform.c'
@@ -126,6 +132,7 @@ cases = {
     'alarm': [registry, devices, ROOT/'components/ouse_alarm/ouse_alarm_schedule.c'],
     'media': [registry, devices, ROOT/'components/ouse_media/ouse_wave.c'],
     'net': [registry],
+    'metrics': [],
 }
 for name, sources in cases.items():
     if sys.argv[1:] and name not in sys.argv[1:]:
@@ -133,7 +140,8 @@ for name, sources in cases.items():
     fixture = (ROOT/f'tools/checks/services-{name}.c').read_text(encoding='utf-8')
     for key, relative in [('ALARM_SOURCE', 'components/ouse_alarm/ouse_alarm.c'),
                           ('MEDIA_SOURCE', 'components/ouse_media/ouse_media.c'),
-                          ('NET_SOURCE', 'components/ouse_net/ouse_net.c')]:
+                          ('NET_SOURCE', 'components/ouse_net/ouse_net.c'),
+                          ('METRICS_SOURCE', 'components/ouse_system/ouse_metrics.c')]:
         fixture = fixture.replace(key, (ROOT/relative).as_posix())
     path = OUT/f'{name}-check.c'
     path.write_text(fixture, encoding='utf-8')

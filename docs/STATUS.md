@@ -2,7 +2,7 @@
 
 ## 0.10.0 原生服务（本地验证与构建通过，未烧录）
 
-集中新增 HTTP/HTTPS、双原生任务 WAV 媒体管线、闹铃音频优先级、持久闹钟和 SNTP 时间状态；BPK 增加 network/media/alarms 授权与 service-test。工作区原有计数器/设备镜像修改保留。详见 [接口、生命周期和限制](0.10.0-services.md)。统一主机检查和一次固定 IDF 构建通过，未烧录或打开串口；0.9.0 真机证据仍属于旧版本。本轮 BIN 7,832,864 字节，原应用分区剩 555,744 字节；冻结产物 `.tools/services-010-firmware/72060cd62b03/`，汇总 `.tools/ouse-0.10.0-verification.json`。WAV PCM16 是当前唯一媒体格式，不宣称 MP3；闹钟没有关机/深睡唤醒或自动 DST。真实 TLS 互通、闹铃时序、音质与掉电验收待用户安排。
+集中新增 HTTP/HTTPS、双原生任务 WAV 媒体管线、闹铃音频优先级、持久闹钟和 SNTP 时间状态；BPK 增加 network/media/alarms 授权与 service-test；补齐按核心 idle 运行时间推算的负载估计（非精确 CPU/JS CPU），资源监视已接入。工作区原有计数器/设备镜像修改保留。详见 [接口、生命周期和限制](0.10.0-services.md)。统一主机检查和一次固定 IDF 构建通过，未烧录或打开串口；0.9.0 真机证据仍属于旧版本。本轮 BIN 7,834,976 字节，原应用分区剩 553,632 字节；冻结产物 `.tools/services-010-firmware/470cd05d84ff/`，汇总 `.tools/ouse-0.10.0-verification.json`。WAV PCM16 是当前唯一媒体格式，不宣称 MP3；闹钟没有关机/深睡唤醒或自动 DST。真实 TLS 互通、闹铃时序、音质与掉电验收待用户安排。
 
 ## 0.9.0 系统机制（本地验证与应用烧录）
 
