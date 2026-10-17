@@ -1,0 +1,29 @@
+{
+  "runtime": "ouse-core",
+  "api": 1,
+  "id": "user.music",
+  "name": "Music",
+  "names": {
+    "zh_CN": "音乐",
+    "en": "Music"
+  },
+  "icon": "icon.bin",
+  "capabilities": {
+    "media": true,
+    "network": true,
+    "background": true,
+    "notifications": true
+  },
+  "assets": [
+    {
+      "id": "sample",
+      "type": "binary",
+      "path": "assets/fur-elise-30s.wav"
+    },
+    {
+      "id": "license",
+      "type": "text",
+      "path": "assets/license.txt"
+    }
+  ]
+}

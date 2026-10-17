@@ -2,6 +2,7 @@
 #include "ouse_bpk.h"
 #include "ouse_protocol.h"
 #include "quickjs.h"
+#include "ouse_memory.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -80,7 +81,7 @@ static bool unzip(const unsigned char *p,size_t n,member_t *files,unsigned *file
         memcpy(files[j].name,h+30,len);files[j].name[len]=0;
         int index=fixed_file(files[j].name);
         if((index<0 && !asset_path(files[j].name)) || find_file(files,j,files[j].name)>=0)return false;
-        size_t limit=index==0?OUSE_BPK_MANIFEST_MAX:index==3?OUSE_BPK_ICON_PIXELS_MAX+8:index>=0?32768:OUSE_RUNTIME_IMAGE_BYTES_MAX+8;
+        size_t limit=index==0?OUSE_BPK_MANIFEST_MAX:index==3?OUSE_BPK_ICON_PIXELS_MAX+8:index>=0?32768:OUSE_RUNTIME_DATA_BYTES_MAX;
         if((index>=0 && !size) || size>limit)return false;
         if(index>=0)fixed_seen|=1u<<index;
         files[j].data=h+30+len;files[j].size=size;files[j].offset=(unsigned)pos;
@@ -244,12 +245,12 @@ esp_err_t ouse_bpk_parse(const unsigned char *bytes,size_t length,ouse_bpk_t **o
 {
     if(!output)return ESP_ERR_INVALID_ARG;
     *output=NULL;
-    member_t *files=calloc(BPK_FILES_MAX,sizeof(*files));if(!files)return ESP_ERR_NO_MEM;
+    member_t *files=ouse_psram_calloc(BPK_FILES_MAX,sizeof(*files));if(!files)return ESP_ERR_NO_MEM;
     unsigned count=0;if(!unzip(bytes,length,files,&count)){free(files);return ESP_ERR_INVALID_ARG;}
-    ouse_bpk_t *p=calloc(1,sizeof(*p));if(!p){free(files);return ESP_ERR_NO_MEM;}
+    ouse_bpk_t *p=ouse_psram_calloc(1,sizeof(*p));if(!p){free(files);return ESP_ERR_NO_MEM;}
     esp_err_t error=ESP_ERR_INVALID_ARG;
     const member_t *manifest_file=&files[find_file(files,count,"manifest.json")];
-    char *manifest=malloc(manifest_file->size+1);
+    char *manifest=ouse_psram_malloc(manifest_file->size+1);
     if(!manifest){error=ESP_ERR_NO_MEM;goto fail;}
     memcpy(manifest,manifest_file->data,manifest_file->size);manifest[manifest_file->size]=0;
     JSRuntime *rt=JS_NewRuntime();if(!rt){free(manifest);error=ESP_ERR_NO_MEM;goto fail;}
@@ -271,7 +272,7 @@ esp_err_t ouse_bpk_parse(const unsigned char *bytes,size_t length,ouse_bpk_t **o
     {
         const member_t *icon=&files[find_file(files,count,"icon.bin")];unsigned w,h;size_t pixels;
         if(!image_info(icon,OUSE_BPK_ICON_SIDE_MAX,OUSE_BPK_ICON_PIXELS_MAX,&w,&h,&pixels))goto fail;
-        p->icon_pixels=malloc(pixels);if(!p->icon_pixels){error=ESP_ERR_NO_MEM;goto fail;}
+        p->icon_pixels=ouse_psram_malloc(pixels);if(!p->icon_pixels){error=ESP_ERR_NO_MEM;goto fail;}
         memcpy(p->icon_pixels,icon->data+8,pixels);
         p->icon_image=image_descriptor(w,h,pixels,p->icon_pixels);p->package.icon_image=&p->icon_image;
     }
@@ -286,11 +287,11 @@ esp_err_t ouse_bpk_parse(const unsigned char *bytes,size_t length,ouse_bpk_t **o
             image_bytes+=size;if(image_bytes>OUSE_RUNTIME_IMAGE_BYTES_MAX)goto fail;
             source+=8;
         }else{
-            size_t maximum=asset->type==BPK_ASSET_TEXT?16384:65536;
+            size_t maximum=asset->type==BPK_ASSET_TEXT?16384:OUSE_RUNTIME_DATA_BYTES_MAX;
             if(size>maximum || (asset->type==BPK_ASSET_TEXT && !utf8(source,size)))goto fail;
             data_bytes+=size;if(data_bytes>OUSE_RUNTIME_DATA_BYTES_MAX)goto fail;
         }
-        asset->data=malloc(size+1);if(!asset->data){error=ESP_ERR_NO_MEM;goto fail;}
+        asset->data=ouse_psram_malloc(size+1);if(!asset->data){error=ESP_ERR_NO_MEM;goto fail;}
         memcpy(asset->data,source,size);asset->data[size]=0;asset->size=size;
         if(asset->type==BPK_ASSET_IMAGE){
             asset->image=image_descriptor(w,h,size,asset->data);
@@ -299,7 +300,7 @@ esp_err_t ouse_bpk_parse(const unsigned char *bytes,size_t length,ouse_bpk_t **o
             .type=asset->type==BPK_ASSET_TEXT?OUSE_SCRIPT_ASSET_TEXT:OUSE_SCRIPT_ASSET_BINARY,.data=asset->data,.size=size};
     }
     const member_t *page=&files[find_file(files,count,"page.json")],*script=&files[find_file(files,count,"app.js")];
-    p->page=malloc(page->size+1);p->script=malloc(script->size+1);
+    p->page=ouse_psram_malloc(page->size+1);p->script=ouse_psram_malloc(script->size+1);
     if(!p->page || !p->script){error=ESP_ERR_NO_MEM;goto fail;}
     memcpy(p->page,page->data,page->size);p->page[page->size]=0;
     memcpy(p->script,script->data,script->size);p->script[script->size]=0;

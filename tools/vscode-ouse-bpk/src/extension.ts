@@ -216,8 +216,12 @@ class BpkViewProvider implements vscode.WebviewViewProvider {
     if (!/^COM\d+$/i.test(selected)) {
       throw new Error('先选择串口');
     }
-    await this.context.workspaceState.update(PORT_KEY, selected.toUpperCase());
     const baud = this.baudFrom(message);
+    const held = deviceMirrorPort();
+    if (!held || held.toUpperCase() !== selected.toUpperCase()) {
+      await this.syncDevice({ ...message, port: selected, baud });
+    }
+    await this.context.workspaceState.update(PORT_KEY, selected.toUpperCase());
     await this.context.workspaceState.update(BAUD_KEY, baud);
     this.checks = await checkCommands(this.workspaceRoots(), this.commandOverrides());
     const python = this.requireCommand('python');
@@ -450,7 +454,7 @@ class BpkViewProvider implements vscode.WebviewViewProvider {
       <select id="baud"></select>
       <input id="baudCustom" type="text" placeholder="921600" spellcheck="false" hidden>
       <button id="sync" type="button" title="同步设备应用">同步</button>
-      <button id="device" type="button">设备画面</button>
+      <button id="device" type="button" title="先同步已安装应用，再占用串口打开画面">设备画面</button>
     </div>
   </div>
 </section>

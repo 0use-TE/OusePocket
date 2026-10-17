@@ -228,7 +228,7 @@ function fileIssues(root: string, manifest: ManifestFile): string[] {
           imageBytes += pixels; size = pixels + 8;
           if (png) packedName = name.slice(0, -4) + '.bin';
         } else {
-          const limit = asset.type === 'text' ? 16384 : 65536;
+          const limit = asset.type === 'text' ? 16384 : 524288;
           if (size > limit) throw new Error(`最多 ${limit} 字节`);
           if (asset.type === 'text' && (bytes.includes(0) || !Buffer.from(bytes.toString('utf8'), 'utf8').equals(bytes))) {
             throw new Error('文本须为无 NUL 的 UTF-8');
@@ -241,7 +241,7 @@ function fileIssues(root: string, manifest: ManifestFile): string[] {
         issues.push(`${name}：${error instanceof Error ? error.message : '无法读取资源'}`);
       }
     }
-    if (imageBytes > 131072 || dataBytes > 131072) issues.push('图片像素和文本/二进制资源分别累计最多 131072 字节');
+    if (imageBytes > 131072 || dataBytes > 524288) issues.push('图片像素累计最多 131072 字节；文本/二进制资源累计最多 524288 字节，总包仍最多 524288 字节');
     const converted = { ...manifest, icon: 'icon.bin', ...(manifest.assets === undefined ? {} : { assets: packedAssets }) };
     const manifestBytes = byteLength(JSON.stringify(converted));
     if (manifestBytes > 8192) issues.push('转换后的清单最多 8192 字节');

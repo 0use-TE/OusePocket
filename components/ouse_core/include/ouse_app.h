@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define OUSE_APP_CAPACITY 8
+#define OUSE_APP_CAPACITY 24
 typedef struct {
     const char *id;   // unique ASCII id, 1..47 bytes
     const char *name; // UTF-8, 1..47 bytes

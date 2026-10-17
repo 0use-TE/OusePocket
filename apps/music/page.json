@@ -1,0 +1,411 @@
+{
+  "api": 1,
+  "units": "dp",
+  "initialPage": "player",
+  "pages": [
+    {
+      "id": "player",
+      "root": {
+        "type": "container",
+        "id": "root",
+        "width": "fill",
+        "height": "fill",
+        "layout": "column",
+        "scroll": true,
+        "padding": 12,
+        "gap": 10,
+        "children": [
+          {
+            "type": "toolbar",
+            "id": "title",
+            "text": "音乐",
+            "width": "fill",
+            "height": 44
+          },
+          {
+            "type": "label",
+            "id": "track",
+            "text": "致爱丽丝 · 30 秒",
+            "width": "fill",
+            "height": "content",
+            "fontSize": 24
+          },
+          {
+            "type": "label",
+            "id": "state",
+            "text": "尚未播放",
+            "width": "fill",
+            "height": "content",
+            "fontSize": 16
+          },
+          {
+            "type": "progressBar",
+            "id": "progress",
+            "width": "fill",
+            "height": 8,
+            "min": 0,
+            "max": 100,
+            "value": 0
+          },
+          {
+            "type": "label",
+            "id": "time",
+            "text": "0:00 / 0:00",
+            "width": "fill",
+            "height": "content",
+            "fontSize": 16
+          },
+          {
+            "type": "container",
+            "id": "transport",
+            "width": "fill",
+            "height": "content",
+            "layout": "row",
+            "gap": 8,
+            "children": [
+              {
+                "type": "button",
+                "id": "previous",
+                "text": "上一首",
+                "width": "fill",
+                "height": 44
+              },
+              {
+                "type": "button",
+                "id": "play",
+                "text": "播放",
+                "width": "fill",
+                "height": 44
+              },
+              {
+                "type": "button",
+                "id": "next",
+                "text": "下一首",
+                "width": "fill",
+                "height": 44
+              }
+            ]
+          },
+          {
+            "type": "container",
+            "id": "actions",
+            "width": "fill",
+            "height": "content",
+            "layout": "row",
+            "gap": 8,
+            "children": [
+              {
+                "type": "button",
+                "id": "pause",
+                "text": "暂停",
+                "width": "fill",
+                "height": 44
+              },
+              {
+                "type": "button",
+                "id": "stop",
+                "text": "停止",
+                "width": "fill",
+                "height": 44
+              }
+            ]
+          },
+          {
+            "type": "container",
+            "id": "options",
+            "width": "fill",
+            "height": "content",
+            "layout": "row",
+            "gap": 8,
+            "children": [
+              {
+                "type": "button",
+                "id": "mode",
+                "text": "单曲播放",
+                "width": "fill",
+                "height": 44
+              },
+              {
+                "type": "button",
+                "id": "library",
+                "text": "播放列表",
+                "width": "fill",
+                "height": 44
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "library",
+      "root": {
+        "type": "container",
+        "id": "root",
+        "width": "fill",
+        "height": "fill",
+        "layout": "column",
+        "scroll": true,
+        "padding": 12,
+        "gap": 10,
+        "children": [
+          {
+            "type": "container",
+            "id": "header",
+            "width": "fill",
+            "height": "content",
+            "layout": "row",
+            "gap": 8,
+            "children": [
+              {
+                "type": "button",
+                "id": "back",
+                "text": "返回",
+                "width": 64,
+                "height": 44
+              },
+              {
+                "type": "toolbar",
+                "id": "heading",
+                "text": "播放列表",
+                "width": "fill",
+                "height": 44
+              }
+            ]
+          },
+          {
+            "type": "label",
+            "id": "listStatus",
+            "text": "最多 8 首，支持 PCM16 WAV",
+            "width": "fill",
+            "height": "content",
+            "fontSize": 14
+          },
+          {
+            "type": "container",
+            "id": "row0",
+            "width": "fill",
+            "height": "content",
+            "layout": "row",
+            "gap": 8,
+            "children": [
+              {
+                "type": "button",
+                "id": "item0",
+                "text": "-",
+                "width": "fill",
+                "height": 56,
+                "fontSize": 14
+              },
+              {
+                "type": "button",
+                "id": "remove0",
+                "text": "删除",
+                "width": 60,
+                "height": 44
+              }
+            ]
+          },
+          {
+            "type": "container",
+            "id": "row1",
+            "width": "fill",
+            "height": "content",
+            "layout": "row",
+            "gap": 8,
+            "children": [
+              {
+                "type": "button",
+                "id": "item1",
+                "text": "-",
+                "width": "fill",
+                "height": 56,
+                "fontSize": 14
+              },
+              {
+                "type": "button",
+                "id": "remove1",
+                "text": "删除",
+                "width": 60,
+                "height": 44
+              }
+            ]
+          },
+          {
+            "type": "container",
+            "id": "row2",
+            "width": "fill",
+            "height": "content",
+            "layout": "row",
+            "gap": 8,
+            "children": [
+              {
+                "type": "button",
+                "id": "item2",
+                "text": "-",
+                "width": "fill",
+                "height": 56,
+                "fontSize": 14
+              },
+              {
+                "type": "button",
+                "id": "remove2",
+                "text": "删除",
+                "width": 60,
+                "height": 44
+              }
+            ]
+          },
+          {
+            "type": "container",
+            "id": "row3",
+            "width": "fill",
+            "height": "content",
+            "layout": "row",
+            "gap": 8,
+            "children": [
+              {
+                "type": "button",
+                "id": "item3",
+                "text": "-",
+                "width": "fill",
+                "height": 56,
+                "fontSize": 14
+              },
+              {
+                "type": "button",
+                "id": "remove3",
+                "text": "删除",
+                "width": 60,
+                "height": 44
+              }
+            ]
+          },
+          {
+            "type": "container",
+            "id": "row4",
+            "width": "fill",
+            "height": "content",
+            "layout": "row",
+            "gap": 8,
+            "children": [
+              {
+                "type": "button",
+                "id": "item4",
+                "text": "-",
+                "width": "fill",
+                "height": 56,
+                "fontSize": 14
+              },
+              {
+                "type": "button",
+                "id": "remove4",
+                "text": "删除",
+                "width": 60,
+                "height": 44
+              }
+            ]
+          },
+          {
+            "type": "container",
+            "id": "row5",
+            "width": "fill",
+            "height": "content",
+            "layout": "row",
+            "gap": 8,
+            "children": [
+              {
+                "type": "button",
+                "id": "item5",
+                "text": "-",
+                "width": "fill",
+                "height": 56,
+                "fontSize": 14
+              },
+              {
+                "type": "button",
+                "id": "remove5",
+                "text": "删除",
+                "width": 60,
+                "height": 44
+              }
+            ]
+          },
+          {
+            "type": "container",
+            "id": "row6",
+            "width": "fill",
+            "height": "content",
+            "layout": "row",
+            "gap": 8,
+            "children": [
+              {
+                "type": "button",
+                "id": "item6",
+                "text": "-",
+                "width": "fill",
+                "height": 56,
+                "fontSize": 14
+              },
+              {
+                "type": "button",
+                "id": "remove6",
+                "text": "删除",
+                "width": 60,
+                "height": 44
+              }
+            ]
+          },
+          {
+            "type": "container",
+            "id": "row7",
+            "width": "fill",
+            "height": "content",
+            "layout": "row",
+            "gap": 8,
+            "children": [
+              {
+                "type": "button",
+                "id": "item7",
+                "text": "-",
+                "width": "fill",
+                "height": 56,
+                "fontSize": 14
+              },
+              {
+                "type": "button",
+                "id": "remove7",
+                "text": "删除",
+                "width": 60,
+                "height": 44
+              }
+            ]
+          },
+          {
+            "type": "textInput",
+            "id": "name",
+            "placeholder": "曲目名称",
+            "width": "fill",
+            "height": 44,
+            "maxLength": 24
+          },
+          {
+            "type": "textInput",
+            "id": "url",
+            "placeholder": "HTTP 或 HTTPS 的 WAV 地址",
+            "width": "fill",
+            "height": 44,
+            "maxLength": 240
+          },
+          {
+            "type": "button",
+            "id": "add",
+            "text": "加入列表",
+            "width": "fill",
+            "height": 44
+          }
+        ]
+      }
+    }
+  ]
+}

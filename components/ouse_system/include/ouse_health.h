@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 #include "ouse_tasks.h"
-#define OUSE_HEALTH_SERVICES 7
+#define OUSE_HEALTH_SERVICES 8
 #define OUSE_HEALTH_ACTIVITIES 12
 typedef enum { OUSE_SERVICE_STARTING,OUSE_SERVICE_READY,OUSE_SERVICE_DEGRADED,
     OUSE_SERVICE_RECOVERING,OUSE_SERVICE_UNAVAILABLE } ouse_service_status_t;

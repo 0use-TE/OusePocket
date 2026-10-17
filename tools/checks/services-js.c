@@ -7,6 +7,7 @@
 #include "ouse_clock.h"
 #include "ouse_metrics.h"
 #include "ouse_health.h"
+#include "ouse_usb.h"
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -31,6 +32,7 @@ struct net_job {instance_t *app;unsigned slot;uint32_t token;JSValue resolve,rej
 static QueueHandle_t net_completions;
 static unsigned net_job_count;
 static unsigned native_count,media_calls,alarm_calls;
+static ouse_alarm_action_t last_alarm;
 static struct {ouse_net_complete_t fn;void *context;uint32_t id;} native[32];
 static instance_t *from_js(JSContext *context){return JS_GetContextOpaque(context);}
 static void release_instance(instance_t *app){assert(app->references>1);--app->references;}
@@ -60,7 +62,7 @@ bool ouse_alarm_spec_valid(const ouse_alarm_spec_t *s){return s&&s->id[0]&&s->ti
 unsigned ouse_alarm_list(const char *id,ouse_alarm_snapshot_t *out,unsigned capacity)
 {assert(id&&out&&capacity==4);return 0;}
 esp_err_t ouse_alarm_submit(const ouse_task_owner_t *owner,ouse_alarm_action_t a,const ouse_alarm_spec_t *s,unsigned minutes,uint32_t *id)
-{assert(owner&&s&&a<=OUSE_ALARM_SNOOZE);if(a==OUSE_ALARM_SNOOZE)assert(minutes>=1&&minutes<=60);++alarm_calls;return ouse_task_create(owner,OUSE_TASK_ALARM,"set",OUSE_TASK_FINISH_ON_CLOSE,true,id);}
+{assert(owner&&s&&a<=OUSE_ALARM_DISABLE);if(a==OUSE_ALARM_SNOOZE)assert(minutes>=1&&minutes<=60);++alarm_calls;last_alarm=a;esp_err_t error=ouse_task_create(owner,OUSE_TASK_ALARM,"set",OUSE_TASK_FINISH_ON_CLOSE,true,id);if(error==ESP_OK){assert(ouse_task_start(*id,false));ouse_task_finish(*id,ESP_OK,false);ouse_task_ack(owner,*id);}return error;}
 bool ouse_media_available(void){return true;}
 bool ouse_media_get(const char *id,ouse_media_state_t *out){(void)id;(void)out;return false;}
 esp_err_t ouse_media_pause(const char *id,bool paused){(void)paused;assert(id);return ESP_ERR_NOT_FOUND;}
@@ -68,6 +70,7 @@ esp_err_t ouse_media_stop(const char *id){assert(id);return ESP_ERR_NOT_FOUND;}
 esp_err_t ouse_media_play(const ouse_task_owner_t *owner,const char *url,const void *data,size_t size,uint32_t *id)
 {assert(owner&&((url&&!data&&!size)||(!url&&data&&size==4&&!memcmp(data,"RIFF",4))));++media_calls;return ouse_task_create(owner,OUSE_TASK_AUDIO,"play",OUSE_TASK_FINISH_ON_CLOSE,true,id);}
 static const char *ouse_core_version(void){return "test-services";}
+void ouse_usb_get(ouse_usb_state_t *out){*out=(ouse_usb_state_t){.available=true,.enabled=true,.mounted=true,.audio_enabled=true,.audio_task=42,.network_task=43,.underruns=3};strcpy(out->ip,"192.168.77.1");}
 #include "SERVICES_SOURCE"
 static void evaluate(instance_t *app,const char *script)
 {
@@ -88,6 +91,7 @@ static void setup(instance_t *app,JSRuntime *runtime)
     JS_SetPropertyStr(app->context,api,"clock",JS_NewCFunction(app->context,clock_get,"clock",0));
     JS_SetPropertyStr(app->context,api,"caps",JS_NewCFunction(app->context,system_capabilities,"caps",0));
     JS_SetPropertyStr(app->context,api,"cpu",JS_NewCFunction(app->context,system_cpu,"cpu",0));
+    JS_SetPropertyStr(app->context,api,"usb",JS_NewCFunction(app->context,usb_snapshot,"usb",0));
     JS_SetPropertyStr(app->context,api,"health",JS_NewCFunctionMagic(app->context,system_health,"health",0,JS_CFUNC_generic_magic,0));
     JS_SetPropertyStr(app->context,api,"activities",JS_NewCFunctionMagic(app->context,system_health,"activities",0,JS_CFUNC_generic_magic,1));
     JS_SetPropertyStr(app->context,api,"stopActivity",JS_NewCFunctionMagic(app->context,system_health,"stopActivity",1,JS_CFUNC_generic_magic,2));
@@ -95,6 +99,7 @@ static void setup(instance_t *app,JSRuntime *runtime)
     const char *media[]={"play","pause","resume","stop","mediaGet"};
     for(int i=0;i<5;++i){JS_SetPropertyStr(app->context,api,alarms[i],JS_NewCFunctionMagic(app->context,alarms_api,alarms[i],1,JS_CFUNC_generic_magic,i));
         JS_SetPropertyStr(app->context,api,media[i],JS_NewCFunctionMagic(app->context,media_api,media[i],1,JS_CFUNC_generic_magic,i));}
+    JS_SetPropertyStr(app->context,api,"alarmEnabled",JS_NewCFunctionMagic(app->context,alarms_api,"alarmEnabled",2,JS_CFUNC_generic_magic,5));
     JS_SetPropertyStr(app->context,global,"Ouse",api);JS_FreeValue(app->context,global);
     evaluate(app,"function check(v){if(!v)throw Error('check failed');}");
 }
@@ -114,6 +119,7 @@ int main(void)
     strcpy(health.activities[1].app_id,"user.foreign");ouse_health_publish(&health);
     evaluate(&app,"check(Ouse.health().phase==='running');check(Ouse.health().services[0].state==='recovering');check(Ouse.health().activitiesTruncated);check(Ouse.activities().length===1);check(Ouse.activities()[0].taskId===23);check(Ouse.stopActivity(23)===false);var typeError=false;try{Ouse.stopActivity(NaN)}catch(e){typeError=e instanceof TypeError}check(typeError);");
     evaluate(&app,"check(Ouse.cpu().cores[0].busyPercent===25);check(Ouse.cpu().cores[1].busyPercent===null);check(Ouse.cpu().cores[1].valid===false);");
+    evaluate(&app,"let u=Ouse.usb();check(u.available&&u.enabled&&u.mounted&&u.audioEnabled);check(u.audioTaskId===42&&u.networkTaskId===43);check(!u.audioRunning&&!u.microphoneRequested&&!u.networkUp);check(u.sampleRateHz===16000&&u.channels===1&&u.underruns===3);check(u.ip==='192.168.77.1');u.enabled=false;check(Ouse.usb().enabled);");
     evaluate(&app,"check(Ouse.clock().valid&&!Ouse.clock().syncedThisBoot);check(Ouse.caps().network.responseBodyMax===32768);var done=0,received=null,networkError=null;var p=Ouse.request({url:'https://example.test/'});check(p.taskId>0);p.then(r=>{received=JSON.stringify(r);check(r.body==='hello'&&r.status===200);done++;},e=>networkError=String(e));");
     assert(net_job_count==1&&app.references==2);complete_native(0);drain_net_completions();app.visible=false;process_net_results(&app);evaluate(&app,"check(done===0);");
     app.visible=true;process_net_results(&app);evaluate(&app,"");evaluate(&app,"if(done!==1)throw Error(JSON.stringify({done,received,networkError}));");assert(!net_job_count&&app.references==1);
@@ -121,7 +127,9 @@ int main(void)
     evaluate(&app,"var busy=0;Ouse.request({get url(){Ouse.request({url:'https://example.test/a'}).catch(()=>{});Ouse.request({url:'https://example.test/b'}).catch(()=>{});return 'https://example.test/c';}}).catch(e=>busy++);");
     assert(net_job_count==2&&native_count==3);evaluate(&app,"check(busy===1);");complete_native(1);complete_native(2);drain_net_completions();process_net_results(&app);evaluate(&app,"");
     evaluate(&app,"check(Ouse.alarmSet({id:'weekly',title:'Morning',weekdays:62,minuteOfDay:450,utcOffsetMinutes:480})>0);check(Ouse.alarmSnooze('weekly',5)>0);check(Ouse.alarmList().length===0);check(Ouse.play({asset:'sample'})>0);");
-    assert(alarm_calls==2&&media_calls==1);app.network_allowed=false;evaluate(&app,"check(Ouse.play({url:'https://example.test/song.wav'})===false);var denied=0;Ouse.request({url:'x'}).catch(e=>denied++);");evaluate(&app,"check(denied===1);");assert(media_calls==1);app.network_allowed=true;
+    evaluate(&app,"check(Ouse.alarmEnabled('weekly',false)>0);");assert(last_alarm==OUSE_ALARM_DISABLE);
+    evaluate(&app,"check(Ouse.alarmEnabled('weekly',true)>0);let bad=false;try{Ouse.alarmEnabled('weekly',1)}catch(e){bad=true}check(bad);");assert(last_alarm==OUSE_ALARM_ENABLE);
+    assert(alarm_calls==4&&media_calls==1);app.network_allowed=false;evaluate(&app,"check(Ouse.play({url:'https://example.test/song.wav'})===false);var denied=0;Ouse.request({url:'x'}).catch(e=>denied++);");evaluate(&app,"check(denied===1);");assert(media_calls==1);app.network_allowed=true;
     evaluate(&app,"Ouse.request({url:'https://example.test/late'}).then(()=>{throw Error('old instance result');});");assert(app.references==2);
     ouse_task_owner_close(&app.owner);cancel_net_jobs(&app);assert(app.references==1&&net_job_count==1);JS_FreeContext(app.context);
     setup(&app,runtime);complete_native(3);drain_net_completions();assert(!net_job_count&&app.references==1);evaluate(&app,"check(Ouse.mediaGet()===null);");

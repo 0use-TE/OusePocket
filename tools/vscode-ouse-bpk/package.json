@@ -57,7 +57,7 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "prepackage": "npm run compile",
-    "package": "vsce package --allow-missing-repository"
+    "package": "vsce package --allow-missing-repository --no-rewrite-relative-links"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

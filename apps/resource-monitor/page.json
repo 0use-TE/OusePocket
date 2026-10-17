@@ -4,33 +4,47 @@
   "translations": {
     "zh_CN": {
       "title": "资源监视",
-      "memoryTitle": "可用内存 / 总量",
+      "cpuTitle": "两个核心",
+      "historyTitle": "最近 8 次 CPU",
+      "memoryTitle": "内存",
+      "ram": "内部 RAM",
+      "psram": "PSRAM",
       "storageTitle": "应用存储",
-      "systemTitle": "系统",
-      "used": "已用: ",
-      "free": "可用: ",
-      "packages": "安装包: ",
-      "private": "应用数据: ",
-      "physical": "物理 Flash: ",
-      "cpu": "CPU 频率: ",
-      "uptime": "运行时间: ",
-      "period": "刷新间隔",
-      "unavailable": "存储暂不可用"
+      "used": "已用 ",
+      "free": "空闲 ",
+      "packages": "安装包 ",
+      "private": "应用数据 ",
+      "physical": "Flash ",
+      "cpu": "频率 ",
+      "uptime": "已运行 ",
+      "period": "刷新",
+      "unavailable": "存储暂不可用",
+      "preview": "预览示意，设备上显示实测",
+      "waiting": "等待第一次采样",
+      "core0": "核心 0",
+      "core1": "核心 1"
     },
     "en": {
       "title": "Resources",
-      "memoryTitle": "Free memory / Total",
-      "storageTitle": "Application storage",
-      "systemTitle": "System",
-      "used": "Used: ",
-      "free": "Free: ",
-      "packages": "Packages: ",
-      "private": "App data: ",
-      "physical": "Physical Flash: ",
-      "cpu": "CPU frequency: ",
-      "uptime": "Uptime: ",
-      "period": "Refresh interval",
-      "unavailable": "Storage unavailable"
+      "cpuTitle": "Both cores",
+      "historyTitle": "Last 8 CPU samples",
+      "memoryTitle": "Memory",
+      "ram": "Internal RAM",
+      "psram": "PSRAM",
+      "storageTitle": "App storage",
+      "used": "Used ",
+      "free": "Free ",
+      "packages": "Packages ",
+      "private": "App data ",
+      "physical": "Flash ",
+      "cpu": "Clock ",
+      "uptime": "Uptime ",
+      "period": "Refresh",
+      "unavailable": "Storage unavailable",
+      "preview": "Preview sketch, not a device sample",
+      "waiting": "Waiting for the first sample",
+      "core0": "Core 0",
+      "core1": "Core 1"
     }
   },
   "root": {
@@ -41,14 +55,88 @@
     "layout": "column",
     "scroll": true,
     "padding": 12,
-    "gap": 12,
+    "gap": 10,
+    "style": { "backgroundColor": "$background" },
     "children": [
+      { "type": "toolbar", "id": "title", "textKey": "title", "width": "fill", "height": 48 },
       {
-        "type": "toolbar",
-        "id": "title",
-        "textKey": "title",
+        "type": "card",
+        "id": "cpuCard",
+        "textKey": "cpuTitle",
         "width": "fill",
-        "height": 56
+        "height": "content",
+        "padding": 12,
+        "gap": 8,
+        "children": [
+          {
+            "type": "container",
+            "id": "cpuRow",
+            "width": "fill",
+            "height": "content",
+            "layout": "row",
+            "children": [
+              { "type": "container", "id": "pad0", "width": 1, "height": 1, "style": { "flexGrow": 1 } },
+              {
+                "type": "arc",
+                "id": "cpu0",
+                "width": 104,
+                "height": 104,
+                "min": 0,
+                "max": 100,
+                "value": 0,
+                "showValue": false,
+                "style": { "accentColor": "$accent", "backgroundColor": "$border" }
+              },
+              { "type": "container", "id": "pad1", "width": 1, "height": 1, "style": { "flexGrow": 1 } },
+              {
+                "type": "arc",
+                "id": "cpu1",
+                "width": 104,
+                "height": 104,
+                "min": 0,
+                "max": 100,
+                "value": 0,
+                "showValue": false,
+                "style": { "accentColor": "$accent", "backgroundColor": "$border" }
+              },
+              { "type": "container", "id": "pad2", "width": 1, "height": 1, "style": { "flexGrow": 1 } }
+            ]
+          },
+          {
+            "type": "container",
+            "id": "cpuNames",
+            "width": "fill",
+            "height": "content",
+            "layout": "row",
+            "children": [
+              { "type": "container", "id": "pad3", "width": 1, "height": 1, "style": { "flexGrow": 1 } },
+              { "type": "label", "id": "cpu0Text", "textKey": "core0", "width": 104, "height": "content", "fontSize": 14, "style": { "textAlign": "center", "textColor": "$secondary" } },
+              { "type": "container", "id": "pad4", "width": 1, "height": 1, "style": { "flexGrow": 1 } },
+              { "type": "label", "id": "cpu1Text", "textKey": "core1", "width": 104, "height": "content", "fontSize": 14, "style": { "textAlign": "center", "textColor": "$secondary" } },
+              { "type": "container", "id": "pad5", "width": 1, "height": 1, "style": { "flexGrow": 1 } }
+            ]
+          },
+          { "type": "label", "id": "cpuNote", "width": "fill", "height": "content", "fontSize": 14, "style": { "textColor": "$secondary", "textAlign": "center" } },
+          { "type": "label", "id": "historyTitle", "textKey": "historyTitle", "width": "fill", "height": "content", "fontSize": 14, "style": { "textColor": "$secondary" } },
+          {
+            "type": "container",
+            "id": "history",
+            "width": "fill",
+            "height": 88,
+            "layout": "row",
+            "gap": 6,
+            "children": [
+              { "type": "progressBar", "id": "h0", "width": "fill", "height": 88, "min": 0, "max": 100, "value": 0, "style": { "accentColor": "$accent" } },
+              { "type": "progressBar", "id": "h1", "width": "fill", "height": 88, "min": 0, "max": 100, "value": 0, "style": { "accentColor": "$accent" } },
+              { "type": "progressBar", "id": "h2", "width": "fill", "height": 88, "min": 0, "max": 100, "value": 0, "style": { "accentColor": "$accent" } },
+              { "type": "progressBar", "id": "h3", "width": "fill", "height": 88, "min": 0, "max": 100, "value": 0, "style": { "accentColor": "$accent" } },
+              { "type": "progressBar", "id": "h4", "width": "fill", "height": 88, "min": 0, "max": 100, "value": 0, "style": { "accentColor": "$accent" } },
+              { "type": "progressBar", "id": "h5", "width": "fill", "height": 88, "min": 0, "max": 100, "value": 0, "style": { "accentColor": "$accent" } },
+              { "type": "progressBar", "id": "h6", "width": "fill", "height": 88, "min": 0, "max": 100, "value": 0, "style": { "accentColor": "$accent" } },
+              { "type": "progressBar", "id": "h7", "width": "fill", "height": 88, "min": 0, "max": 100, "value": 0, "style": { "accentColor": "$accent" } }
+            ]
+          }
+        ]
       },
       {
         "type": "card",
@@ -56,14 +144,15 @@
         "textKey": "memoryTitle",
         "width": "fill",
         "height": "content",
+        "padding": 12,
+        "gap": 8,
         "children": [
-          {
-            "type": "label",
-            "id": "memory",
-            "width": "fill",
-            "height": "content",
-            "fontSize": 14
-          }
+          { "type": "label", "id": "ramLabel", "textKey": "ram", "width": "fill", "height": "content", "fontSize": 14 },
+          { "type": "progressBar", "id": "ramBar", "width": "fill", "height": 10, "min": 0, "max": 100, "value": 0, "style": { "accentColor": "$accent" } },
+          { "type": "label", "id": "ramText", "width": "fill", "height": "content", "fontSize": 14, "style": { "textColor": "$secondary" } },
+          { "type": "label", "id": "psramLabel", "textKey": "psram", "width": "fill", "height": "content", "fontSize": 14 },
+          { "type": "progressBar", "id": "psramBar", "width": "fill", "height": 10, "min": 0, "max": 100, "value": 0, "style": { "accentColor": "$accent" } },
+          { "type": "label", "id": "psramText", "width": "fill", "height": "content", "fontSize": 14, "style": { "textColor": "$secondary" } }
         ]
       },
       {
@@ -72,30 +161,11 @@
         "textKey": "storageTitle",
         "width": "fill",
         "height": "content",
+        "padding": 12,
+        "gap": 8,
         "children": [
-          {
-            "type": "label",
-            "id": "storage",
-            "width": "fill",
-            "height": "content",
-            "fontSize": 14
-          }
-        ]
-      },
-      {
-        "type": "card",
-        "id": "systemCard",
-        "textKey": "systemTitle",
-        "width": "fill",
-        "height": "content",
-        "children": [
-          {
-            "type": "label",
-            "id": "system",
-            "width": "fill",
-            "height": "content",
-            "fontSize": 14
-          }
+          { "type": "progressBar", "id": "storageBar", "width": "fill", "height": 10, "min": 0, "max": 100, "value": 0, "style": { "accentColor": "$accent" } },
+          { "type": "label", "id": "storage", "width": "fill", "height": "content", "fontSize": 14, "style": { "textColor": "$secondary" } }
         ]
       },
       {
@@ -108,23 +178,12 @@
           {
             "type": "dropdown",
             "id": "interval",
-            "width": 96,
-            "height": 44,
-            "options": [
-              "1 s",
-              "2 s",
-              "5 s"
-            ],
+            "width": 88,
+            "height": 40,
+            "options": ["1 s", "2 s", "5 s"],
             "value": 0
           }
         ]
-      },
-      {
-        "type": "label",
-        "id": "diagnostics",
-        "width": "fill",
-        "height": "content",
-        "fontSize": 14
       }
     ]
   }

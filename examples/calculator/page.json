@@ -14,7 +14,7 @@
     "scroll": false,
     "padding": 8,
     "gap": 6,
-    "style": { "backgroundColor": "$desktop" },
+    "style": { "backgroundColor": "$background" },
     "children": [
       {
         "type": "container",

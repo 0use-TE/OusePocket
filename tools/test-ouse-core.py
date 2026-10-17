@@ -526,18 +526,18 @@ int main(int argc, char **argv) {
     lv_indev_set_read_cb(touch, read_touch);
     if(argc>1 && !strcmp(argv[1],"--focused-widgets")) {focused_widgets(lv_screen_active());return 0;}
     char test_name[]="Test";
-    ouse_app_definition_t definitions[7] = {ouse_counter_app,
+    ouse_app_definition_t definitions[OUSE_APP_CAPACITY-1] = {ouse_counter_app,
         {.id="ouse.fail", .name=test_name, .icon=LV_SYMBOL_WARNING, .open=fail_open, .close=fail_close}};
-    const char *extra_ids[]={"ouse.extra2","ouse.extra3","ouse.extra4","ouse.extra5","ouse.extra6"};
-    const char *extra_names[]={"Extra2","Extra3","Extra4","Extra5","Extra6"};
-    for (unsigned i=2;i<7;++i) {
+    char extra_ids[OUSE_APP_CAPACITY-3][48],extra_names[OUSE_APP_CAPACITY-3][48];
+    for (unsigned i=2;i<OUSE_APP_CAPACITY-1;++i) {
+        snprintf(extra_ids[i-2],48,"ouse.extra%u",i);snprintf(extra_names[i-2],48,"Extra%u",i);
         definitions[i]=definitions[1]; definitions[i].id=extra_ids[i-2]; definitions[i].name=extra_names[i-2];
     }
     bool pages=argc>1 && !strcmp(argv[1],"--launcher-pages");
     ouse_core_config_t config = {.port = {
         .display = display, .touch = touch, .lock = lock, .unlock = unlock,
         .set_brightness = set_brightness, .save_brightness = save_setting, .save_theme = save_theme,
-        .get_settings_state = settings_state, .get_system_info = system_info, .board_name = "Waveshare P4 LCD 3.5"}, .initial_brightness = 45, .initial_font_percent=pages ? 130 : 100, .apps = definitions, .app_count = (pages ? 7 : argc>1 ? 2 : 1)};
+        .get_settings_state = settings_state, .get_system_info = system_info, .board_name = "Waveshare P4 LCD 3.5"}, .initial_brightness = 45, .initial_font_percent=pages ? 130 : 100, .apps = definitions, .app_count = (pages ? OUSE_APP_CAPACITY-1 : argc>1 ? 2 : 1)};
     if(argc>1 && !strcmp(argv[1],"--focused-native-ui"))config.port.save_ui=audit_save_ui;
     assert(!ouse_core_is_started() && strcmp(ouse_core_version(), "CORE_VERSION_EXPECTED") == 0);
     assert(ouse_core_sleep_display()==ESP_ERR_INVALID_STATE && ouse_core_wake_display()==ESP_ERR_INVALID_STATE);
@@ -570,7 +570,10 @@ int main(int argc, char **argv) {
     assert(label(root, LV_SYMBOL_SETTINGS) && !label(root, "屏幕亮度"));
     if (pages) {
         tick();
-        ouse_app_stats_t state; assert(ouse_app_get_stats(&state)==ESP_OK && state.registered==8);
+        ouse_app_stats_t state; assert(ouse_app_get_stats(&state)==ESP_OK && state.registered==OUSE_APP_CAPACITY);
+        ouse_app_info_t last;assert(ouse_app_get_info(OUSE_APP_CAPACITY-1,&last)==ESP_OK && !strcmp(last.id,extra_ids[OUSE_APP_CAPACITY-4]));
+        ouse_app_definition_t overflow=definitions[1];overflow.id="user.overflow";
+        assert(ouse_apps_user_apply(&overflow)==ESP_ERR_NO_MEM);
         ouse_app_info_t info; assert(ouse_app_get_info(7,&info)==ESP_OK && !strcmp(info.id,"ouse.extra6"));
         swipe(220,300,60,300);
         bool moved=false;
@@ -583,7 +586,7 @@ int main(int argc, char **argv) {
             }
         }
         assert(moved); screenshot("desktop-page2.ppm");
-        puts("PASS all eight registered apps, archived grid capacity and horizontal launcher paging");
+        puts("PASS full registry, overflow rejection and horizontal launcher paging");
         return 0;
     }
     if (argc>1) {

@@ -21,7 +21,7 @@
     "layout": "column",
     "padding": 20,
     "gap": 20,
-    "style": { "backgroundColor": "$desktop" },
+    "style": { "backgroundColor": "$background" },
     "children": [
       {
         "type": "toolbar",
@@ -58,7 +58,7 @@
                 "id": "value",
                 "width": "fill",
                 "height": "content",
-                "fontSize": 48,
+                "fontSize": 32,
                 "text": "0",
                 "style": { "textColor": "$text", "textAlign": "center" }
               }
@@ -91,7 +91,7 @@
                     "id": "increment",
                     "width": 112,
                     "height": 112,
-                    "fontSize": 32,
+                    "fontSize": 72,
                     "textKey": "increment",
                     "style": {
                       "backgroundColor": "$accent",

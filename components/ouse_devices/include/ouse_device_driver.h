@@ -25,6 +25,7 @@ void ouse_devices_set_available(unsigned worker,bool available,esp_err_t error);
 void ouse_devices_publish_power(const ouse_power_state_t *state);
 bool ouse_devices_take_audio(ouse_audio_request_t *request);
 esp_err_t ouse_devices_queue_media(uint32_t task_id);
+esp_err_t ouse_devices_queue_usb(uint32_t *task_id);
 bool ouse_devices_take_alarm(ouse_audio_request_t *request);
 // Resume the preserved media request after the alarm task has stopped. Nested
 // consumer resumes in place; top-level worker enqueues the unclaimed consumer.

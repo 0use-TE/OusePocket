@@ -18,6 +18,7 @@ fixture=(ROOT/'tools/checks/services-js.c').read_text(encoding='utf-8').replace(
 fixture=fixture.replace('SERVICES_SOURCE',(ROOT/'components/ouse_runtime/ouse_runtime_services.inc').as_posix())
 path=OUT/'services-js.c';path.write_text(fixture,encoding='utf-8')
 includes=[OUT,QJS,ROOT/'components/ouse_tasks/include',ROOT/'components/ouse_net/include',ROOT/'components/ouse_media/include',ROOT/'components/ouse_alarm/include',ROOT/'components/ouse_system/include']
+includes.append(ROOT/'components/ouse_usb/include')
 command=[str(compiler),'/nologo','/std:c11','/O2','/MD','/utf-8','/D_CRT_SECURE_NO_WARNINGS','/D_GNU_SOURCE','/DQUICKJS_NG_BUILD']
 command+=['/I'+str(p) for p in includes]
 result=subprocess.run(command+[str(path),str(ROOT/'tools/checks/services-platform.c'),str(ROOT/'components/ouse_tasks/ouse_tasks.c'),str(ROOT/'components/ouse_system/ouse_health.c'),str(LIB),'/Fe'+str(OUT/'services-js.exe')],cwd=OUT,env=env,capture_output=True,text=True,errors='replace')

@@ -22,7 +22,7 @@
 
 每项仅允许 id/type/path。ID 匹配 `[A-Za-z][A-Za-z0-9_-]{0,30}` 且唯一；路径是 `assets/` 下最多 95 字节的唯一 ASCII 相对路径，每段仅字母、数字、`.`、`_`、`-`，禁止 `.`/`..`、空段、反斜杠和冒号。包中不包含目录条目或未声明文件。
 
-image 为 OIC1 BGRA8888，宽、高各最多 512，所有资源图片的像素合计最多 128 KiB，不含启动器图标。源 PNG 打包时自动转换为同目录同名 `.bin`，并改写包内清单；转换后名称冲突会报错。text 为无 NUL 的 UTF-8，每项最多 16 KiB；binary 每项最多 64 KiB；两者累计最多 128 KiB，允许空文件。预转换图片不需要 Pillow。
+image 为 OIC1 BGRA8888，宽、高各最多 512，所有资源图片的像素合计最多 128 KiB，不含启动器图标。源 PNG 打包时自动转换为同目录同名 `.bin`，并改写包内清单；转换后名称冲突会报错。text 为无 NUL 的 UTF-8，每项最多 16 KiB；binary 每项最多 512 KiB；两者累计最多 512 KiB，总 BPK 仍最多 512 KiB，允许空文件。预转换图片不需要 Pillow。
 
 固件内通过 `Ouse.assets.list()`、`readText(id)`、`readBytes(id)` 同步访问已载入资源；readBytes 返回独立 ArrayBuffer，readText 只接受 text。页面 image 的 src 为资源 ID；`Ouse.ui.setImage(nodeId,imageId)` 切换已声明图片，正常返回 undefined。
 

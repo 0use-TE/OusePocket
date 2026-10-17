@@ -1,0 +1,40 @@
+{
+  "api": 1,
+  "units": "dp",
+  "root": {
+    "type": "container",
+    "id": "page",
+    "width": "fill",
+    "height": "fill",
+    "layout": "column",
+    "padding": 12,
+    "gap": 16,
+    "style": { "backgroundColor": "$background" },
+    "children": [
+      { "type": "toolbar", "id": "title", "text": "秒表", "width": "fill", "height": 48 },
+      {
+        "type": "label",
+        "id": "elapsed",
+        "text": "00:00.0",
+        "width": "fill",
+        "height": "content",
+        "fontSize": 48,
+        "style": { "textAlign": "center" }
+      },
+      {
+        "type": "container",
+        "id": "controls",
+        "width": "fill",
+        "height": "content",
+        "layout": "row",
+        "gap": 8,
+        "children": [
+          { "type": "button", "id": "start", "text": "开始", "width": "fill", "height": 44 },
+          { "type": "button", "id": "pause", "text": "暂停", "width": "fill", "height": 44 },
+          { "type": "button", "id": "resume", "text": "继续", "width": "fill", "height": 44 }
+        ]
+      },
+      { "type": "button", "id": "reset", "text": "清零", "width": "fill", "height": 44 }
+    ]
+  }
+}

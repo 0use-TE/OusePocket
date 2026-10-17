@@ -4,6 +4,7 @@
 #include "ouse_apps_internal.h"
 #include "ouse_ime.h"
 #include "ouse_tasks.h"
+#include "ouse_memory.h"
 #include <string.h>
 #include <stdio.h>
 #include "esp_log.h"
@@ -25,7 +26,7 @@ static struct {
     lv_obj_t *host;
     uint64_t serial;
     void (*changed)(bool);
-    entry_t entries[OUSE_APP_CAPACITY];
+    entry_t *entries;
     unsigned count;
     int active;
     bool sealed, transitioning;
@@ -78,6 +79,8 @@ esp_err_t ouse_apps_init(lv_obj_t *host, void (*changed)(bool))
 {
     if (!host || !changed) return ESP_ERR_INVALID_ARG;
     if (apps.host) return ESP_ERR_INVALID_STATE;
+    apps.entries=ouse_psram_calloc(OUSE_APP_CAPACITY,sizeof(*apps.entries));
+    if(!apps.entries)return ESP_ERR_NO_MEM;
     apps.host = host; apps.changed = changed; apps.active = -1;
     lv_obj_add_flag(host, LV_OBJ_FLAG_HIDDEN);
     return ESP_OK;

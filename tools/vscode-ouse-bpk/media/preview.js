@@ -364,7 +364,18 @@
     const number = Number(value);
     item.value = number;
     const pct = max === min ? 0 : Math.max(0, Math.min(100, ((number - min) / (max - min)) * 100));
-    if (item.fill) item.fill.style.width = pct + '%';
+    if (item.fill) {
+      const bounds = item.el.getBoundingClientRect();
+      const vertical = bounds.height > bounds.width;
+      item.el.classList.toggle('vertical', vertical);
+      if (vertical) {
+        item.fill.style.width = '100%';
+        item.fill.style.height = pct + '%';
+      } else {
+        item.fill.style.height = '100%';
+        item.fill.style.width = pct + '%';
+      }
+    }
     if (item.type === 'arc' && item.el) {
       item.el.style.setProperty('--pct', String(pct));
       if (item.caption && item.showValue !== false) item.caption.textContent = String(Math.round(number));
@@ -886,7 +897,7 @@
         return {
           internalFree: 180000, internalTotal: 320000, psramFree: 24000000, psramTotal: 32000000,
           flashBytes: 16 * 1024 * 1024, cpuMHz: 400, uptimeMs: Date.now() - started,
-          resetReason: 1, coreVersion: '0.12.1', idfVersion: 'preview',
+          resetReason: 1, coreVersion: '0.13.1', idfVersion: 'preview',
         };
       },
       storage() {
@@ -1294,6 +1305,8 @@
       } else {
         if (!old) throw new Error('Alarm not found');
         if (action === 'remove') previewAlarms.delete(id);
+        else if (action === 'disable') {old.enabled = false;old.ringing = false;}
+        else if (action === 'enable') {if (!old.nextMs || old.nextMs <= now) throw new Error('Edit expired one-shot alarm before enabling');old.enabled = true;old.missed = false;}
         else if (action === 'dismiss') old.ringing = false;
         else if (action === 'snooze') {old.nextMs = now + options * 60000;old.enabled = true;old.ringing = false;}
       }
@@ -1302,6 +1315,7 @@
   }
   Ouse.alarms = {
     set(options) {return previewAlarmCommand('set', options && options.id, options);},
+    setEnabled(id, enabled) {if (typeof enabled !== 'boolean') throw new Error('Expected boolean');return previewAlarmCommand(enabled ? 'enable' : 'disable', id);},
     remove(id) {return previewAlarmCommand('remove', id);},
     dismiss(id) {return previewAlarmCommand('dismiss', id);},
     snooze(id, minutes) {if (!Number.isInteger(minutes) || minutes < 1 || minutes > 60) throw new Error('Minutes: 1..60');return previewAlarmCommand('snooze', id, minutes);},

@@ -2,6 +2,7 @@
 #include "ouse_media.h"
 #include "ouse_wave.h"
 #include "ouse_net.h"
+#include "ouse_notifications.h"
 #include "ouse_device_driver.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -40,10 +41,17 @@ static bool stop(void *context)
     lock();bool stopped=!match(source->id)||session.force_stop;unlock();
     return source->timed_out || stopped || ouse_task_cancel_requested(source->id);
 }
+static void notify_playback(void)
+{
+    if(!session.state.active){(void)ouse_notifications_cancel(session.state.app_id,"ouse.media");return;}
+    const char *title=session.state.interrupted ? "播放被闹铃占用" : session.state.paused ? "播放已暂停" : "正在播放";
+    const ouse_notification_request_t request={.id="ouse.media",.title=title,.body="点击返回播放控制",.payload="media",.ongoing=true};
+    (void)ouse_notifications_publish(session.state.app_id,&request);
+}
 static void finish_if_stopped(void)
 {
     if(!session.state.active || !session.consumer_done || !session.producer_done)return;
-    session.state.active=false;session.state.buffering=false;session.state.interrupted=false;
+    session.state.active=false;session.state.buffering=false;session.state.interrupted=false;notify_playback();
     ouse_task_result_t result={.present=true,.value.audio={.position_ms=session.state.position_ms}};
     ouse_task_finish_result(session.state.task_id,session.state.error,session.cancelled && session.state.error==ESP_OK,&result);
     ++session.state.revision;
@@ -138,6 +146,7 @@ esp_err_t ouse_media_play(const ouse_task_owner_t *owner,const char *url,const v
     (void)xStreamBufferReset(pcm);
     error=ouse_devices_queue_media(*id);
     if(error!=ESP_OK){session.state.active=false;session.state.error=error;ouse_task_finish(*id,error,false);goto done;}
+    notify_playback();
     BaseType_t queued=xQueueSend(sources,&source,0);configASSERT(queued==pdTRUE);(void)queued;
 done:
     unlock();if(error!=ESP_OK){free(source->data);free(source);}return error;
@@ -153,7 +162,7 @@ esp_err_t ouse_media_pause(const char *app_id,bool paused)
 {
     if(!app_id || !mutex)return ESP_ERR_INVALID_ARG;
     lock();bool found=session.state.active && !strcmp(app_id,session.state.app_id);
-    if(found){session.state.paused=paused;++session.state.revision;}
+    if(found){session.state.paused=paused;++session.state.revision;notify_playback();}
     unlock();return found ? ESP_OK : ESP_ERR_NOT_FOUND;
 }
 esp_err_t ouse_media_stop(const char *app_id)
@@ -187,7 +196,7 @@ unsigned ouse_media_read(uint32_t id,int16_t *samples,unsigned capacity,bool *do
 void ouse_media_consumed(uint32_t id,unsigned samples)
 {lock();if(match(id)){session.consumed+=samples;session.state.position_ms=session.consumed/16;++session.state.revision;}unlock();}
 void ouse_media_interrupted(uint32_t id,bool interrupted)
-{lock();if(match(id)){session.state.interrupted=interrupted;++session.state.revision;}unlock();}
+{lock();if(match(id)){session.state.interrupted=interrupted;++session.state.revision;notify_playback();}unlock();}
 void ouse_media_consumer_done(uint32_t id,esp_err_t error,bool cancelled)
 {
     lock();if(match(id)){

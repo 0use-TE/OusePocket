@@ -1,0 +1,15 @@
+{
+  "runtime": "ouse-core",
+  "api": 1,
+  "id": "user.alarm",
+  "name": "Alarm",
+  "names": {
+    "zh_CN": "闹钟",
+    "en": "Alarm"
+  },
+  "icon": "icon.bin",
+  "capabilities": {
+    "alarms": true,
+    "notifications": true
+  }
+}

@@ -148,4 +148,4 @@ for name, sources in cases.items():
     result = subprocess.run(common+list(map(str, [platform, path]+sources))+['/Fe'+str(OUT/f'{name}.exe')],
                             cwd=OUT, env=env, capture_output=True, text=True, errors='replace')
     assert result.returncode == 0, (name, result.stdout, result.stderr)
-    subprocess.run([str(OUT/f'{name}.exe')], cwd=OUT, check=True, timeout=15)
+    subprocess.run([str(OUT/f'{name}.exe')]+([str(ROOT/'apps/music/assets/fur-elise-30s.wav')] if name=='wave' else []), cwd=OUT, check=True, timeout=15)

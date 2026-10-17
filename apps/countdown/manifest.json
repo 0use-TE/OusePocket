@@ -1,0 +1,15 @@
+{
+  "runtime": "ouse-core",
+  "api": 1,
+  "id": "user.countdown",
+  "name": "Countdown",
+  "names": {
+    "zh_CN": "倒计时",
+    "en": "Countdown"
+  },
+  "icon": "icon.bin",
+  "capabilities": {
+    "background": true,
+    "notifications": true
+  }
+}

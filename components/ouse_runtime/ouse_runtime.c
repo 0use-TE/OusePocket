@@ -13,6 +13,7 @@
 #include "ouse_alarm.h"
 #include "ouse_clock.h"
 #include "ouse_media.h"
+#include "ouse_usb.h"
 #include "ouse_metrics.h"
 #include "ouse_health.h"
 #include "src/misc/cache/instance/lv_image_cache.h"
@@ -20,6 +21,7 @@
 #include "esp_timer.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
+#include "ouse_memory.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
@@ -29,6 +31,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdatomic.h>
+#ifndef ESP_PLATFORM
+#include <malloc.h>
+#endif
 
 #define MAX_NODES 96
 #define MAX_TIMERS 8
@@ -48,6 +53,36 @@
 #define MAX_NET_JOBS 16
 #define MAX_PAGES 16
 #define MAX_PAGE_STACK 8
+
+static void *js_psram_calloc(void *opaque,size_t count,size_t size)
+{ (void)opaque;return ouse_psram_calloc(count,size); }
+static void *js_psram_malloc(void *opaque,size_t size)
+{ (void)opaque;return ouse_psram_malloc(size); }
+static void js_psram_free(void *opaque,void *pointer)
+{ (void)opaque;free(pointer); }
+static void *js_psram_realloc(void *opaque,void *pointer,size_t size)
+{
+    (void)opaque;
+#ifdef ESP_PLATFORM
+    return heap_caps_realloc(pointer,size,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
+#else
+    return realloc(pointer,size);
+#endif
+}
+static size_t js_psram_usable_size(const void *pointer)
+{
+    if(!pointer)return 0;
+#ifdef ESP_PLATFORM
+    return heap_caps_get_allocated_size((void *)pointer);
+#elif defined(_WIN32)
+    return _msize((void *)pointer);
+#else
+    return malloc_usable_size((void *)pointer);
+#endif
+}
+static const JSMallocFunctions js_psram_allocator={
+    js_psram_calloc,js_psram_malloc,js_psram_free,js_psram_realloc,js_psram_usable_size
+};
 
 typedef enum { NAV_IDLE, NAV_REQUESTED, NAV_DETACHED, NAV_MODEL_READY } navigation_stage_t;
 typedef enum { NAV_OPEN, NAV_PUSH, NAV_BACK, NAV_REPLACE } navigation_action_t;
@@ -1105,8 +1140,8 @@ static void install_api(instance_t *app)
     JS_SetPropertyStr(context,api,"net",net);
     JSValue clock=JS_NewObject(context);JS_SetPropertyStr(context,clock,"get",JS_NewCFunction(context,clock_get,"get",0));
     JS_SetPropertyStr(context,api,"clock",clock);
-    JSValue alarms=JS_NewObject(context);const char *alarm_methods[]={"set","remove","dismiss","snooze","list"};
-    for(int i=0;i<5;++i)JS_SetPropertyStr(context,alarms,alarm_methods[i],JS_NewCFunctionMagic(context,alarms_api,alarm_methods[i],i==4 ? 0 : i==3 ? 2 : 1,JS_CFUNC_generic_magic,i));
+    JSValue alarms=JS_NewObject(context);const char *alarm_methods[]={"set","remove","dismiss","snooze","list","setEnabled"};
+    for(int i=0;i<6;++i)JS_SetPropertyStr(context,alarms,alarm_methods[i],JS_NewCFunctionMagic(context,alarms_api,alarm_methods[i],i==4 ? 0 : i==3 || i==5 ? 2 : 1,JS_CFUNC_generic_magic,i));
     JS_SetPropertyStr(context,api,"alarms",alarms);
     JSValue media=JS_NewObject(context);const char *media_methods[]={"play","pause","resume","stop","get"};
     for(int i=0;i<5;++i)JS_SetPropertyStr(context,media,media_methods[i],JS_NewCFunctionMagic(context,media_api,media_methods[i],i==0 ? 1 : 0,JS_CFUNC_generic_magic,i));
@@ -1141,6 +1176,9 @@ static void install_api(instance_t *app)
     JS_SetPropertyStr(context,system,"diagnostics",JS_NewCFunctionMagic(context,diagnostics_api,"diagnostics",0,JS_CFUNC_generic_magic,1));
     JS_SetPropertyStr(context,system,"storage",JS_NewCFunction(context,system_storage,"storage",0));
     JS_SetPropertyStr(context,system,"capabilities",JS_NewCFunction(context,system_capabilities,"capabilities",0));
+    JSValue usb=JS_NewObject(context);
+    JS_SetPropertyStr(context,usb,"get",JS_NewCFunction(context,usb_snapshot,"get",0));
+    JS_SetPropertyStr(context,api,"usb",usb);
     JS_SetPropertyStr(context,system,"cpu",JS_NewCFunction(context,system_cpu,"cpu",0));
     JS_SetPropertyStr(context,system,"health",JS_NewCFunctionMagic(context,system_health,"health",0,JS_CFUNC_generic_magic,0));
     JS_SetPropertyStr(context,system,"activities",JS_NewCFunctionMagic(context,system_health,"activities",0,JS_CFUNC_generic_magic,1));
@@ -1747,6 +1785,13 @@ static void apply_style(instance_t *app,node_t *node,const node_model_t *model)
             if(node->caption && node->caption!=object)lv_obj_set_style_text_color(node->caption,fg,0);
         }
     }
+    // Captions must inherit the parent's resolved base/state text colors.
+    // A local startup color otherwise survives live theme changes (including
+    // explicit $secondary/$accent colors) and can become white on white.
+    if(node->caption && node->caption!=object){
+        const lv_state_t caption_states[]={0,LV_STATE_PRESSED,LV_STATE_CHECKED,LV_STATE_DISABLED};
+        for(unsigned i=0;i<4;++i)lv_obj_remove_local_style_prop(node->caption,LV_STYLE_TEXT_COLOR,caption_states[i]);
+    }
     uint32_t default_border=COLOR_THEME|COLOR_BORDER;
     if(style->border_set || model->type==TEXT_INPUT || model->type==DROPDOWN || model->type==BUTTON)
         lv_obj_set_style_border_color(object,lv_color_hex(resolve_color(style->border_set ? style->border : default_border)),0);
@@ -1808,7 +1853,9 @@ static void apply_style(instance_t *app,node_t *node,const node_model_t *model)
     lv_obj_t *visible_object=node->overlay ? node->overlay : object;
     if(style->hidden){ouse_ime_hide_root(object);lv_obj_add_flag(visible_object,LV_OBJ_FLAG_HIDDEN);}else lv_obj_remove_flag(visible_object,LV_OBJ_FLAG_HIDDEN);
     if(style->disabled)lv_obj_add_state(object,LV_STATE_DISABLED);else lv_obj_remove_state(object,LV_STATE_DISABLED);
-    lv_obj_set_flex_grow(object,(uint8_t)style->flex_grow);
+    unsigned parent_flow=model->parent>=0 ? app->nodes[model->parent].model.flow : 0;
+    bool fill_main=(parent_flow==2 && model->fill_w) || (parent_flow==1 && model->fill_h);
+    lv_obj_set_flex_grow(object,(uint8_t)(style->flex_grow ? style->flex_grow : fill_main ? 1 : 0));
     lv_obj_set_style_text_align(object,(lv_text_align_t)style->align,0);
     if(node->caption)lv_obj_set_style_text_align(node->caption,(lv_text_align_t)style->align,0);
 }
@@ -1956,7 +2003,11 @@ static void build_nodes(instance_t *app)
         else if(model.type==ARC){lv_arc_set_range(object,model.min,model.max);}
         else if(model.type==SPINNER){lv_spinner_set_anim_params(object,1000,80);}
         lv_obj_set_pos(object,units(app,model.x),units(app,model.y));
-        lv_obj_set_size(object,model.fill_w ? LV_PCT(100) : units(app,model.w),model.fill_h ? LV_PCT(100) : model.content_h ? LV_SIZE_CONTENT : units(app,model.h));
+        unsigned parent_flow=model.parent>=0 ? app->nodes[model.parent].model.flow : 0;
+        // Main-axis fill shares remaining space after fixed siblings/gaps.
+        // Cross-axis fill still spans the parent. Do not give each row child 100%.
+        lv_obj_set_size(object,model.fill_w ? (parent_flow==2 ? 0 : LV_PCT(100)) : units(app,model.w),
+            model.fill_h ? (parent_flow==1 ? 0 : LV_PCT(100)) : model.content_h ? LV_SIZE_CONTENT : units(app,model.h));
         unsigned font_sp=model.font_sp ? model.font_sp : 16;
         ouse_ui_use_font(object,font_sp);
         // Button/card captions are child labels; LVGL text font does not inherit.
@@ -2108,7 +2159,7 @@ static esp_err_t initialize_js(instance_t *app)
     for(unsigned i=0;i<MAX_JOBS;++i)app->rejected_promises[i]=app->rejection_reasons[i]=JS_UNDEFINED;
     for(unsigned i=0;i<MAX_NODES;++i)for(unsigned e=0;e<EVENT_COUNT;++e)app->nodes[i].handlers[e]=JS_UNDEFINED;
     for(unsigned i=0;i<MAX_TIMERS;++i)app->timers[i].handler=JS_UNDEFINED;
-    app->runtime=JS_NewRuntime();if(!app->runtime)return ESP_ERR_NO_MEM;
+    app->runtime=JS_NewRuntime2(&js_psram_allocator,NULL);if(!app->runtime)return ESP_ERR_NO_MEM;
     JS_SetMemoryLimit(app->runtime,OUSE_RUNTIME_MEMORY_LIMIT);JS_SetMaxStackSize(app->runtime,JS_STACK_BYTES);
     JS_SetInterruptHandler(app->runtime,interrupt,app);JS_SetHostPromiseRejectionTracker(app->runtime,promise_rejected,app);
     app->worker_visible=true;begin_startup(app);app->context=JS_NewContext(app->runtime);if(!app->context)return ESP_ERR_NO_MEM;
@@ -2322,7 +2373,7 @@ static bool valid_package_resources(const ouse_script_package_t *package)
     for(unsigned i=0;i<package->asset_count;++i){const ouse_script_asset_t *asset=&package->assets[i];
         if(!valid_asset_id(asset->id) || (asset->size && !asset->data) ||
             (asset->type!=OUSE_SCRIPT_ASSET_TEXT && asset->type!=OUSE_SCRIPT_ASSET_BINARY) ||
-            asset->size>(asset->type==OUSE_SCRIPT_ASSET_TEXT ? 16*1024u : 64*1024u) || asset->size>OUSE_RUNTIME_DATA_BYTES_MAX-data ||
+            asset->size>(asset->type==OUSE_SCRIPT_ASSET_TEXT ? 16*1024u : OUSE_RUNTIME_DATA_BYTES_MAX) || asset->size>OUSE_RUNTIME_DATA_BYTES_MAX-data ||
             (asset->type==OUSE_SCRIPT_ASSET_TEXT && asset->size && memchr(asset->data,0,asset->size)))return false;
         data+=asset->size;
         for(unsigned j=0;j<package->image_count;++j)if(!strcmp(asset->id,package->images[j].id))return false;
@@ -2333,7 +2384,7 @@ static bool valid_package_resources(const ouse_script_package_t *package)
 static void *copy_resource(const void *data,size_t size,bool text)
 {
     size_t bytes=size+(text || !size ? 1 : 0);
-    unsigned char *copy=heap_caps_malloc(bytes,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);if(!copy)copy=malloc(bytes);
+    unsigned char *copy=ouse_psram_malloc(bytes);
     if(!copy)return NULL;
     if(size)memcpy(copy,data,size);
     if(text || !size)copy[size]=0;
@@ -2348,13 +2399,12 @@ esp_err_t ouse_runtime_end_background(uint32_t instance_id)
 }
 static instance_t *allocate_instance(const ouse_script_package_t *package)
 {
-    instance_t *app=heap_caps_calloc(1,sizeof(*app),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
-    if(!app)app=calloc(1,sizeof(*app));
+    instance_t *app=ouse_psram_calloc(1,sizeof(*app));
     if(!app)return NULL;
     atomic_init(&app->references,1);
     if(ouse_task_owner_open(package->id,&app->owner)!=ESP_OK){free(app);return NULL;}
     app->model_lock=xSemaphoreCreateMutex();app->events=xQueueCreate(MAX_EVENTS,sizeof(input_event_t));
-    app->page=strdup(package->page);app->script=strdup(package->script);strcpy(app->id,package->id);app->background_allowed=package->background_allowed;app->notifications_allowed=package->notifications_allowed;
+    app->page=copy_resource(package->page,strlen(package->page),true);app->script=copy_resource(package->script,strlen(package->script),true);strcpy(app->id,package->id);app->background_allowed=package->background_allowed;app->notifications_allowed=package->notifications_allowed;
     app->network_allowed=package->network_allowed;app->media_allowed=package->media_allowed;app->alarms_allowed=package->alarms_allowed;
     if(!app->model_lock || !app->events || !app->page || !app->script){release_instance(app);return NULL;}
     size_t bytes=0;

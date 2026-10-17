@@ -41,13 +41,21 @@ int main(void)
     assert(db.count==1&&ouse_alarm_list(apps[0],list,4)==1);ouse_task_snapshot_t task;
     assert(ouse_task_get(NULL,id,&task)&&task.detached&&task.state==OUSE_TASK_SUCCEEDED&&!task.delivery_pending);
     database_t saved=db;memset(&db,0,sizeof(db));assert(load()==ESP_OK&&db.count==1&&db.records[0].next_utc==wall+10);
+    command_t toggle=set_command(apps[0],"probe",0);toggle.action=OUSE_ALARM_DISABLE;
+    fail_rename=true;assert(execute(&toggle)==ESP_FAIL&&db.records[0].enabled);fail_rename=false;
+    assert(execute(&toggle)==ESP_OK&&!db.records[0].enabled);
+    memset(&db,0,sizeof(db));assert(load()==ESP_OK&&!db.records[0].enabled);
+    toggle.action=OUSE_ALARM_ENABLE;assert(execute(&toggle)==ESP_OK&&db.records[0].enabled&&db.records[0].next_utc==wall+10);
     wall+=10;test_clock+=100000;tick();assert(published==1&&db.records[0].last_utc==wall&&!db.records[0].enabled&&ringing_until[0]);
     tick();assert(published==1); // consumed occurrence cannot replay
+    assert(execute(&toggle)==ESP_ERR_INVALID_ARG); // expired one-shot needs an explicit new schedule
     command_t c=set_command(apps[0],"probe",0);c.action=OUSE_ALARM_SNOOZE;c.snooze=1;
     assert(execute(&c)==ESP_OK&&db.records[0].next_utc==wall+60&&!ringing_until[0]);tick();silence();
     wall+=60;tick();assert(published==2);c.action=OUSE_ALARM_DISMISS;assert(execute(&c)==ESP_OK&&!ringing_until[0]);tick();silence();
     c=set_command(apps[0],"late",wall+1);assert(execute(&c)==ESP_OK);wall+=200;tick();assert(published==2&&db.records[1].missed&&!db.records[1].enabled);
     c=set_command(apps[0],"weekly",0);c.spec.weekdays=127;c.spec.minute_of_day=(unsigned)((wall/60+1)%1440);assert(execute(&c)==ESP_OK);
+    toggle=set_command(apps[0],"weekly",0);toggle.action=OUSE_ALARM_DISABLE;assert(execute(&toggle)==ESP_OK&&!db.records[2].enabled);
+    toggle.action=OUSE_ALARM_ENABLE;assert(execute(&toggle)==ESP_OK&&db.records[2].enabled);
     wall=db.records[2].next_utc;tick();unsigned rings=published;int64_t last=db.records[2].last_utc;
     wall-=86400;tick();assert(published==rings&&db.records[2].last_utc==last);
     wall+=86400;tick();assert(published==rings); // backward/forward clock does not replay last occurrence

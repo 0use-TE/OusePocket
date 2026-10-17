@@ -139,6 +139,12 @@
   // Avoid image drag / click ghosting; gestures go through pointer events.
   screen.addEventListener('click', (event) => event.preventDefault());
   screen.addEventListener('dragstart', (event) => event.preventDefault());
+  screen.addEventListener('wheel', (event) => {
+    if (busy || !connected) return;
+    if (Math.abs(event.deltaY) < Math.abs(event.deltaX) || Math.abs(event.deltaY) < 1) return;
+    event.preventDefault();
+    vscode.postMessage({ type: 'wheel', deltaY: event.deltaY });
+  }, { passive: false });
 
   window.addEventListener('resize', fitScale);
   if (typeof ResizeObserver !== 'undefined') {

@@ -1,0 +1,61 @@
+{
+  "api": 1,
+  "units": "dp",
+  "root": {
+    "type": "container",
+    "id": "page",
+    "width": "fill",
+    "height": "fill",
+    "layout": "column",
+    "scroll": true,
+    "padding": 12,
+    "gap": 12,
+    "style": { "backgroundColor": "$background" },
+    "children": [
+      { "type": "toolbar", "id": "title", "text": "倒计时", "width": "fill", "height": 48 },
+      {
+        "type": "label",
+        "id": "remain",
+        "text": "00:00",
+        "width": "fill",
+        "height": "content",
+        "fontSize": 48,
+        "style": { "textAlign": "center" }
+      },
+      {
+        "type": "dropdown",
+        "id": "preset",
+        "width": "fill",
+        "height": 44,
+        "value": 0,
+        "options": "预设\n30秒\n1分钟\n微波 1分钟\n微波 2分钟\n微波 3分钟\n泡面 3分钟\n泡面 5分钟\n半熟蛋 6分钟\n煮鸡蛋 8分钟\n煮鸡蛋 10分钟\n蒸蛋 12分钟\n热牛奶 2分钟\n午休 20分钟\n30分钟\n1小时"
+      },
+      {
+        "type": "container",
+        "id": "custom",
+        "width": "fill",
+        "height": "content",
+        "layout": "row",
+        "gap": 8,
+        "children": [
+          { "type": "textInput", "id": "minutes", "placeholder": "分钟", "inputType": "number", "width": "fill", "height": 44, "maxLength": 3 },
+          { "type": "textInput", "id": "seconds", "placeholder": "秒", "inputType": "number", "width": "fill", "height": 44, "maxLength": 2 }
+        ]
+      },
+      { "type": "button", "id": "start", "text": "开始", "width": "fill", "height": 44 },
+      {
+        "type": "container",
+        "id": "controls",
+        "width": "fill",
+        "height": "content",
+        "layout": "row",
+        "gap": 8,
+        "children": [
+          { "type": "button", "id": "pause", "text": "暂停", "width": "fill", "height": 44 },
+          { "type": "button", "id": "resume", "text": "继续", "width": "fill", "height": 44 },
+          { "type": "button", "id": "cancel", "text": "取消", "width": "fill", "height": 44 }
+        ]
+      }
+    ]
+  }
+}

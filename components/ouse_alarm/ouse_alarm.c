@@ -185,6 +185,14 @@ static esp_err_t execute(command_t *cmd)
     }else if(cmd->action==OUSE_ALARM_SNOOZE){
         if(!clock_valid(now) || !ringing_until[index]){error=ESP_ERR_INVALID_STATE;goto done;}
         candidate->records[index].next_utc=now+(int64_t)cmd->snooze*60;candidate->records[index].enabled=true;
+    }else if(cmd->action==OUSE_ALARM_ENABLE){
+        if(!clock_valid(now)){error=ESP_ERR_INVALID_STATE;goto done;}
+        ouse_alarm_snapshot_t *a=&candidate->records[index];
+        int64_t after=now>a->last_utc ? now : a->last_utc;
+        int64_t next=ouse_alarm_next(&a->spec,after);
+        if(!next){error=ESP_ERR_INVALID_ARG;goto done;}
+        a->next_utc=next;a->enabled=true;a->missed=false;
+    }else if(cmd->action==OUSE_ALARM_DISABLE){candidate->records[index].enabled=false;
     }else if(cmd->action==OUSE_ALARM_DISMISS){stop_ringing(index);goto done;}
     error=save(candidate);if(error!=ESP_OK)goto done;
     // Side effects only after the atomic persistence commit. Keep the volatile
@@ -273,7 +281,7 @@ esp_err_t ouse_alarm_submit(const ouse_task_owner_t *owner,ouse_alarm_action_t a
 {
     if(!id)return ESP_ERR_INVALID_ARG;
     *id=0;
-    if(!owner || !app_valid(owner->app_id) || !spec || (unsigned)action>OUSE_ALARM_SNOOZE ||
+    if(!owner || !app_valid(owner->app_id) || !spec || (unsigned)action>OUSE_ALARM_DISABLE ||
        !spec->id[0] || strnlen(spec->id,sizeof(spec->id))>=sizeof(spec->id) ||
        (action==OUSE_ALARM_SET && !ouse_alarm_spec_valid(spec)) ||
        (action==OUSE_ALARM_SNOOZE && (snooze<1 || snooze>60)))return ESP_ERR_INVALID_ARG;
@@ -281,7 +289,7 @@ esp_err_t ouse_alarm_submit(const ouse_task_owner_t *owner,ouse_alarm_action_t a
     if(!ready || !permitted(owner->app_id))return ESP_ERR_INVALID_STATE;
     command_t *cmd=calloc(1,sizeof(*cmd));if(!cmd)return ESP_ERR_NO_MEM;
     strcpy(cmd->app_id,owner->app_id);cmd->spec=*spec;cmd->action=action;cmd->snooze=snooze;
-    static const char *names[]={"set","remove","dismiss","snooze"};
+    static const char *names[]={"set","remove","dismiss","snooze","enable","disable"};
     esp_err_t error=ouse_task_create(owner,OUSE_TASK_ALARM,names[action],OUSE_TASK_FINISH_ON_CLOSE,true,id);
     if(error!=ESP_OK){free(cmd);return error;}
     cmd->task=*id;

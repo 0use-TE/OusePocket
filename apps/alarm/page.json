@@ -1,0 +1,372 @@
+{
+  "api": 1,
+  "units": "dp",
+  "initialPage": "home",
+  "pages": [
+    {
+      "id": "home",
+      "root": {
+        "type": "container",
+        "id": "root",
+        "width": "fill",
+        "height": "fill",
+        "layout": "column",
+        "scroll": true,
+        "padding": 12,
+        "gap": 10,
+        "children": [
+          {
+            "type": "toolbar",
+            "id": "title",
+            "text": "闹钟",
+            "width": "fill",
+            "height": 44
+          },
+          {
+            "type": "label",
+            "id": "clock",
+            "text": "",
+            "width": "fill",
+            "height": "content",
+            "fontSize": 32
+          },
+          {
+            "type": "label",
+            "id": "status",
+            "text": "",
+            "width": "fill",
+            "height": "content",
+            "fontSize": 14,
+            "style": { "hidden": true, "textColor": "$error" }
+          },
+          {
+            "type": "container",
+            "id": "ringing",
+            "width": "fill",
+            "height": "content",
+            "layout": "column",
+            "gap": 8,
+            "children": [
+              {
+                "type": "label",
+                "id": "ringTitle",
+                "text": "",
+                "width": "fill",
+                "height": "content",
+                "fontSize": 16
+              },
+              {
+                "type": "container",
+                "id": "ringActions",
+                "width": "fill",
+                "height": "content",
+                "layout": "row",
+                "gap": 8,
+                "children": [
+                  {
+                    "type": "button",
+                    "id": "dismiss",
+                    "text": "停止响铃",
+                    "width": "fill",
+                    "height": 44
+                  },
+                  {
+                    "type": "button",
+                    "id": "snooze",
+                    "text": "稍后 5 分钟",
+                    "width": "fill",
+                    "height": 44
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "container",
+            "id": "row0",
+            "width": "fill",
+            "height": "content",
+            "layout": "row",
+            "gap": 8,
+            "children": [
+              {
+                "type": "button",
+                "id": "edit0",
+                "text": "-",
+                "width": "fill",
+                "height": 72,
+                "fontSize": 16
+              },
+              {
+                "type": "switch",
+                "id": "enable0",
+                "width": 48,
+                "height": 32
+              }
+            ]
+          },
+          {
+            "type": "container",
+            "id": "row1",
+            "width": "fill",
+            "height": "content",
+            "layout": "row",
+            "gap": 8,
+            "children": [
+              {
+                "type": "button",
+                "id": "edit1",
+                "text": "-",
+                "width": "fill",
+                "height": 72,
+                "fontSize": 16
+              },
+              {
+                "type": "switch",
+                "id": "enable1",
+                "width": 48,
+                "height": 32
+              }
+            ]
+          },
+          {
+            "type": "container",
+            "id": "row2",
+            "width": "fill",
+            "height": "content",
+            "layout": "row",
+            "gap": 8,
+            "children": [
+              {
+                "type": "button",
+                "id": "edit2",
+                "text": "-",
+                "width": "fill",
+                "height": 72,
+                "fontSize": 16
+              },
+              {
+                "type": "switch",
+                "id": "enable2",
+                "width": 48,
+                "height": 32
+              }
+            ]
+          },
+          {
+            "type": "container",
+            "id": "row3",
+            "width": "fill",
+            "height": "content",
+            "layout": "row",
+            "gap": 8,
+            "children": [
+              {
+                "type": "button",
+                "id": "edit3",
+                "text": "-",
+                "width": "fill",
+                "height": 72,
+                "fontSize": 16
+              },
+              {
+                "type": "switch",
+                "id": "enable3",
+                "width": 48,
+                "height": 32
+              }
+            ]
+          },
+          {
+            "type": "label",
+            "id": "empty",
+            "text": "还没有闹钟",
+            "width": "fill",
+            "height": "content",
+            "fontSize": 14
+          },
+          {
+            "type": "button",
+            "id": "add",
+            "text": "添加闹钟",
+            "width": "fill",
+            "height": 44
+          }
+        ]
+      }
+    },
+    {
+      "id": "editor",
+      "root": {
+        "type": "container",
+        "id": "root",
+        "width": "fill",
+        "height": "fill",
+        "layout": "column",
+        "scroll": true,
+        "padding": 12,
+        "gap": 10,
+        "children": [
+          {
+            "type": "container",
+            "id": "header",
+            "width": "fill",
+            "height": "content",
+            "layout": "row",
+            "gap": 8,
+            "children": [
+              {
+                "type": "button",
+                "id": "back",
+                "text": "返回",
+                "width": 64,
+                "height": 44
+              },
+              {
+                "type": "toolbar",
+                "id": "heading",
+                "text": "新建闹钟",
+                "width": "fill",
+                "height": 44
+              }
+            ]
+          },
+          {
+            "type": "container",
+            "id": "timeRow",
+            "width": "fill",
+            "height": "content",
+            "layout": "row",
+            "gap": 8,
+            "children": [
+              {
+                "type": "dropdown",
+                "id": "hour",
+                "width": 120,
+                "height": 48,
+                "options": "00\n01\n02\n03\n04\n05\n06\n07\n08\n09\n10\n11\n12\n13\n14\n15\n16\n17\n18\n19\n20\n21\n22\n23",
+                "value": 7
+              },
+              {
+                "type": "dropdown",
+                "id": "tens",
+                "width": 64,
+                "height": 48,
+                "options": "0\n1\n2\n3\n4\n5",
+                "value": 3
+              },
+              {
+                "type": "dropdown",
+                "id": "ones",
+                "width": 64,
+                "height": 48,
+                "options": "0\n1\n2\n3\n4\n5\n6\n7\n8\n9",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "type": "textInput",
+            "id": "name",
+            "placeholder": "闹钟名称",
+            "width": "fill",
+            "height": 44,
+            "maxLength": 24
+          },
+          {
+            "type": "container",
+            "id": "days1",
+            "width": "fill",
+            "height": "content",
+            "layout": "row",
+            "gap": 8,
+            "children": [
+              {
+                "type": "checkbox",
+                "id": "d1",
+                "text": "一",
+                "width": "fill",
+                "height": 40
+              },
+              {
+                "type": "checkbox",
+                "id": "d2",
+                "text": "二",
+                "width": "fill",
+                "height": 40
+              },
+              {
+                "type": "checkbox",
+                "id": "d3",
+                "text": "三",
+                "width": "fill",
+                "height": 40
+              },
+              {
+                "type": "checkbox",
+                "id": "d4",
+                "text": "四",
+                "width": "fill",
+                "height": 40
+              }
+            ]
+          },
+          {
+            "type": "container",
+            "id": "days2",
+            "width": "fill",
+            "height": "content",
+            "layout": "row",
+            "gap": 8,
+            "children": [
+              {
+                "type": "checkbox",
+                "id": "d5",
+                "text": "五",
+                "width": "fill",
+                "height": 40
+              },
+              {
+                "type": "checkbox",
+                "id": "d6",
+                "text": "六",
+                "width": "fill",
+                "height": 40
+              },
+              {
+                "type": "checkbox",
+                "id": "d0",
+                "text": "日",
+                "width": "fill",
+                "height": 40
+              }
+            ]
+          },
+          {
+            "type": "label",
+            "id": "status",
+            "text": "",
+            "width": "fill",
+            "height": "content",
+            "fontSize": 14,
+            "style": { "hidden": true, "textColor": "$error" }
+          },
+          {
+            "type": "button",
+            "id": "save",
+            "text": "保存闹钟",
+            "width": "fill",
+            "height": 44
+          },
+          {
+            "type": "button",
+            "id": "remove",
+            "text": "删除闹钟",
+            "width": "fill",
+            "height": 44
+          }
+        ]
+      }
+    }
+  ]
+}

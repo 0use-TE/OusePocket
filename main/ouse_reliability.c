@@ -9,6 +9,7 @@
 #include "ouse_net.h"
 #include "ouse_media.h"
 #include "ouse_alarm.h"
+#include "ouse_usb.h"
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -55,6 +56,8 @@ static void sample(ouse_health_snapshot_t *h)
     service(h,"audio",audio.available,audio.error);service(h,"storage",storage.ready,storage.last_error);
     service(h,"settings",true,settings.last_error);service(h,"network",ouse_net_available(),ESP_OK);
     service(h,"alarm",alarms.ready,alarms.error);service(h,"installer",installer.ready,installer.error);
+    ouse_usb_state_t usb;ouse_usb_get(&usb);
+    service(h,"usb",usb.available,usb.error!=ESP_OK ? usb.error : usb.network_error);
     static const unsigned mapping[]={0,1,2,3,6,4,5};
     uint32_t after=0;ouse_task_snapshot_t task;
     while(ouse_task_next(NULL,after,&task,false)){
@@ -90,6 +93,8 @@ static const char *drain_blocker(int64_t since_us)
     if(tasks.owners)return "javascript-instances";
     if(!ouse_storage_idle())return "storage-maintenance";
     if(!ouse_alarm_quiesced())return "alarm-worker";
+    ouse_usb_state_t usb;ouse_usb_get(&usb);
+    if(usb.available && (usb.enabled || usb.audio_running || usb.network_up || usb.network_stopping))return "usb-stop-confirmation";
     ouse_wifi_state_t wifi;ouse_wifi_get(&wifi);if(wifi.available && !wifi.stopped)return "wifi-stop-confirmation";
     ouse_settings_state_t settings;ouse_system_get_settings_state(&settings);
     if(settings.pending)return "settings-write";

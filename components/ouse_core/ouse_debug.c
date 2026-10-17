@@ -72,7 +72,8 @@ static void visit(writer_t *w,lv_obj_t *obj,unsigned depth)
         lv_dropdown_get_selected_str(obj,selection,sizeof(selection));text=selection;
     }
     quoted(w,text);
-    append(w,",\"bg\":\"#%06lX\",\"bg_opa\":%u,\"border\":\"#%06lX\",\"border_width\":%ld,\"radius\":%ld,\"disabled\":%s,\"checked\":%s}",
+    append(w,",\"fg\":\"#%06lX\",\"bg\":\"#%06lX\",\"bg_opa\":%u,\"border\":\"#%06lX\",\"border_width\":%ld,\"radius\":%ld,\"disabled\":%s,\"checked\":%s}",
+        (unsigned long)lv_color_to_u32(lv_obj_get_style_text_color(obj,0))&0xffffffUL,
         (unsigned long)lv_color_to_u32(lv_obj_get_style_bg_color(obj,0))&0xffffffUL,
         (unsigned)lv_obj_get_style_bg_opa(obj,0),
         (unsigned long)lv_color_to_u32(lv_obj_get_style_border_color(obj,0))&0xffffffUL,

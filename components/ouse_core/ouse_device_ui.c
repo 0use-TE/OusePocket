@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #include "ouse_device_ui.h"
 #include "ouse_devices.h"
+#include "ouse_usb.h"
 #include "ouse_widgets.h"
 #include "ouse_dialog.h"
 #include "ouse_screen.h"
@@ -14,6 +15,7 @@ static struct {
     lv_obj_t *current_heading,*current,*current_title,*current_detail,*current_signal;
     lv_obj_t *popup,*form,*ssid,*password,*popup_title,*popup_note;
     lv_obj_t *details,*details_ssid,*details_ip,*details_signal;
+    lv_obj_t *usb_switch,*usb_network,*usb_audio_row,*usb_network_row;
     ouse_wifi_ap_t aps[OUSE_WIFI_AP_MAX];
     ouse_wifi_state_t wifi_state;
     unsigned ap_count;
@@ -36,6 +38,17 @@ static void timeout_event(lv_event_t *e)
 }
 static void sleep_event(lv_event_t *e) {(void)e;check(ouse_screen_sleep());}
 static void volume_event(lv_event_t *e) {check(ouse_audio_set_volume(lv_slider_get_value(lv_event_get_target_obj(e))));}
+static void usb_event(lv_event_t *e)
+{
+    (void)e;ouse_usb_state_t s;ouse_usb_get(&s);
+    if(s.available && s.enabled && s.mounted && !s.suspended)check(ouse_usb_set_audio(!s.audio_enabled));
+}
+static void usb_network_event(lv_event_t *e)
+{
+    (void)e;ouse_usb_state_t s;ouse_usb_get(&s);
+    if(s.available && s.enabled && s.mounted && !s.suspended &&
+       (s.network_enabled || (s.uplink && !s.subnet_conflict)))check(ouse_usb_set_network(!s.network_enabled));
+}
 static void mute_event(lv_event_t *e) {(void)e;ouse_audio_state_t s;if(ouse_audio_get(&s)==ESP_OK)check(ouse_audio_set_muted(!s.muted));}
 static void wifi_event(lv_event_t *e) {(void)e;ouse_wifi_state_t s;if(ouse_wifi_get(&s)==ESP_OK && s.available)check(ouse_wifi_set_enabled(!s.enabled));}
 static void scan_event(lv_event_t *e) {(void)e;check(ouse_wifi_scan());}
@@ -255,6 +268,15 @@ void ouse_device_ui_build(lv_obj_t *page,unsigned index)
         lv_obj_t *row=ouse_widget_row(page,LV_SYMBOL_MUTE,"静音",NULL,mute_event,NULL,NULL);lv_obj_delete(lv_obj_get_child(row,-1));
         ui.mute=ouse_widget_switch(row);
         lv_obj_add_event_cb(ui.mute,mute_event,LV_EVENT_VALUE_CHANGED,NULL);
+    } else if(index==10){
+        lv_obj_t *row=ui.usb_audio_row=ouse_widget_row(page,LV_SYMBOL_AUDIO,"USB 音频",NULL,usb_event,NULL,NULL);
+        lv_obj_delete(lv_obj_get_child(row,-1));ui.usb_switch=ouse_widget_switch(row);
+        lv_obj_add_event_cb(ui.usb_switch,usb_event,LV_EVENT_VALUE_CHANGED,NULL);
+        row=ui.usb_network_row=ouse_widget_row(page,LV_SYMBOL_WIFI,"USB 网络共享",NULL,usb_network_event,NULL,NULL);
+        lv_obj_delete(lv_obj_get_child(row,-1));ui.usb_network=ouse_widget_switch(row);
+        lv_obj_add_event_cb(ui.usb_network,usb_network_event,LV_EVENT_VALUE_CHANGED,NULL);
+        lv_obj_set_style_opa(ui.usb_audio_row,LV_OPA_40,LV_STATE_DISABLED);
+        lv_obj_set_style_opa(ui.usb_network_row,LV_OPA_40,LV_STATE_DISABLED);
     } else build_wifi(page);
     ouse_device_ui_refresh();
 }
@@ -262,6 +284,15 @@ static void checked(lv_obj_t *obj,bool on) {if(on)lv_obj_add_state(obj,LV_STATE_
 void ouse_device_ui_refresh(void)
 {
     char text[256];
+    if(ui.usb_switch){
+        ouse_usb_state_t s;ouse_usb_get(&s);checked(ui.usb_switch,s.audio_enabled);checked(ui.usb_network,s.network_enabled);
+        bool connected=s.available && s.enabled && s.mounted && !s.suspended && !ouse_tasks_quiescing();
+        lv_obj_t *controls[]={ui.usb_audio_row,ui.usb_switch,ui.usb_network_row,ui.usb_network};
+        for(unsigned i=0;i<4;++i){
+            bool usable=connected && (i<2 || s.network_enabled || (s.uplink && !s.subnet_conflict));
+            if(usable)lv_obj_remove_state(controls[i],LV_STATE_DISABLED);else lv_obj_add_state(controls[i],LV_STATE_DISABLED);
+        }
+    }
     if(ui.power) {
         ouse_power_state_t p={0};
         if(ouse_power_get(&p)!=ESP_OK || !p.valid)ouse_ui_text(ui.power,"电源状态不可用");

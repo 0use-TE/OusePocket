@@ -12,6 +12,7 @@
 #include "ouse_notifications.h"
 #include "ouse_health_ui.h"
 #include "ouse_tasks.h"
+#include "ouse_memory.h"
 #include "src/misc/cache/instance/lv_image_cache.h"
 #include <stdint.h>
 #include <string.h>
@@ -40,7 +41,7 @@ typedef struct {
     lv_timer_t *status_timer;
     ouse_app_info_t icons[OUSE_APP_CAPACITY];
     lv_obj_t *settings;
-    lv_obj_t *health_page;
+    lv_obj_t *health_page,*usb_page;
     lv_obj_t *slider;
     lv_obj_t *brightness_text;
     lv_obj_t *info;
@@ -48,7 +49,7 @@ typedef struct {
     bool brightness_failed;
 } core_state_t;
 
-static core_state_t core;
+static OUSE_PSRAM_BSS core_state_t core;
 extern void ouse_navigation_grid(int,int,unsigned,int *,int *,int *,int *);
 
 static lv_obj_t *text(lv_obj_t *parent, const char *value, int x, int y, int width)
@@ -89,8 +90,8 @@ static void select_settings_page(unsigned page)
 {
     if(core.settings_page!=page)ouse_device_ui_close_modal();
     core.settings_page=page;
-    lv_obj_t *pages[]={core.settings,core.display_page,core.appearance_page,core.language_page,core.info,core.device_pages[0],core.device_pages[1],core.device_pages[2],core.account_page,core.health_page};
-    for(unsigned i=0;i<10;++i)if(pages[i]) {
+    lv_obj_t *pages[]={core.settings,core.display_page,core.appearance_page,core.language_page,core.info,core.device_pages[0],core.device_pages[1],core.device_pages[2],core.account_page,core.health_page,core.usb_page};
+    for(unsigned i=0;i<sizeof(pages)/sizeof(pages[0]);++i)if(pages[i]) {
         if(i==page)lv_obj_remove_flag(pages[i],LV_OBJ_FLAG_HIDDEN);
         else lv_obj_add_flag(pages[i],LV_OBJ_FLAG_HIDDEN);
     }
@@ -362,6 +363,7 @@ static esp_err_t settings_open(lv_obj_t *root,void *context)
     ouse_widget_row(core.settings,LV_SYMBOL_BATTERY_FULL,"电源",NULL,open_settings_page,(void *)(uintptr_t)5,NULL);
     ouse_widget_row(core.settings,LV_SYMBOL_VOLUME_MAX,"声音",NULL,open_settings_page,(void *)(uintptr_t)6,NULL);
     ouse_widget_row(core.settings,LV_SYMBOL_WIFI,"Wi-Fi",NULL,open_settings_page,(void *)(uintptr_t)7,NULL);
+    ouse_widget_row(core.settings,LV_SYMBOL_USB,"USB OTG",NULL,open_settings_page,(void *)(uintptr_t)10,NULL);
     section(core.settings,"系统");
     ouse_widget_row(core.settings,LV_SYMBOL_LIST,"后台活动与服务",NULL,open_settings_page,(void *)(uintptr_t)9,NULL);
     ouse_widget_row(core.settings,LV_SYMBOL_LIST,"系统信息","设备与硬件",open_settings_page,(void *)(uintptr_t)4,NULL);
@@ -390,6 +392,7 @@ static esp_err_t settings_open(lv_obj_t *root,void *context)
     const char *titles[]={"电源","声音","Wi-Fi"};
     for(unsigned i=0;i<3;++i){core.device_pages[i]=settings_column(root);page_heading(core.device_pages[i],titles[i],true);ouse_device_ui_build(core.device_pages[i],i+5);}
     core.health_page=settings_column(root);page_heading(core.health_page,"后台活动与服务",true);ouse_health_ui_build(core.health_page);
+    core.usb_page=settings_column(root);page_heading(core.usb_page,"USB OTG",true);ouse_device_ui_build(core.usb_page,10);
     preference_labels();select_settings_page(0);
     core.status_timer=lv_timer_create(refresh_status,300,NULL);refresh_status(NULL);return ESP_OK;
 }
@@ -400,7 +403,7 @@ static void settings_close(void *context)
     if (core.status_timer) lv_timer_delete(core.status_timer);
     core.status_timer=NULL;core.theme_value=NULL;core.theme_switch=NULL;core.display_value=NULL;core.language_value=NULL;
     core.display_page=core.appearance_page=core.language_page=core.account_page=NULL;
-    core.health_page=NULL;ouse_health_ui_close();
+    core.health_page=core.usb_page=NULL;ouse_health_ui_close();
     ouse_device_ui_close();memset(core.device_pages,0,sizeof(core.device_pages));memset(core.locale_marks,0,sizeof(core.locale_marks));
     core.settings = NULL; core.info = NULL; core.slider = NULL;
     core.brightness_text = NULL;
@@ -409,6 +412,7 @@ static void settings_close(void *context)
 
 static void settings_pause(void *context) {
     (void)context; if (core.status_timer) lv_timer_pause(core.status_timer);
+    ouse_health_ui_pause();
     ouse_device_ui_close_modal();
     ouse_audio_state_t a;ouse_task_snapshot_t task;
     if(ouse_audio_get(&a)==ESP_OK && a.mode!=OUSE_AUDIO_IDLE && a.mode!=OUSE_AUDIO_ERROR &&
@@ -522,7 +526,8 @@ esp_err_t ouse_core_start(const ouse_core_config_t *config)
     ouse_app_definition_t settings = {.id = "ouse.settings", .name = "设置", .icon = LV_SYMBOL_SETTINGS,
         .open = settings_open, .close = settings_close, .pause = settings_pause, .resume = settings_resume};
     // All definitions and duplicate ids were checked before acquiring the UI lock.
-    (void)ouse_apps_init(core.app_host, app_changed);
+    esp_err_t apps_error=ouse_apps_init(core.app_host, app_changed);
+    if(apps_error!=ESP_OK){lv_obj_delete(core.screen);port->unlock(port->context);return apps_error;}
     (void)ouse_apps_register(&settings);
     for (size_t i = 0; i < config->app_count; ++i) (void)ouse_apps_register(&config->apps[i]);
     ouse_apps_seal();

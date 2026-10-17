@@ -5,6 +5,8 @@
 #include "ouse_ime.h"
 #include "ouse_notifications.h"
 #include "ouse_storage.h"
+#include "ouse_usb.h"
+#include "ouse_devices.h"
 #include "ouse_protocol.h"
 #include "esp_heap_caps.h"
 #include "esp_attr.h"
@@ -280,6 +282,14 @@ esp_err_t ouse_debug_command(const char *verb,const char *payload,char *out,size
         return n<0 || (size_t)n>=cap ? ESP_ERR_NO_MEM : ESP_OK;
     }
     if(!strcmp(verb,"DBG_HEAP"))return heap_state(out,cap);
+    if(!strcmp(verb,"DBG_USB")){
+        ouse_usb_state_t s;ouse_usb_get(&s);ouse_audio_state_t a;ouse_audio_get(&a);
+        extern void ouse_usb_driver_diag(uint32_t*,uint32_t*,uint32_t*);uint32_t packets,bytes,feedback;ouse_usb_driver_diag(&packets,&bytes,&feedback);
+        int n=snprintf(out,cap,"mounted=%u,suspended=%u,audio_enabled=%u,speaker=%u,microphone=%u,running=%u,task=%lu,error=%d,volume=%u,muted=%u,samples=%lu,nonzero=%lu,peak=%lu,underruns=%lu,overruns=%lu,rxirqs=%lu,rxbytes=%lu,feedback=%lu",
+            s.mounted,s.suspended,s.audio_enabled,s.speaker,s.microphone,s.audio_running,(unsigned long)s.audio_task,s.error,a.volume,a.muted,
+            (unsigned long)s.speaker_samples,(unsigned long)s.speaker_nonzero,(unsigned long)s.speaker_peak,(unsigned long)s.underruns,(unsigned long)s.overruns,(unsigned long)packets,(unsigned long)bytes,(unsigned long)feedback);
+        return n<0 || (size_t)n>=cap ? ESP_ERR_NO_MEM : ESP_OK;
+    }
     if(!strcmp(verb,"DBG_CHECK")){
         if(!heap_caps_check_integrity_all(true))return ESP_FAIL;
         snprintf(out,cap,"ok=1");return ESP_OK;

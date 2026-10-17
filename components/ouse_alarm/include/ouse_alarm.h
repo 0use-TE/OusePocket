@@ -29,7 +29,7 @@ typedef struct {
     esp_err_t error;
     int64_t utc_seconds;
 } ouse_alarm_stats_t;
-typedef enum { OUSE_ALARM_SET,OUSE_ALARM_REMOVE,OUSE_ALARM_DISMISS,OUSE_ALARM_SNOOZE } ouse_alarm_action_t;
+typedef enum { OUSE_ALARM_SET,OUSE_ALARM_REMOVE,OUSE_ALARM_DISMISS,OUSE_ALARM_SNOOZE,OUSE_ALARM_ENABLE,OUSE_ALARM_DISABLE } ouse_alarm_action_t;
 // Pure schedule helpers, UTC seconds. Strictly later than after_utc; weekly
 // recurrence uses a per-alarm fixed offset without changing process TZ.
 bool ouse_alarm_spec_valid(const ouse_alarm_spec_t *spec);

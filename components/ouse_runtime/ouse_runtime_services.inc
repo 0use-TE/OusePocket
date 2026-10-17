@@ -229,7 +229,11 @@ static JSValue alarms_api(JSContext *context,JSValueConst self,int argc,JSValueC
         spec.at_utc=(int64_t)(at/1000);spec.weekdays=weekdays;spec.minute_of_day=minute;spec.utc_offset_minutes=offset;
         if(!ouse_alarm_spec_valid(&spec))return JS_ThrowRangeError(context,"Invalid alarm ID or schedule");
     }else{
-        if(argc!=(operation==3 ? 2 : 1) || !copy_string(context,argv[0],spec.id,sizeof(spec.id)))return JS_ThrowTypeError(context,"Expected alarm ID");
+        if(argc!=((operation==3 || operation==5) ? 2 : 1) || !copy_string(context,argv[0],spec.id,sizeof(spec.id)))return JS_ThrowTypeError(context,"Expected alarm ID");
+        if(operation==5){
+            if(!JS_IsBool(argv[1]))return JS_ThrowTypeError(context,"setEnabled expects a boolean");
+            operation=JS_ToBool(context,argv[1]) ? OUSE_ALARM_ENABLE : OUSE_ALARM_DISABLE;
+        }
         if(operation==3){double exact;
             if(!JS_IsNumber(argv[1]) || JS_ToFloat64(context,&exact,argv[1])<0 || !isfinite(exact) || floor(exact)!=exact || exact<1 || exact>60)return JS_ThrowRangeError(context,"Snooze minutes: 1..60");
             snooze=exact;
@@ -295,6 +299,25 @@ static JSValue system_cpu(JSContext *context,JSValueConst self,int argc,JSValueC
         JS_SetPropertyUint32(context,cores,i,core);
     }
     JS_SetPropertyStr(context,result,"cores",cores);return result;
+}
+static JSValue usb_snapshot(JSContext *context,JSValueConst self,int argc,JSValueConst *argv)
+{
+    (void)self;(void)argc;(void)argv;ouse_usb_state_t s;ouse_usb_get(&s);JSValue out=JS_NewObject(context);
+#define USB_BOOL(name,field) JS_SetPropertyStr(context,out,name,JS_NewBool(context,s.field))
+#define USB_NUM(name,field) JS_SetPropertyStr(context,out,name,JS_NewFloat64(context,s.field))
+    USB_BOOL("available",available);USB_BOOL("enabled",enabled);USB_BOOL("mounted",mounted);USB_BOOL("suspended",suspended);
+    USB_BOOL("speakerRequested",speaker);USB_BOOL("microphoneRequested",microphone);USB_BOOL("audioRunning",audio_running);USB_BOOL("audioEnabled",audio_enabled);
+    USB_BOOL("networkEnabled",network_enabled);USB_BOOL("networkUp",network_up);USB_BOOL("networkStopping",network_stopping);USB_BOOL("uplink",uplink);USB_BOOL("subnetConflict",subnet_conflict);
+    USB_NUM("audioTaskId",audio_task);USB_NUM("networkTaskId",network_task);USB_NUM("session",session);
+    USB_NUM("underruns",underruns);USB_NUM("overruns",overruns);USB_NUM("rxPackets",rx_packets);USB_NUM("txPackets",tx_packets);USB_NUM("droppedPackets",dropped_packets);
+    USB_NUM("speakerSamples",speaker_samples);USB_NUM("speakerNonzeroSamples",speaker_nonzero);USB_NUM("speakerPeak",speaker_peak);
+    USB_NUM("errorCode",error);USB_NUM("networkErrorCode",network_error);
+    JS_SetPropertyStr(context,out,"ip",JS_NewString(context,s.ip));
+    JS_SetPropertyStr(context,out,"sampleRateHz",JS_NewInt32(context,16000));
+    JS_SetPropertyStr(context,out,"channels",JS_NewInt32(context,1));
+#undef USB_BOOL
+#undef USB_NUM
+    return out;
 }
 static JSValue system_capabilities(JSContext *context,JSValueConst self,int argc,JSValueConst *argv)
 {

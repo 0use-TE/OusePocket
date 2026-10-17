@@ -5,7 +5,7 @@
 extern "C" {
 #endif
 #define OUSE_MEDIA_BUFFER_BYTES 8192
-#define OUSE_MEDIA_ASSET_MAX 65536
+#define OUSE_MEDIA_ASSET_MAX (512 * 1024)
 typedef struct {
     char app_id[48];
     uint32_t task_id,revision;

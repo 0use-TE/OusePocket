@@ -174,6 +174,7 @@ export async function openDeviceMirror(
     endX?: number;
     endY?: number;
     gesture?: string;
+    deltaY?: number;
   }) => {
     if (message?.type === 'disconnect') {
       disconnect();
@@ -223,10 +224,17 @@ export async function openDeviceMirror(
       void run(() => mcp!.call('device_swipe', swipe).then(() => undefined), 160);
       return;
     }
+    if (message?.type === 'wheel') {
+      const swipe = wheelSwipe(Number(message.deltaY), size.width, size.height);
+      if (!swipe) return;
+      void run(() => mcp!.call('device_swipe', swipe).then(() => undefined), 120);
+      return;
+    }
     if (message?.type === 'gesture') {
       const swipe = gesture(message.gesture, size.width, size.height);
       if (!swipe) return;
-      void run(() => mcp!.call('device_swipe', swipe).then(() => undefined), 160);
+      const settle = message.gesture === 'recents' ? 280 : 160;
+      void run(() => mcp!.call('device_swipe', swipe).then(() => undefined), settle);
     }
   });
 }
@@ -247,7 +255,25 @@ function gesture(name: string | undefined, width: number, height: number): Recor
   if (name === 'down' || name === 'scroll-down') {
     return { x: midX, y: top, end_x: midX, end_y: bottom, duration_ms: 280 };
   }
+  if (name === 'recents') {
+    const startY = Math.max(1, height - 6);
+    const endY = Math.max(0, height - 100);
+    return { x: midX, y: startY, end_x: midX, end_y: endY, duration_ms: 180, hold_ms: 220 };
+  }
   return undefined;
+}
+
+function wheelSwipe(deltaY: number, width: number, height: number): Record<string, number> | undefined {
+  if (!Number.isFinite(deltaY) || Math.abs(deltaY) < 1) return undefined;
+  const midX = Math.round(width / 2);
+  const midY = Math.round(height / 2);
+  const travel = Math.round(Math.min(160, Math.max(90, height * 0.22)));
+  const half = Math.round(travel / 2);
+  const clampY = (y: number) => Math.max(0, Math.min(height - 1, y));
+  if (deltaY > 0) {
+    return { x: midX, y: clampY(midY + half), end_x: midX, end_y: clampY(midY - half), duration_ms: 180 };
+  }
+  return { x: midX, y: clampY(midY - half), end_x: midX, end_y: clampY(midY + half), duration_ms: 180 };
 }
 
 function html(webview: vscode.Webview, extensionUri: vscode.Uri): string {
@@ -270,6 +296,7 @@ function html(webview: vscode.Webview, extensionUri: vscode.Uri): string {
     <button id="pull" type="button" data-gesture="pull">下拉</button>
     <button id="up" type="button" data-gesture="up">上滑</button>
     <button id="down" type="button" data-gesture="down">下滑</button>
+    <button id="recents" type="button" data-gesture="recents">后台</button>
     <button id="link" type="button">断开</button>
   </div>
   <div class="toolbar-row">

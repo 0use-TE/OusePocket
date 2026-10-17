@@ -8,6 +8,8 @@
 #include "ouse_net.h"
 #include "ouse_media.h"
 #include "ouse_metrics.h"
+#include "ouse_usb.h"
+#include "esp_netif.h"
 
 static esp_err_t save_brightness(void *context, uint8_t percent)
 {
@@ -63,6 +65,8 @@ void app_main(void)
              ouse_core_version(),
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    // Initialize lwIP once before either Wi-Fi or USB workers can use it.
+    ESP_ERROR_CHECK(esp_netif_init());
     ouse_board_start_services();
     esp_err_t metrics_error=ouse_cpu_metrics_start();
     if(metrics_error!=ESP_OK)ESP_LOGW("OuseCPU","Some core samplers unavailable: %s",esp_err_to_name(metrics_error));
@@ -70,8 +74,10 @@ void app_main(void)
     if(network_error!=ESP_OK)ESP_LOGW("OuseNet","Request service unavailable: %s",esp_err_to_name(network_error));
     esp_err_t media_error=ouse_media_init();
     if(media_error!=ESP_OK)ESP_LOGW("OuseMedia","Playback service unavailable: %s",esp_err_to_name(media_error));
-    esp_err_t usb_error=ouse_installer_start();
-    if(usb_error!=ESP_OK) ESP_LOGE("OuseUSB","Installer unavailable: %s",esp_err_to_name(usb_error));
+    esp_err_t installer_error=ouse_installer_start();
+    if(installer_error!=ESP_OK) ESP_LOGE("OuseInstaller","UART installer unavailable: %s",esp_err_to_name(installer_error));
+    esp_err_t usb_error=ouse_usb_start();
+    if(usb_error!=ESP_OK)ESP_LOGW("OuseUSB","OTG device unavailable: %s",esp_err_to_name(usb_error));
     extern esp_err_t ouse_reliability_start(void);
     esp_err_t health_error=ouse_reliability_start();
     if(health_error!=ESP_OK)ESP_LOGE("OuseHealth","Coordinator unavailable: %s",esp_err_to_name(health_error));

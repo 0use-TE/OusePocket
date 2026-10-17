@@ -13,7 +13,7 @@ typedef struct {
 
 #define OUSE_RUNTIME_ASSETS_MAX 16
 #define OUSE_RUNTIME_IMAGE_BYTES_MAX (128 * 1024)
-#define OUSE_RUNTIME_DATA_BYTES_MAX (128 * 1024)
+#define OUSE_RUNTIME_DATA_BYTES_MAX (512 * 1024)
 typedef enum { OUSE_SCRIPT_ASSET_TEXT, OUSE_SCRIPT_ASSET_BINARY } ouse_script_asset_type_t;
 typedef struct {
     const char *id;

@@ -38,11 +38,15 @@ int64_t esp_timer_get_time(void);
 #define ESP_CODEC_DEV_WORK_MODE_BOTH 3
 #define ESP_CODEC_DEV_TYPE_IN_OUT 3
 #define ESP_CODEC_DEV_OK 0
+#define ESP_CODEC_DEV_DRV_ERR ESP_FAIL
 #define ESP_CODEC_DEV_NOT_SUPPORT ESP_ERR_NOT_SUPPORTED
 #define ESP_LOGW(...) ((void)0)
+#define ESP_LOGI(...) ((void)0)
 #define I2S_ROLE_MASTER 0
 #define I2S_DATA_BIT_WIDTH_16BIT 16
 #define I2S_SLOT_MODE_MONO 1
+#define I2S_STD_SLOT_LEFT 1
+#define I2S_STD_SLOT_BOTH 3
 #define MALLOC_CAP_SPIRAM 1
 #define MALLOC_CAP_8BIT 2
 #define pdTRUE 1
@@ -51,10 +55,10 @@ void vTaskDelay(unsigned ticks);
 #define portMAX_DELAY 0xffffffff
 #define I2S_CHANNEL_DEFAULT_CONFIG(a,b) {.dma_frame_num=240}
 #define I2S_STD_CLK_DEFAULT_CONFIG(rate) {rate}
-#define I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(a,b) {a,b}
+#define I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(a,b) {a,b,I2S_STD_SLOT_BOTH}
 typedef void *i2s_chan_handle_t;
 typedef struct {bool auto_clear;unsigned dma_frame_num;} i2s_chan_config_t;
-typedef struct {struct {int rate;} clk_cfg;struct {int bits,channels;} slot_cfg;struct{int mclk,bclk,ws,dout,din;} gpio_cfg;} i2s_std_config_t;
+typedef struct {struct {int rate;} clk_cfg;struct {int bits,channels,slot_mask;} slot_cfg;struct{int mclk,bclk,ws,dout,din;} gpio_cfg;} i2s_std_config_t;
 typedef struct {bool is_enabled;size_t total_dma_buf_size;} i2s_chan_info_t;
 typedef int esp_codec_dev_type_t;
 typedef struct {int sample_rate,channel,bits_per_sample,channel_mask,mclk_multiple;} esp_codec_dev_sample_info_t;
@@ -80,6 +84,8 @@ void *bsp_i2c_get_handle(void);
 int i2c_master_probe(void *,int,int);
 int i2s_new_channel(const i2s_chan_config_t *,void **,void **);
 int i2s_channel_init_std_mode(void *,const i2s_std_config_t *);
+int i2s_channel_read(void *,void *,size_t,size_t *,unsigned);
+int i2s_channel_write(void *,const void *,size_t,size_t *,unsigned);
 int i2s_channel_get_info(void *,i2s_chan_info_t *);
 int i2s_channel_enable(void *);
 int i2s_channel_preload_data(void *,const void *,size_t,size_t *);
@@ -121,8 +127,10 @@ static jmp_buf idle;
 static uint32_t observed_task;
 static bool observed_cancel_at_close;
 void vTaskDelay(unsigned ticks){(void)ticks;}
-int64_t esp_timer_get_time(void){static int64_t clock;return ++clock;}
+static int64_t sample_clock;
+int64_t esp_timer_get_time(void){return ++sample_clock;}
 static int fail_probe,fail_open,fail_init,fail_allocate,fail_io;
+static bool short_io;
 static int fail_enable_tx,fail_enable_rx,fail_disable_tx,fail_disable_rx,fail_preload;
 static unsigned allocated,opened,closed,writes,reads,cancel_after;
 static unsigned invalid_transitions,format_changes,dma_frames;
@@ -137,7 +145,7 @@ static int output_volume;static bool output_muted;
 void *bsp_i2c_get_handle(void){return (void*)1;}
 int i2c_master_probe(void *b,int addr,int ms){assert(b && addr==0x18 && ms<=100);return fail_probe ? ESP_FAIL : 0;}
 int i2s_new_channel(const i2s_chan_config_t *c,void **tx,void **rx){assert(c->auto_clear&&!active_tx&&!active_rx);dma_frames=c->dma_frame_num;*tx=active_tx=calloc(1,sizeof(fake_channel_t));*rx=active_rx=calloc(1,sizeof(fake_channel_t));active_tx->output=true;allocated+=2;return 0;}
-int i2s_channel_init_std_mode(void *p,const i2s_std_config_t *c){assert(p && c->clk_cfg.rate==16000 && c->slot_cfg.bits==16 && c->slot_cfg.channels==1);if(fail_init)return ESP_FAIL;((fake_channel_t*)p)->initialized=true;return 0;}
+int i2s_channel_init_std_mode(void *p,const i2s_std_config_t *c){assert(p && c->clk_cfg.rate==16000 && c->slot_cfg.bits==16 && c->slot_cfg.channels==1);assert(c->slot_cfg.slot_mask==(((fake_channel_t*)p)->output?I2S_STD_SLOT_BOTH:I2S_STD_SLOT_LEFT));if(fail_init)return ESP_FAIL;((fake_channel_t*)p)->initialized=true;return 0;}
 int i2s_channel_get_info(void *p,i2s_chan_info_t *info){assert(p&&info);fake_channel_t *c=p;info->is_enabled=c->running;info->total_dma_buf_size=c->initialized?sizeof(c->dma):0;return 0;}
 int i2s_channel_preload_data(void *p,const void *buffer,size_t size,size_t *loaded){fake_channel_t *c=p;assert(c&&c->output&&c->initialized&&!c->running&&buffer&&loaded);if(fail_preload){--fail_preload;return ESP_FAIL;}*loaded=size<sizeof(c->dma)-c->preloaded?size:sizeof(c->dma)-c->preloaded;memcpy(c->dma+c->preloaded,buffer,*loaded);c->preloaded+=*loaded;return 0;}
 int i2s_channel_enable(void *p){fake_channel_t *c=p;assert(c);if(!c->initialized || c->running){++invalid_transitions;return ESP_ERR_INVALID_STATE;}if(c->output){assert(c->preloaded==sizeof(c->dma));for(unsigned i=0;i<sizeof(c->dma);++i)assert(c->dma[i]==0);}int *failure=c->output?&fail_enable_tx:&fail_enable_rx;if(*failure){--*failure;if(!c->output){assert(active_tx->running);rx_start_failed=true;}return ESP_FAIL;}c->running=true;return 0;}
@@ -150,6 +158,8 @@ static int fake_data_enable(const audio_codec_data_if_t *h,int type,bool enable)
 static int fake_data_format(const audio_codec_data_if_t *h,int type,esp_codec_dev_sample_info_t *f){const fake_data_t *d=(const fake_data_t*)h;assert(type==3&&f->sample_rate==16000&&f->channel==1&&f->bits_per_sample==16);(void)i2s_channel_disable(d->tx);(void)i2s_channel_disable(d->rx);assert(!((fake_channel_t*)d->tx)->running&&!((fake_channel_t*)d->rx)->running);++format_changes;return 0;}
 static int fake_data_write(const audio_codec_data_if_t *h,uint8_t *b,int n){const fake_data_t *d=(const fake_data_t*)h;assert(d==active_data&&((fake_channel_t*)d->tx)->running&&b&&n<=512);memcpy(((fake_channel_t*)d->tx)->dma,b,n);++writes;if(cancel_after&&writes==cancel_after)(void)ouse_audio_stop();return fail_io?ESP_FAIL:0;}
 static int fake_data_read(const audio_codec_data_if_t *h,uint8_t *b,int n){const fake_data_t *d=(const fake_data_t*)h;assert(d==active_data&&((fake_channel_t*)d->rx)->running&&b&&output_muted&&n<=512);++reads;int16_t *s=(int16_t*)b;for(int i=0;i<n/2;++i)s[i]=(i&1)?12000:-12000;return fail_io?ESP_FAIL:0;}
+int i2s_channel_read(void *p,void *b,size_t n,size_t *got,unsigned wait){assert(p==active_rx&&wait==1000);int error=fake_data_read(&active_data->base,b,(int)n);*got=error?0:short_io?n-2:n;sample_clock+=(int64_t)*got*1000000/32000;return error;}
+int i2s_channel_write(void *p,const void *b,size_t n,size_t *sent,unsigned wait){assert(p==active_tx&&wait==1000);int error=fake_data_write(&active_data->base,(uint8_t*)b,(int)n);*sent=error?0:short_io?n-2:n;sample_clock+=(int64_t)*sent*1000000/32000;return error;}
 const audio_codec_data_if_t *audio_codec_new_i2s_data(audio_codec_i2s_cfg_t *c){assert(c->tx_handle&&c->rx_handle&&!active_data);fake_data_t *d=calloc(1,sizeof(*d));d->base=(audio_codec_data_if_t){.is_open=fake_data_opened,.enable=fake_data_enable,.set_fmt=fake_data_format,.read=fake_data_read,.write=fake_data_write};d->tx=c->tx_handle;d->rx=c->rx_handle;active_data=d;++allocated;return &d->base;}
 const audio_codec_ctrl_if_t *audio_codec_new_i2c_ctrl(audio_codec_i2c_cfg_t *c){assert(c->bus_handle);++allocated;return malloc(1);}
 const audio_codec_gpio_if_t *audio_codec_new_gpio(void){++allocated;return malloc(1);}
@@ -171,6 +181,13 @@ void *heap_caps_malloc(size_t n,unsigned flags){assert(n==96000 && flags==3);ret
 unsigned ulTaskNotifyTake(int a,unsigned b){(void)a;(void)b;longjmp(idle,1);return 0;}
 const char *esp_err_to_name(int e){(void)e;return "test";}
 
+#include "ouse_usb.h"
+bool ouse_usb_audio_requested(void){return false;}
+bool ouse_usb_microphone_requested(void){return false;}
+unsigned ouse_usb_speaker_read(int16_t *p,unsigned n){(void)p;(void)n;return 0;}
+void ouse_usb_microphone_write(const int16_t *p,unsigned n){(void)p;(void)n;}
+void ouse_usb_audio_running(uint32_t id,bool on,esp_err_t error){(void)id;(void)on;(void)error;}
+void ouse_usb_get(ouse_usb_state_t *out){memset(out,0,sizeof(*out));}
 #include "BOARD_AUDIO"
 static bool media_fixture;
 static ouse_media_state_t media_state;
@@ -193,6 +210,17 @@ static void pump(void){if(!setjmp(idle))ouse_board_audio_worker(NULL);}
 int main(int argc,char **argv){
  ouse_device_port_t port={0};ouse_device_config_t config={.volume=40};assert(ouse_devices_init(&port,&config)==0);ouse_devices_set_available(1,true,0);
 
+ if(argc>1 && !strcmp(argv[1],"--recording-format")){
+  ouse_audio_state_t state;ouse_audio_get(&state);assert(ouse_audio_record(3)==ESP_OK);ouse_audio_request_t request=take();
+  int64_t started=esp_timer_get_time();assert(execute_request(request,&state)==ESP_OK&&recorded_samples==48000&&state.recorded_ms==3000);
+  assert(esp_timer_get_time()-started>=3000000&&esp_timer_get_time()-started<3020000);
+  state.mode=OUSE_AUDIO_IDLE;ouse_devices_publish_audio(&state,request.id);assert(ouse_audio_play_recording()==ESP_OK);request=take();started=esp_timer_get_time();
+  assert(execute_request(request,&state)==ESP_OK&&state.position_ms==3000);
+  assert(esp_timer_get_time()-started>=3000000&&esp_timer_get_time()-started<3020000);
+  state.mode=OUSE_AUDIO_IDLE;ouse_devices_publish_audio(&state,request.id);short_io=true;assert(ouse_audio_record(1)==ESP_OK);request=take();assert(execute_request(request,&state)==ESP_FAIL);short_io=false;
+  release_codec();free(recording);recording=NULL;assert(!allocated&&!invalid_transitions&&!format_changes);
+  puts("PASS actual board capture/replay: TX mono duplication, RX left slot only, 48000 samples at 16kHz take 3s in each direction; short DMA transfer rejected; no driver churn");return 0;
+ }
  if(argc>1 && !strcmp(argv[1],"--media-focus")){
   ouse_task_owner_t owner;assert(ouse_task_owner_open("user.player",&owner)==ESP_OK);uint32_t id;
   assert(ouse_task_create(&owner,OUSE_TASK_AUDIO,"play",OUSE_TASK_FINISH_ON_CLOSE,true,&id)==ESP_OK);
@@ -216,7 +244,7 @@ int main(int argc,char **argv){
  fail_open=1;assert(ouse_audio_test_tone()==0);req=take();assert(execute_request(req,&state)==ESP_FAIL && !allocated);fail_open=0;
  assert(ouse_audio_test_tone()==0);req=take();assert(execute_request(req,&state)==0 && writes==32 && output_muted && opened==closed);
  printf("I2S state audit: invalid transitions=%u, redundant format changes=%u, configured DMA frames=%u\n",invalid_transitions,format_changes,dma_frames);fflush(stdout);
- assert(invalid_transitions==0 && format_changes==0 && dma_frames==256);
+ assert(invalid_transitions==0 && format_changes==0 && dma_frames==64);
  assert(!active_tx->running&&!active_rx->running);
  assert(fixed_enable(&fixed_data_if,3,false)==0&&fixed_enable(&fixed_data_if,3,false)==0);
  esp_codec_dev_sample_info_t unsupported={.sample_rate=22050,.channel=1,.bits_per_sample=16};
@@ -255,9 +283,11 @@ int main(int argc,char **argv){
 }
 '''.replace("BOARD_AUDIO",(ROOT/"boards/waveshare_lcd35/board_audio.c").as_posix())
 (OUT/"check.c").write_text(fixture,encoding="utf-8")
-result=subprocess.run([str(compiler),"/nologo","/utf-8","/std:c11","/O2","/MD","/UNDEBUG","/I"+str(OUT),"/I"+str(ROOT/".tools/ouse-core-check"),"/I"+str(ROOT/"components/ouse_devices/include"),"/I"+str(ROOT/"components/ouse_tasks/include"),"/I"+str(ROOT/"components/ouse_media/include"),"/I"+str(ROOT/"components/ouse_system/include"),str(ROOT/"components/ouse_tasks/ouse_tasks.c"),str(OUT/"check.c"),str(ROOT/"components/ouse_devices/ouse_devices.c"),"/Fe"+str(OUT/"check.exe")],cwd=OUT,env=env,capture_output=True,text=True,errors="replace")
+result=subprocess.run([str(compiler),"/nologo","/utf-8","/std:c11","/O2","/MD","/UNDEBUG","/I"+str(OUT),"/I"+str(ROOT/".tools/ouse-core-check"),"/I"+str(ROOT/"components/ouse_devices/include"),"/I"+str(ROOT/"components/ouse_tasks/include"),"/I"+str(ROOT/"components/ouse_media/include"),"/I"+str(ROOT/"components/ouse_usb/include"),"/I"+str(ROOT/"components/ouse_system/include"),str(ROOT/"components/ouse_tasks/ouse_tasks.c"),str(OUT/"check.c"),str(ROOT/"components/ouse_devices/ouse_devices.c"),"/Fe"+str(OUT/"check.exe")],cwd=OUT,env=env,capture_output=True,text=True,errors="replace")
 assert result.returncode==0,(result.stdout,result.stderr)
-if "--cleanup-error" in sys.argv:
+if "--recording-format" in sys.argv:
+ subprocess.run([str(OUT/"check.exe"),"--recording-format"],cwd=OUT,check=True,timeout=15)
+elif "--cleanup-error" in sys.argv:
  subprocess.run([str(OUT/"check.exe"),"--cleanup-error"],cwd=OUT,check=True,timeout=15)
 else:
  subprocess.run([str(OUT/"check.exe")]+(["--kernel-only"] if "--kernel-only" in sys.argv else []),cwd=OUT,check=True,timeout=15)

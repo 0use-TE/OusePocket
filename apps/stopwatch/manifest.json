@@ -1,0 +1,14 @@
+{
+  "runtime": "ouse-core",
+  "api": 1,
+  "id": "user.stopwatch",
+  "name": "Stopwatch",
+  "names": {
+    "zh_CN": "秒表",
+    "en": "Stopwatch"
+  },
+  "icon": "icon.bin",
+  "capabilities": {
+    "background": true
+  }
+}

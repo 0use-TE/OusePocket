@@ -22,7 +22,7 @@ MAX_ICON_PIXELS = 36864
 MAX_ASSETS = 16
 MAX_IMAGE_SIDE = 512
 MAX_IMAGE_BYTES = 128 * 1024
-MAX_DATA_BYTES = 128 * 1024
+MAX_DATA_BYTES = 512 * 1024
 FILES = ("manifest.json", "page.json", "app.js", "icon.bin")
 
 
@@ -85,7 +85,7 @@ def _unzip(data):
         name = data[pos + 30:pos + 30 + length].decode("ascii")
         if (name not in FILES and not _asset_path(name)) or name in content:
             raise ValueError("Unexpected or duplicate ZIP member")
-        limit = MAX_MANIFEST if name == "manifest.json" else MAX_ICON_PIXELS + 8 if name == "icon.bin" else 32768 if name in FILES else MAX_IMAGE_BYTES + 8
+        limit = MAX_MANIFEST if name == "manifest.json" else MAX_ICON_PIXELS + 8 if name == "icon.bin" else 32768 if name in FILES else MAX_DATA_BYTES
         if (name in FILES and size == 0) or size > limit:
             raise ValueError(f"{name}: exceeds its file size limit")
         payload = data[pos + 30 + length:pos + 30 + length + size]
@@ -207,14 +207,14 @@ def validate(data):
         if kind == "image":
             image_bytes += _image(payload, name=asset["path"])
         else:
-            limit = 16384 if kind == "text" else 65536
+            limit = 16384 if kind == "text" else MAX_DATA_BYTES
             if len(payload) > limit:
                 raise ValueError(f"{asset['path']}: requires at most {limit} bytes")
             if kind == "text":
                 _utf8(payload, asset["path"])
             data_bytes += len(payload)
     if image_bytes > MAX_IMAGE_BYTES or data_bytes > MAX_DATA_BYTES:
-        raise ValueError("Image pixels and text/binary assets each have a total limit of 131072 bytes")
+        raise ValueError("Image pixels: 131072 bytes total; text/binary assets: 524288 bytes total; entire BPK: 524288 bytes")
     page = _json(content["page.json"])
     if not isinstance(page, dict) or not _number(page.get("api"), 1) or ("root" in page) == ("pages" in page):
         raise ValueError("page.json requires api=1 and exactly one of root or pages")

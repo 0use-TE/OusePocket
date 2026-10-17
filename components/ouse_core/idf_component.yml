@@ -1,4 +1,4 @@
-version: "0.12.1"
+version: "0.13.1"
 description: Minimal OusePocket native desktop core
 dependencies:
   idf: "==6.1.0"

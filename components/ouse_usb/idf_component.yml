@@ -1,0 +1,4 @@
+dependencies:
+  espressif/esp_tinyusb: "==2.0.1~1"
+  # Includes P4 reset fix and NCM divisor=4 required by updated Windows 11.
+  espressif/tinyusb: "==0.21.0~2"

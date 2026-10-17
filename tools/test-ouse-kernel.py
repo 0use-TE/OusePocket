@@ -154,6 +154,29 @@ static void focus_tests(void){
     assert(ouse_devices_resume_media(false)==song&&!ouse_devices_take_audio(&request)&&ouse_devices_audio_current(song));
     ouse_task_owner_close(&media);assert(!ouse_task_cancel_requested(song));ouse_task_finish(song,ESP_OK,false);
     puts("PASS focus: queued/running media survive alarm, foreign short commands cannot steal ring, exactly one resumed consumer, no JS lifetime dependency");
+    uint32_t usb;
+    assert(ouse_devices_queue_usb(&usb)==ESP_OK);
+    assert(ouse_devices_take_audio(&request) && request.action==OUSE_AUDIO_USB && request.id==usb);
+    assert(ouse_task_start(usb,true));
+    assert(ouse_audio_submit(NULL,OUSE_AUDIO_TEST,0,&other)==ESP_ERR_INVALID_STATE);
+    assert(ouse_audio_submit(NULL,OUSE_AUDIO_CAPTURE,1,&other)==ESP_ERR_INVALID_STATE);
+    assert(ouse_audio_submit(NULL,OUSE_AUDIO_USB,0,&other)==ESP_ERR_INVALID_ARG);
+    assert(ouse_task_create(&alarm,OUSE_TASK_AUDIO,"other",OUSE_TASK_STOP_ON_CLOSE,true,&other)==ESP_OK);
+    assert(ouse_devices_queue_media(other)==ESP_ERR_INVALID_STATE);ouse_task_finish(other,ESP_OK,true);
+    assert(ouse_audio_submit(&alarm,OUSE_AUDIO_RING,2,&ring)==ESP_OK);
+    assert(ouse_task_get(NULL,usb,&task) && task.state==OUSE_TASK_CANCELLING && !strcmp(task.cancel_reason,"alarm_preempt"));
+    assert(ouse_devices_queue_usb(&other)==ESP_ERR_INVALID_STATE);
+    ouse_task_finish(usb,ESP_OK,true); // codec cleanup acknowledgement
+    assert(ouse_devices_take_audio(&request) && request.id==ring && ouse_task_start(ring,true));
+    ouse_task_finish(ring,ESP_OK,false);
+    assert(ouse_devices_queue_usb(&usb)==ESP_OK && ouse_devices_take_audio(&request));
+    assert(ouse_task_start(usb,true));
+    assert(ouse_audio_submit(NULL,OUSE_AUDIO_STOP,0,&other)==ESP_OK);
+    assert(ouse_task_get(NULL,usb,&task) && task.state==OUSE_TASK_CANCELLING);
+    ouse_task_finish(usb,ESP_OK,true);
+    assert(ouse_devices_take_audio(&request) && request.id==other && ouse_task_start(other,true));
+    ouse_task_finish(other,ESP_OK,false);
+    puts("PASS USB focus: native-only admission, exclusive duplex, alarm preemption, cancellation requires codec acknowledgement");
 }
 static void budget_tests(void){
     ouse_budget_t budget;ouse_budget_begin(&budget,12000,false);

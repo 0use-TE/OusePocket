@@ -2,12 +2,14 @@
 // One owner for ES8311 BOTH mode and the shared duplex I2S channels.
 #include "ouse_device_driver.h"
 #include "ouse_media.h"
+#include "ouse_usb.h"
 #include "bsp/esp-bsp.h"
 #include "driver/i2s_std.h"
 #include "esp_codec_dev.h"
 #include "esp_codec_dev_defaults.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <math.h>
@@ -86,9 +88,17 @@ static int fixed_enable(const audio_codec_data_if_t *unused,esp_codec_dev_type_t
     return data_result(error);
 }
 static int fixed_read(const audio_codec_data_if_t *unused,uint8_t *data,int size)
-{ (void)unused;return data_if->read(data_if,data,size); }
+{
+    (void)unused;size_t received=0;
+    esp_err_t error=i2s_channel_read(rx,data,(size_t)size,&received,1000);
+    return error==ESP_OK && received==(size_t)size ? ESP_CODEC_DEV_OK : ESP_CODEC_DEV_DRV_ERR;
+}
 static int fixed_write(const audio_codec_data_if_t *unused,uint8_t *data,int size)
-{ (void)unused;return data_if->write(data_if,data,size); }
+{
+    (void)unused;size_t written=0;
+    esp_err_t error=i2s_channel_write(tx,data,(size_t)size,&written,1000);
+    return error==ESP_OK && written==(size_t)size ? ESP_CODEC_DEV_OK : ESP_CODEC_DEV_DRV_ERR;
+}
 static const audio_codec_data_if_t fixed_data_if={
     .is_open=fixed_is_open,.set_fmt=fixed_format,.enable=fixed_enable,
     .read=fixed_read,.write=fixed_write,
@@ -118,12 +128,19 @@ static esp_err_t prepare_codec(void)
     // Reuse the display/touch I2C bus. An absent codec is an operation error.
     if(!bsp_i2c_get_handle() || i2c_master_probe(bsp_i2c_get_handle(),ES8311_CODEC_DEFAULT_ADDR>>1,50)!=ESP_OK)return ESP_ERR_NOT_FOUND;
     i2s_chan_config_t channel=I2S_CHANNEL_DEFAULT_CONFIG(CONFIG_BSP_I2S_NUM,I2S_ROLE_MASTER);
-    channel.auto_clear=true;channel.dma_frame_num=256; // 512 bytes at 16-bit mono, cache-line aligned.
+    // Six 4 ms periods retain 24 ms of scheduling headroom, while reducing
+    // scarce internal DMA memory by 4x versus the former 256-frame periods.
+    // 64 mono PCM16 samples also match P4's 128-byte cache alignment.
+    channel.auto_clear=true;channel.dma_frame_num=64;
     esp_err_t e=i2s_new_channel(&channel,&tx,&rx);if(e!=ESP_OK){release_codec();return e;}
     i2s_std_config_t cfg={.clk_cfg=I2S_STD_CLK_DEFAULT_CONFIG(16000),
         .slot_cfg=I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT,I2S_SLOT_MODE_MONO),
         .gpio_cfg={.mclk=BSP_I2S_MCLK,.bclk=BSP_I2S_SCLK,.ws=BSP_I2S_LCLK,.dout=BSP_I2S_DOUT,.din=BSP_I2S_DSIN}};
-    e=i2s_channel_init_std_mode(tx,&cfg);if(e==ESP_OK)e=i2s_channel_init_std_mode(rx,&cfg);
+    e=i2s_channel_init_std_mode(tx,&cfg);
+    // P4's default MONO mask is BOTH: RX then delivers two slots per frame.
+    // Keep TX duplication, but select the ES8311 ADC's left slot explicitly.
+    cfg.slot_cfg.slot_mask=I2S_STD_SLOT_LEFT;
+    if(e==ESP_OK)e=i2s_channel_init_std_mode(rx,&cfg);
     if(e!=ESP_OK){release_codec();return e;}
     audio_codec_i2s_cfg_t data={.port=CONFIG_BSP_I2S_NUM,.tx_handle=tx,.rx_handle=rx};
     data_if=audio_codec_new_i2s_data(&data);
@@ -168,6 +185,7 @@ static esp_err_t run(ouse_audio_request_t request,ouse_audio_state_t *state)
     if(capture)recorded_samples=0;
     state->mode=capture ? OUSE_AUDIO_RECORDING : request.action==OUSE_AUDIO_TEST || request.action==OUSE_AUDIO_RING ? OUSE_AUDIO_TONE : OUSE_AUDIO_PLAYBACK;
     unsigned total=capture || request.action==OUSE_AUDIO_RING ? request.seconds*16000 : request.action==OUSE_AUDIO_TEST ? 8000 : recorded_samples;
+    int64_t started_us=esp_timer_get_time();
     int16_t samples[256];state->position_ms=0;state->peak=0;
     for(unsigned offset=0;error==ESP_OK && offset<total && ouse_devices_audio_current(request.id);) {
         unsigned length=total-offset;if(length>256)length=256;
@@ -190,6 +208,10 @@ static esp_err_t run(ouse_audio_request_t request,ouse_audio_state_t *state)
         offset+=length;state->position_ms=offset/16;
         if(offset%1024==0)ouse_devices_publish_audio(state,request.id);
     }
+    if(capture || request.action==OUSE_AUDIO_REPLAY)
+        ESP_LOGI("OuseAudio","%s: samples=%u, pcm_ms=%u, elapsed_ms=%lld, rate=16000, RX=left",
+            capture ? "capture" : "replay",capture ? recorded_samples : total,state->position_ms,
+            (long long)((esp_timer_get_time()-started_us)/1000));
     return close_audio(error);
 }
 static void short_request(ouse_audio_request_t request)
@@ -260,13 +282,58 @@ static void media_request(ouse_audio_request_t request)
     ouse_task_snapshot_t task;if(ouse_task_get(NULL,request.id,&task) && task.state>=OUSE_TASK_SUCCEEDED)state.completed_id=request.id;
     ouse_devices_publish_audio(&state,request.id);
 }
+static void usb_request(ouse_audio_request_t request)
+{
+    if(!ouse_task_start(request.id,true))return;
+    esp_err_t error=prepare_codec();bool opened=false;
+    if(error==ESP_OK){
+        esp_codec_dev_sample_info_t format={.sample_rate=16000,.channel=1,.bits_per_sample=16};
+        data_error=ESP_CODEC_DEV_OK;
+        if(esp_codec_dev_open(codec,&format)!=ESP_CODEC_DEV_OK || data_error!=ESP_CODEC_DEV_OK){
+            error=ESP_FAIL;release_codec();
+        }else opened=true;
+    }
+    if(opened && esp_codec_dev_set_in_gain(codec,24.0f)!=ESP_CODEC_DEV_OK)error=ESP_FAIL;
+    ouse_usb_audio_running(request.id,error==ESP_OK,error);
+    ouse_audio_state_t state;ouse_audio_get(&state);unsigned frames=0;
+    while(error==ESP_OK && ouse_devices_audio_current(request.id) && ouse_usb_audio_requested()){
+        int16_t input[64],output[64]={0};size_t bytes=0;
+        // RX supplies the actual hardware clock even when only speaker is open.
+        error=i2s_channel_read(rx,input,sizeof(input),&bytes,50);
+        if(error!=ESP_OK || bytes!=sizeof(input)){if(error==ESP_OK)error=ESP_FAIL;break;}
+        if(!ouse_devices_audio_current(request.id) || !ouse_usb_audio_requested())break;
+        if(ouse_usb_microphone_requested())ouse_usb_microphone_write(input,64);
+        ouse_usb_state_t usb;ouse_usb_get(&usb);
+        error=volume(!usb.speaker);if(error!=ESP_OK)break;
+        (void)ouse_usb_speaker_read(output,64);
+        bytes=0;error=i2s_channel_write(tx,output,sizeof(output),&bytes,50);
+        if(error!=ESP_OK || bytes!=sizeof(output)){if(error==ESP_OK)error=ESP_FAIL;break;}
+        state.position_ms=(++frames)*4;state.mode=usb.microphone ? OUSE_AUDIO_RECORDING : OUSE_AUDIO_PLAYBACK;
+        if(frames%16==0)ouse_devices_publish_audio(&state,request.id);
+    }
+    if(opened)error=close_audio(error);
+    bool cancelled=ouse_task_cancel_requested(request.id);
+    state.mode=error==ESP_OK ? OUSE_AUDIO_IDLE : OUSE_AUDIO_ERROR;state.error=error;state.peak=0;
+    state.completed_id=request.id;ouse_devices_publish_audio(&state,request.id);
+    // Stop is acknowledged only after I2S/codec cleanup, including disconnect.
+    ouse_task_finish(request.id,error,cancelled);
+    ouse_usb_audio_running(request.id,false,error);
+}
 void ouse_board_audio_worker(void *argument)
 {
     (void)argument;
+    // Reserve the existing fixed-size duplex DMA/codec cache before apps and
+    // diagnostic UI compete for DMA-capable internal memory. Channels stay
+    // disabled: this does not start playback or microphone capture. A failed
+    // reservation remains retryable through the normal operation error path.
+    esp_err_t prepared=prepare_codec();
+    ESP_LOGI("OuseAudio","Idle DMA/codec reservation: %s; DMA free=%u",esp_err_to_name(prepared),
+        (unsigned)heap_caps_get_free_size(MALLOC_CAP_DMA));
     for(;;){
         ouse_audio_request_t request;
         if(!ouse_devices_take_audio(&request)){ulTaskNotifyTake(pdTRUE,portMAX_DELAY);continue;}
-        if(request.action==OUSE_AUDIO_MEDIA)media_request(request);
+        if(request.action==OUSE_AUDIO_USB)usb_request(request);
+        else if(request.action==OUSE_AUDIO_MEDIA)media_request(request);
         else{
             short_request(request);
             if(request.action==OUSE_AUDIO_RING)(void)ouse_devices_resume_media(true);

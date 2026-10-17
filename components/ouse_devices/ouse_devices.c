@@ -84,6 +84,8 @@ esp_err_t ouse_audio_submit(const ouse_task_owner_t *owner,ouse_audio_action_t a
     // it by coalescing a short test request; an alarm preserves it explicitly.
     if(action!=OUSE_AUDIO_RING && devices.audio_pending && devices.audio_request.action==OUSE_AUDIO_MEDIA){unlock();return ESP_ERR_INVALID_STATE;}
     ouse_task_snapshot_t active;
+    if(action!=OUSE_AUDIO_RING && action!=OUSE_AUDIO_STOP && devices.audio_request.action==OUSE_AUDIO_USB &&
+       ouse_task_get(NULL,devices.audio.request_id,&active) && active.state<OUSE_TASK_SUCCEEDED){unlock();return ESP_ERR_INVALID_STATE;}
     if(action!=OUSE_AUDIO_RING && (devices.suspended_media || (devices.audio_request.action==OUSE_AUDIO_RING &&
        ouse_task_get(NULL,devices.audio.request_id,&active) && active.state<OUSE_TASK_SUCCEEDED))){unlock();return ESP_ERR_INVALID_STATE;}
     if(action==OUSE_AUDIO_REPLAY && !devices.audio.recorded_ms){unlock();return ESP_ERR_INVALID_STATE;}
@@ -95,7 +97,8 @@ esp_err_t ouse_audio_submit(const ouse_task_owner_t *owner,ouse_audio_action_t a
     if(devices.audio.request_id){
         if(action==OUSE_AUDIO_RING && devices.audio_request.action==OUSE_AUDIO_MEDIA)devices.suspended_media=devices.audio.request_id;
         else{
-            (void)ouse_task_cancel(NULL,devices.audio.request_id,"superseded");
+            (void)ouse_task_cancel(NULL,devices.audio.request_id,
+                action==OUSE_AUDIO_RING && devices.audio_request.action==OUSE_AUDIO_USB ? "alarm_preempt" : "superseded");
             if(devices.audio_pending)ouse_task_finish(devices.audio.request_id,ESP_OK,true);
         }
     }
@@ -113,6 +116,8 @@ esp_err_t ouse_devices_queue_media(uint32_t id)
     if(!id)return ESP_ERR_INVALID_ARG;
     lock();ouse_task_snapshot_t active;
     if(!devices.audio.available){unlock();return ESP_ERR_NOT_SUPPORTED;}
+    if(devices.audio_request.action==OUSE_AUDIO_USB &&
+       ouse_task_get(NULL,devices.audio.request_id,&active) && active.state<OUSE_TASK_SUCCEEDED){unlock();return ESP_ERR_INVALID_STATE;}
     if(devices.suspended_media || (devices.audio_request.action==OUSE_AUDIO_RING &&
        ouse_task_get(NULL,devices.audio.request_id,&active) && active.state<OUSE_TASK_SUCCEEDED)){unlock();return ESP_ERR_INVALID_STATE;}
     if(devices.audio.request_id){
@@ -121,6 +126,25 @@ esp_err_t ouse_devices_queue_media(uint32_t id)
     }
     devices.audio_request=(ouse_audio_request_t){.id=id,.action=OUSE_AUDIO_MEDIA};
     devices.audio.request_id=id;devices.audio_pending=true;devices.audio.mode=OUSE_AUDIO_STARTING;
+    devices.audio.error=ESP_OK;++devices.audio.revision;unlock();notify(1);return ESP_OK;
+}
+esp_err_t ouse_devices_queue_usb(uint32_t *id)
+{
+    if(!id)return ESP_ERR_INVALID_ARG;
+    lock();ouse_task_snapshot_t active;
+    if(!devices.audio.available){unlock();return ESP_ERR_NOT_SUPPORTED;}
+    if(devices.suspended_media || (devices.audio.request_id &&
+       ouse_task_get(NULL,devices.audio.request_id,&active) && active.state<OUSE_TASK_SUCCEEDED &&
+       devices.audio_request.action!=OUSE_AUDIO_MEDIA)){unlock();return ESP_ERR_INVALID_STATE;}
+    static const ouse_task_owner_t owner={.app_id="ouse.usb"};
+    esp_err_t error=ouse_task_create(&owner,OUSE_TASK_AUDIO,"usbDuplex",OUSE_TASK_FINISH_ON_CLOSE,true,id);
+    if(error!=ESP_OK){unlock();return error;}
+    if(devices.audio.request_id){
+        (void)ouse_task_cancel(NULL,devices.audio.request_id,"usb_focus");
+        if(devices.audio_pending)ouse_task_finish(devices.audio.request_id,ESP_OK,true);
+    }
+    devices.audio_request=(ouse_audio_request_t){.id=*id,.action=OUSE_AUDIO_USB};
+    devices.audio.request_id=*id;devices.audio_pending=true;devices.audio.mode=OUSE_AUDIO_STARTING;
     devices.audio.error=ESP_OK;++devices.audio.revision;unlock();notify(1);return ESP_OK;
 }
 bool ouse_devices_take_alarm(ouse_audio_request_t *out)

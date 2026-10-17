@@ -7,6 +7,8 @@ function refresh() {
     const clock = Ouse.clock.get(), caps = Ouse.system.capabilities();
     show("clock", "UTC " + new Date(clock.utcMs).toISOString() + "\n时间有效 " + clock.valid + " · 本次已校时 " + clock.syncedThisBoot);
     show("caps", "网络 " + caps.network.available + " · 响应上限 " + caps.network.responseBodyMax + " B\n闹钟 " + caps.alarms.available + " · 每应用 " + caps.alarms.perAppMax + " 个");
+    const usb = Ouse.usb.get();
+    show("usb", "USB OTG " + usb.available + " · 已配置 " + usb.mounted + " · 暂停 " + usb.suspended + "\n声卡运行 " + usb.audioRunning + " · 麦克风请求 " + usb.microphoneRequested + "\n网络共享 " + usb.networkUp + " · 丢包 " + usb.droppedPackets + " · 音频欠载 " + usb.underruns);
     const media = Ouse.media.get();
     show("media", media ? "媒体 #" + media.taskId + " · " + media.state + "\n" + media.positionMs + " / " + media.durationMs + " ms · 缓冲 " + media.bufferedBytes + " B" : "当前应用没有媒体会话");
     const alarms = Ouse.alarms.list();
@@ -41,3 +43,6 @@ Ouse.ui.on("remove", "click", () => submitted(Ouse.alarms.remove("probe")));
 Ouse.tasks.onComplete(task => { show("result", "#" + task.id + " " + task.kind + "/" + task.operation + " → " + task.state + "\n" + task.error); refresh(); });
 globalThis.app = {onResume: refresh};
 refresh();
+
+Ouse.ui.on("disableAlarm","click",()=>submitted(Ouse.alarms.setEnabled("probe",false)));
+Ouse.ui.on("enableAlarm","click",()=>submitted(Ouse.alarms.setEnabled("probe",true)));

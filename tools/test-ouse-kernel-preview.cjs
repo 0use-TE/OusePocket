@@ -77,6 +77,8 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
   const alarm = api.alarms.set({id: 'probe', title: 'Preview', atMs: Date.now() + 10000});
   assert.equal(typeof alarm, 'number');await tick();
   assert.equal(api.alarms.list().length, 1);
+  api.alarms.setEnabled('probe', false);await tick();assert.equal(api.alarms.list()[0].enabled, false);
+  api.alarms.setEnabled('probe', true);await tick();assert.equal(api.alarms.list()[0].enabled, true);
   api.alarms.remove('probe');await tick();assert.equal(api.alarms.list().length, 0);
   context.test.pause();
   const pending = Array.from({ length: 8 }, () => api.storage.info());

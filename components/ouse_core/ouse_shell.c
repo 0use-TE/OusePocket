@@ -7,6 +7,7 @@
 #include "src/misc/cache/instance/lv_image_cache.h"
 #include "ouse_ime.h"
 #include "ouse_notifications.h"
+#include "ouse_memory.h"
 #include "esp_timer.h"
 #include <stdio.h>
 #include <string.h>
@@ -15,9 +16,9 @@
 extern void ouse_navigation_clock(char *);
 extern void ouse_navigation_date(char *,size_t,bool);
 
-typedef enum { G_NONE, G_TOP, G_CLOSE, G_BACK, G_BOTTOM, G_CARD, G_LOCKED } gesture_kind_t;
+typedef enum { G_NONE, G_TOP, G_CLOSE, G_BACK, G_BOTTOM, G_CARD, G_SWITCH, G_LOCKED } gesture_kind_t;
 typedef struct {lv_obj_t *button,*icon,*title,*status;} quick_tile_t;
-static struct {
+static OUSE_PSRAM_BSS struct {
     ouse_shell_config_t config;
     lv_obj_t *quick_layer,*quick,*quick_body,*quick_clock,*date,*slider;
     lv_obj_t *sheet,*notification_panel,*notification_list,*notification_clear,*notification_clock;
@@ -27,7 +28,7 @@ static struct {
     bool notifications_selected;
     struct {char app_id[48];lv_image_dsc_t image;} notification_icons[OUSE_APP_CAPACITY];
     unsigned notification_icon_count;
-    lv_obj_t *gear,*light,*clock,*battery;
+    lv_obj_t *gear,*light,*clock,*battery,*status,*nav,*volume_box,*volume_slider,*volume_icon;
     quick_tile_t wifi_tile,power_tile,sound_tile,theme_tile;
     lv_obj_t *recents,*strip,*clear,*cards[OUSE_APP_CAPACITY],*card_titles[OUSE_APP_CAPACITY];
     lv_obj_t *shield,*back_indicator,*back_arrow,*flight,*flight_image;
@@ -69,6 +70,15 @@ static bool contains(lv_obj_t *obj,lv_point_t p)
     if(!obj || !lv_obj_is_visible(obj))return false;
     lv_area_t a;lv_obj_get_coords(obj,&a);
     return p.x>=a.x1 && p.x<=a.x2 && p.y>=a.y1 && p.y<=a.y2;
+}
+static void overlay_status(bool overlay)
+{
+    lv_obj_set_style_bg_opa(shell.status,overlay ? (lv_opa_t)96 : LV_OPA_COVER,0);
+    ouse_app_stats_t apps;bool in_app=ouse_app_get_stats(&apps)==ESP_OK && apps.active_id[0];
+    lv_color_t color=lv_color_hex(in_app ? ouse_theme_colors().background : ouse_theme_colors().desktop);
+    lv_obj_set_style_bg_color(shell.status,color,0);
+    if(shell.nav)lv_obj_set_style_bg_color(shell.nav,color,0);
+    lv_obj_move_foreground(shell.status);
 }
 static void clear_cards(void)
 {
@@ -126,6 +136,7 @@ static void flight_clear(void)
     lv_anim_delete(shell.flight,NULL);hide(shell.flight);
     lv_image_set_src(shell.flight_image,NULL);
     lv_free((void *)shell.flight_source.data);memset(&shell.flight_source,0,sizeof(shell.flight_source));
+    overlay_status(visible(shell.recents));
 }
 static void flight_finish(lv_anim_t *animation) { (void)animation;flight_clear(); }
 static void flight_settle(void *unused,int32_t p)
@@ -160,7 +171,7 @@ static void begin_home(void)
     uint8_t *copy=lv_malloc(preview->data_size);if(!copy)return;
     memcpy(copy,preview->data,preview->data_size);shell.flight_source=*preview;shell.flight_source.data=copy;
     lv_image_set_src(shell.flight_image,&shell.flight_source);lv_obj_set_style_opa(shell.flight,LV_OPA_COVER,0);
-    show(shell.flight);lv_obj_move_foreground(shell.flight);
+    show(shell.flight);lv_obj_move_foreground(shell.flight);overlay_status(true);
 }
 static void follow_home(int dy)
 {
@@ -186,11 +197,11 @@ void ouse_shell_foreground(void)
     lv_anim_delete(shell.back_indicator,back_motion);
     hide(shell.quick_layer);hide(shell.recents);hide(shell.shield);hide(shell.back_indicator);
     shell.quick_animating=false;shell.quick_target=false;shell.g.kind=G_NONE;shell.g.claimed=false;
-    flight_clear();clear_cards();
+    flight_clear();clear_cards();overlay_status(false);
 }
 static void dismiss_recent(lv_event_t *event)
 {
-    (void)event;hide(shell.recents);clear_cards();
+    (void)event;hide(shell.recents);clear_cards();overlay_status(false);
 }
 static void resume_card(lv_event_t *event)
 {
@@ -215,14 +226,14 @@ static void show_recents(void)
 {
     (void)ouse_app_background();flight_clear();clear_cards();
     shell.recent_generation=ouse_ui_generation();
-    hide(shell.quick_layer);show(shell.recents);lv_obj_move_foreground(shell.recents);
+    hide(shell.quick_layer);show(shell.recents);lv_obj_move_foreground(shell.recents);overlay_status(true);
     for(unsigned i=0;i<OUSE_APP_CAPACITY;++i) {
         if(ouse_app_get_recent(i,&shell.items[i])!=ESP_OK)break;
         ++shell.count;
         lv_obj_t *card=ouse_widget_box(shell.strip,OUSE_STYLE_PANEL,24);
         lv_obj_add_flag(card,LV_OBJ_FLAG_CLICKABLE|LV_OBJ_FLAG_SNAPPABLE);
         lv_obj_set_style_clip_corner(card,true,0);
-        rect(card,(shell.width-D(224))/2+(int)i*D(244),D(10),D(224),shell.card_height);shell.cards[i]=card;
+        rect(card,(shell.width-D(224))/2+(int)i*D(244),D(50),D(224),shell.card_height);shell.cards[i]=card;
         lv_obj_add_event_cb(card,resume_card,LV_EVENT_CLICKED,shell.items[i].id);
         lv_obj_t *icon=ouse_widget_app_icon(card,&shell.items[i],28);
         lv_obj_set_pos(icon,D(12),D(10));
@@ -261,10 +272,10 @@ static void show_recents(void)
 }
 static void card_motion(void *object,int32_t p)
 {
-    int end=shell.card_closing ? -shell.card_height-D(60) : D(10);
+    int end=shell.card_closing ? -shell.card_height-D(60) : D(50);
     int y=shell.card_anim_start+(end-shell.card_anim_start)*p/1024;
     lv_obj_set_y(object,y);
-    lv_obj_set_style_opa(object,(lv_opa_t)clamp(255+(y-D(10))*180/shell.card_height,0,255),0);
+    lv_obj_set_style_opa(object,(lv_opa_t)clamp(255+(y-D(50))*180/shell.card_height,0,255),0);
 }
 static void card_done(lv_anim_t *animation)
 {
@@ -307,6 +318,19 @@ static void brightness_changed(lv_event_t *event)
     shell.brightness_failed=shell.config.set_brightness(value)!=ESP_OK;
     shell.save_failed=false;
     if(shell.brightness_failed){lv_slider_set_value(shell.slider,shell.config.brightness(),LV_ANIM_OFF);ouse_dialog_show("亮度设置失败，请重试",NULL,NULL);}
+}
+static void volume_changed(lv_event_t *event)
+{
+    unsigned value=(unsigned)lv_slider_get_value(lv_event_get_target_obj(event));
+    esp_err_t error=ouse_audio_set_volume(value);
+    if(error==ESP_OK && value)error=ouse_audio_set_muted(false);
+    if(error!=ESP_OK)ouse_dialog_show("声音设置失败，请重试",NULL,NULL);
+}
+static void sound_clicked(lv_event_t *event)
+{
+    (void)event;ouse_audio_state_t audio;ouse_audio_get(&audio);
+    if(ouse_audio_set_muted(!audio.muted)!=ESP_OK)ouse_dialog_show("声音设置失败，请重试",NULL,NULL);
+    refresh(NULL);
 }
 static void notification_clicked(lv_event_t *event)
 {
@@ -433,6 +457,7 @@ static void rebuild_notifications(void)
 }
 static void select_sheet(bool notifications)
 {
+    lv_obj_set_x(shell.quick,0);lv_obj_set_x(shell.notification_panel,0);
     shell.notifications_selected=notifications;
     if(notifications) {hide(shell.quick);show(shell.notification_panel);rebuild_notifications();}
     else {show(shell.quick);hide(shell.notification_panel);layout_quick();shell.generation=ouse_ui_generation();}
@@ -513,11 +538,15 @@ static void layout_quick(void)
     quick_tile_layout(&shell.power_tile,tile_width+D(12),0,width-tile_width-D(12),tile_height);
     quick_tile_layout(&shell.sound_tile,0,tile_height+D(12),tile_width,tile_height);
     quick_tile_layout(&shell.theme_tile,tile_width+D(12),tile_height+D(12),width-tile_width-D(12),tile_height);
-    quick_capsule_layout(shell.light,shell.slider,2*(tile_height+D(12)),width,D(56));
+    quick_capsule_layout(shell.volume_box,shell.volume_slider,2*(tile_height+D(12)),width,D(56));
+    lv_obj_align(shell.volume_icon,LV_ALIGN_LEFT_MID,D(16),0);
+    quick_capsule_layout(shell.light,shell.slider,2*(tile_height+D(12))+D(68),width,D(56));
 }
 static void refresh(lv_timer_t *timer)
 {
     (void)timer;char time[8],date[64];ouse_navigation_clock(time);
+    // Keep foreground chrome consistent even for apps without theme callbacks.
+    if(!visible(shell.recents) && !visible(shell.flight) && !visible(shell.quick_layer))overlay_status(false);
     lv_label_set_text(shell.clock,time);
     ouse_power_state_t power={0};ouse_power_get(&power);
     const char *symbol=power.charging ? LV_SYMBOL_CHARGE : power.percent>80 ? LV_SYMBOL_BATTERY_FULL : power.percent>40 ? LV_SYMBOL_BATTERY_2 : power.percent>15 ? LV_SYMBOL_BATTERY_1 : LV_SYMBOL_BATTERY_EMPTY;
@@ -564,6 +593,8 @@ static void refresh(lv_timer_t *timer)
     else if(power.present)quick_status_pair(shell.power_tile.status,"电池供电","On battery");
     else quick_status_pair(shell.power_tile.status,"未连接","Disconnected");
     ouse_audio_state_t audio={0};ouse_audio_get(&audio);
+    if(!lv_obj_has_state(shell.volume_slider,LV_STATE_PRESSED))lv_slider_set_value(shell.volume_slider,audio.volume,LV_ANIM_OFF);
+    lv_label_set_text(shell.volume_icon,audio.muted || !audio.volume ? LV_SYMBOL_MUTE : LV_SYMBOL_VOLUME_MAX);
     quick_control_color(shell.sound_tile.button,!audio.muted&&audio.volume>0);
     quick_status_pair(shell.sound_tile.status,audio.muted ? "静音" : audio.volume ? "已开启" : "已关闭",audio.muted ? "Muted" : audio.volume ? "On" : "Off");
     lv_label_set_text(shell.sound_tile.icon,audio.muted ? LV_SYMBOL_MUTE : LV_SYMBOL_VOLUME_MAX);
@@ -592,7 +623,25 @@ static void gesture_step(lv_timer_t *timer)
         shell.g.anchor=p;shell.g.last_move=now;
     }
     shell.g.last=p;shell.g.last_tick=now;
-    if(shell.g.kind==G_TOP || shell.g.kind==G_CLOSE) {
+    if(shell.g.kind==G_TOP || shell.g.kind==G_CLOSE || shell.g.kind==G_SWITCH) {
+        bool horizontal=shell.g.kind!=G_TOP && abs(dx)>D(12) && abs(dx)>abs(dy)+D(6);
+        bool toward_other=shell.notifications_selected ? dx<0 : dx>0;
+        if(!shell.g.claimed && horizontal && toward_other) {
+            shell.g.kind=G_SWITCH;
+            if(shell.notifications_selected){layout_quick();show(shell.quick);}
+            else {rebuild_notifications();show(shell.notification_panel);}
+            bool previous=shell.notifications_selected;shell.notifications_selected=!previous;
+            refresh(NULL);shell.notifications_selected=previous;
+            claim();
+        }
+        if(shell.g.kind==G_SWITCH) {
+            if(shell.g.claimed) {
+                int x=clamp(dx,-shell.width,shell.width);
+                lv_obj_set_x(shell.notification_panel,shell.notifications_selected ? x : x-shell.width);
+                lv_obj_set_x(shell.quick,shell.notifications_selected ? x+shell.width : x);
+            } else if(abs(dy)>abs(dx)+D(8)){shell.g.kind=G_NONE;lv_timer_pause(shell.gesture_timer);}
+            return;
+        }
         bool correct=shell.g.kind==G_TOP ? dy>D(6) : dy<-D(6);
         if(!shell.g.claimed && correct && abs(dy)>abs(dx)) {
             ouse_ime_hide();
@@ -625,7 +674,7 @@ static void gesture_step(lv_timer_t *timer)
         if(!shell.g.claimed && -dy>D(8) && -dy>abs(dx))claim();
         if(shell.g.claimed) {
             lv_obj_t *card=shell.cards[shell.g.card];
-            lv_obj_set_y(card,D(10)+clamp(dy,-shell.card_height,0));
+            lv_obj_set_y(card,D(50)+clamp(dy,-shell.card_height,0));
             lv_obj_set_style_opa(card,(lv_opa_t)clamp(255+dy*180/shell.card_height,60,255),0);
         }
     }
@@ -640,7 +689,10 @@ static void finish_gesture(bool cancel)
     if(claimed)lv_indev_reset(shell.config.touch,NULL);
     hide(shell.shield);
     if(!claimed)return;
-    if(kind==G_TOP || kind==G_CLOSE) {
+    if(kind==G_SWITCH) {
+        bool change=!cancel && abs(dx)>=D(64) && abs(dx)>abs(dy);
+        select_sheet(change ? !shell.notifications_selected : shell.notifications_selected);refresh(NULL);
+    } else if(kind==G_TOP || kind==G_CLOSE) {
         bool open=kind==G_TOP ? !cancel && dy>=D(80) : cancel || dy>-D(64);
         settle_quick(open);
     } else if(kind==G_BACK) {
@@ -680,6 +732,8 @@ static void pointer_event(lv_event_t *event)
         shell.g.kind=G_TOP;shell.g.sheet_start=-shell.quick_height;move_quick(NULL,-shell.quick_height);
     } else if(quick && !control && (p.y<D(88) || p.y>=shell.height-D(38))) {
         shell.g.kind=G_CLOSE;shell.g.sheet_start=lv_obj_get_y(shell.sheet);
+    } else if(quick && !control) {
+        shell.g.kind=G_SWITCH;
     } else if(!quick && p.y>=shell.height-D(36))shell.g.kind=G_BOTTOM;
     else if(!control && p.y>D(40) && p.y<shell.height-D(28) && (p.x<=D(24) || p.x>=shell.width-D(24))) {
         shell.g.kind=G_BACK;shell.g.left=p.x<shell.width/2;
@@ -704,20 +758,22 @@ void ouse_shell_init(const ouse_shell_config_t *config)
 {
     shell.config=*config;shell.width=lv_obj_get_width(config->screen);shell.height=lv_obj_get_height(config->screen);
     shell.quick_height=shell.height;shell.g.card=-1;
-    lv_obj_t *status=ouse_widget_box(config->screen,OUSE_STYLE_DESKTOP,0);rect(status,0,0,shell.width,D(40));
+    lv_obj_t *status=ouse_widget_box(config->screen,OUSE_STYLE_DESKTOP,0);shell.status=status;rect(status,0,0,shell.width,D(40));
     shell.clock=ouse_widget_text(status,"--:--",14);lv_obj_set_pos(shell.clock,D(16),D(8));
     lv_obj_t *battery=lv_label_create(status);shell.battery=battery;lv_label_set_text(battery,LV_SYMBOL_BATTERY_EMPTY " --");
     lv_obj_set_style_text_font(battery,&lv_font_montserrat_16,0);lv_obj_set_pos(battery,shell.width-D(66),D(8));
     lv_obj_set_style_transform_scale_x(battery,D(256),0);lv_obj_set_style_transform_scale_y(battery,D(256),0);
     ouse_theme_apply(battery,OUSE_STYLE_MUTED,0);
-    shell.recents=ouse_widget_box(config->screen,OUSE_STYLE_DESKTOP,0);rect(shell.recents,0,D(40),shell.width,shell.height-D(64));
+    shell.recents=ouse_widget_box(config->screen,OUSE_STYLE_DESKTOP,0);rect(shell.recents,0,0,shell.width,shell.height-D(24));
     lv_obj_add_flag(shell.recents,LV_OBJ_FLAG_CLICKABLE);lv_obj_add_event_cb(shell.recents,recent_blank,LV_EVENT_CLICKED,NULL);
-    shell.strip=ouse_widget_box(shell.recents,OUSE_STYLE_DESKTOP,0);rect(shell.strip,0,0,shell.width,shell.height-D(148));
+    shell.strip=ouse_widget_box(shell.recents,OUSE_STYLE_DESKTOP,0);rect(shell.strip,0,0,shell.width,shell.height-D(108));
+    // Use actual fullscreen drawing bounds: overflow alone still loses child
+    // pixels at an ancestor/opacity layer's clip during card dismissal.
     lv_obj_add_flag(shell.strip,LV_OBJ_FLAG_SCROLLABLE|LV_OBJ_FLAG_CLICKABLE);lv_obj_set_scroll_dir(shell.strip,LV_DIR_HOR);
     lv_obj_set_scroll_snap_x(shell.strip,LV_SCROLL_SNAP_CENTER);lv_obj_set_scrollbar_mode(shell.strip,LV_SCROLLBAR_MODE_OFF);
     lv_obj_add_event_cb(shell.strip,recent_blank,LV_EVENT_CLICKED,NULL);shell.card_height=shell.height-D(170);
     shell.clear=ouse_widget_button(shell.recents,"全部清除",close_all,NULL);
-    rect(shell.clear,D(64),shell.height-D(128),shell.width-D(128),D(48));hide(shell.recents);
+    rect(shell.clear,D(64),shell.height-D(88),shell.width-D(128),D(48));hide(shell.recents);
     shell.quick_layer=ouse_widget_box(config->screen,OUSE_STYLE_DESKTOP,0);rect(shell.quick_layer,0,0,shell.width,shell.height);
     lv_obj_set_style_bg_color(shell.quick_layer,lv_color_black(),0);lv_obj_add_flag(shell.quick_layer,LV_OBJ_FLAG_CLICKABLE);
     shell.sheet=ouse_widget_box(shell.quick_layer,OUSE_STYLE_DESKTOP,0);rect(shell.sheet,0,0,shell.width,shell.height);
@@ -732,8 +788,12 @@ void ouse_shell_init(const ouse_shell_config_t *config)
     lv_obj_set_scrollbar_mode(shell.quick_body,LV_SCROLLBAR_MODE_OFF);
     quick_tile_create(&shell.wifi_tile,shell.quick_body,LV_SYMBOL_WIFI,"Wi-Fi","Wi-Fi",7,NULL);
     quick_tile_create(&shell.power_tile,shell.quick_body,LV_SYMBOL_BATTERY_FULL,"电源","Power",5,NULL);
-    quick_tile_create(&shell.sound_tile,shell.quick_body,LV_SYMBOL_VOLUME_MAX,"声音","Sound",6,NULL);
+    quick_tile_create(&shell.sound_tile,shell.quick_body,LV_SYMBOL_VOLUME_MAX,"声音","Sound",6,sound_clicked);
     quick_tile_create(&shell.theme_tile,shell.quick_body,LV_SYMBOL_TINT,"主题","Theme",0,theme_clicked);
+    shell.volume_box=ouse_widget_box(shell.quick_body,OUSE_STYLE_PANEL,28);
+    shell.volume_icon=quick_symbol(shell.volume_box,LV_SYMBOL_VOLUME_MAX);
+    shell.volume_slider=lv_slider_create(shell.volume_box);ouse_widget_slider(shell.volume_slider,32);
+    lv_slider_set_range(shell.volume_slider,0,100);lv_obj_add_event_cb(shell.volume_slider,volume_changed,LV_EVENT_VALUE_CHANGED,NULL);
     shell.light=ouse_widget_box(shell.quick_body,OUSE_STYLE_PANEL,28);
     quick_sun(shell.light);
     shell.slider=lv_slider_create(shell.light);ouse_widget_slider(shell.slider,32);
@@ -755,7 +815,7 @@ void ouse_shell_init(const ouse_shell_config_t *config)
     rect(handle,shell.width/2-D(28),shell.height-D(18),D(56),D(4));
     hide(shell.notification_panel);
     layout_quick();move_quick(NULL,-shell.quick_height);hide(shell.quick_layer);
-    lv_obj_t *nav=ouse_widget_box(config->screen,OUSE_STYLE_DESKTOP,0);rect(nav,0,shell.height-D(24),shell.width,D(24));
+    lv_obj_t *nav=ouse_widget_box(config->screen,OUSE_STYLE_DESKTOP,0);shell.nav=nav;rect(nav,0,shell.height-D(24),shell.width,D(24));
     lv_obj_add_flag(nav,LV_OBJ_FLAG_CLICKABLE);lv_obj_add_event_cb(nav,home_tap,LV_EVENT_CLICKED,NULL);
     lv_obj_t *pill=ouse_widget_box(nav,OUSE_STYLE_PILL,2);rect(pill,shell.width/2-D(32),D(12),D(64),D(4));
     shell.flight=ouse_widget_box(config->screen,OUSE_STYLE_APP,24);lv_obj_set_style_clip_corner(shell.flight,true,0);
