@@ -146,12 +146,22 @@ static esp_err_t finish_uninstall(const char *id)
 }
 static esp_err_t install_upload(char *result,size_t capacity)
 {
-    if(!upload || received!=expected || ouse_crc32(upload,received)!=upload_crc)return ESP_ERR_INVALID_ARG;
+    snprintf(result,capacity,"upload-integrity");
+    if(!upload || received!=expected)return ESP_ERR_INVALID_ARG;
+    uint32_t actual_crc=ouse_crc32(upload,received);
+    if(actual_crc!=upload_crc){
+        ESP_LOGE(TAG,"Upload CRC mismatch: received=%u expected=%u crc=%08lx expected_crc=%08lx",
+            (unsigned)received,(unsigned)expected,(unsigned long)actual_crc,(unsigned long)upload_crc);
+        return ESP_ERR_INVALID_ARG;
+    }
+    snprintf(result,capacity,"archive-manifest");
     ouse_bpk_t *p=NULL;esp_err_t error=ouse_bpk_parse(upload,received,&p);
     if(error!=ESP_OK){ESP_LOGE(TAG,"BPK rejected: archive/manifest (%s)",esp_err_to_name(error));return error;}
-    if(!valid_id(p->id)){ouse_bpk_free(p);return ESP_ERR_INVALID_ARG;}
+    if(!valid_id(p->id)){snprintf(result,capacity,"package-id");ouse_bpk_free(p);return ESP_ERR_INVALID_ARG;}
+    snprintf(result,capacity,"schema-syntax-capacity");
     error=on_ui(0,p,NULL); // full schema/syntax/capacity check BEFORE Flash writes
     if(error!=ESP_OK){ESP_LOGE(TAG,"BPK rejected: schema/syntax/capacity (%s)",esp_err_to_name(error));ouse_bpk_free(p);return error;}
+    snprintf(result,capacity,"storage-commit");
     char path[128];path_for(p->id,path);
     FILE *file=fopen(STAGING,"wb");bool ok=false;
     if(file){
@@ -163,7 +173,7 @@ static esp_err_t install_upload(char *result,size_t capacity)
     if(!ok || rename(STAGING,path)!=0){unlink(STAGING);ouse_bpk_free(p);return ESP_FAIL;}
     // LittleFS atomic rename is the commit point. Interrupted uploads never
     // replace the previous package. Only this worker can mutate user registry.
-    error=activate(p);
+    snprintf(result,capacity,"activation");error=activate(p);
     (void)ouse_storage_refresh();
     if(error==ESP_OK)snprintf(result,capacity,"%s",p->id);
     else {ouse_bpk_free(p);snprintf(result,capacity,"committed-reboot-to-restore");}
@@ -180,7 +190,7 @@ static esp_err_t command(ouse_frame_t *f,char *result,size_t cap)
     if(upload && owner!=f->token)return ESP_ERR_INVALID_STATE;
     activity=esp_timer_get_time();
     if(!strcmp(f->verb,"HELLO")){
-        snprintf(result,cap,"core=%s,storage=%s,max=%u,transport=uart0-921600",ouse_core_version(),storage_ready?"ready":"unavailable",OUSE_BPK_MAX);
+        snprintf(result,cap,"core=%s,storage=%s,max=%u,transport=uart0-921600,installStages=1",ouse_core_version(),storage_ready?"ready":"unavailable",OUSE_BPK_MAX);
 #if CONFIG_OUSE_DEVICE_DEBUG
         strncat(result,",debug=1",cap-strlen(result)-1);
 #endif
@@ -217,6 +227,7 @@ static esp_err_t command(ouse_frame_t *f,char *result,size_t cap)
     }
     if(!strcmp(f->verb,"END")){
         const ouse_task_owner_t system={.app_id="ouse.installer"};uint32_t task_id=0;
+        snprintf(result,cap,"install-task-admission");
         esp_err_t error=ouse_task_create(&system,OUSE_TASK_PACKAGE,"install",OUSE_TASK_FINISH_ON_CLOSE,false,&task_id);
         if(error==ESP_OK){(void)ouse_task_start(task_id,false);error=install_upload(result,cap);ouse_task_finish(task_id,error,false);}
         abort_upload();return error;
@@ -260,8 +271,11 @@ static void process_line(char *line)
     publish_status(true,recovery_error);
     char result[1080]="-";esp_err_t error=command(&frame,result,sizeof(result));
     publish_status(false,recovery_error!=ESP_OK ? recovery_error : error);
+    char failure[160];
+    snprintf(failure,sizeof(failure),"%s%s%.96s",esp_err_to_name(error),
+        strcmp(result,"-") ? ":" : "",strcmp(result,"-") ? result : "");
     int n=snprintf(response,sizeof(response),"OPK1 %08lx %08lx %s %s",(unsigned long)frame.token,(unsigned long)frame.sequence,
-        error==ESP_OK?"OK":"ERR",error==ESP_OK?(result[0]?result:"-"):esp_err_to_name(error));
+        error==ESP_OK?"OK":"ERR",error==ESP_OK?(result[0]?result:"-"):failure);
     uint32_t crc=ouse_crc32(response,(size_t)n);
     snprintf(response+n,sizeof(response)-(size_t)n," %08lx",(unsigned long)crc);
     token=frame.token;sequence=frame.sequence;checksum=frame.checksum;cached=true;send_response(response);

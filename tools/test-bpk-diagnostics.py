@@ -45,6 +45,11 @@ class DiagnosticsTests(unittest.TestCase):
         client = self.client(b"I (100) OuseUSB: ready\n" + bpk.wire(1, 1, "OK", "user.counter"))
         self.assertEqual(client.request("END"), "user.counter")
 
+    def test_stage_survives_without_device_logs(self):
+        client = self.client(bpk.wire(1, 1, "ERR", "ESP_ERR_INVALID_ARG:upload-integrity"))
+        with self.assertRaisesRegex(RuntimeError, "END: ESP_ERR_INVALID_ARG:upload-integrity"):
+            client.request("END")
+
     def test_diagnostics_are_bounded(self):
         data = b"".join(f"E OuseJS: failure {index}\n".encode() for index in range(20))
         client = self.client(data + bpk.wire(1, 1, "ERR", "ESP_ERR_INVALID_ARG"))
