@@ -7,7 +7,8 @@
 extern "C" {
 #endif
 // All operations run on the UI task / under the UI lock. Logical density is a
-// board setting, independent of the user's text size (100, 115 or 130 percent).
+// board setting. System text scale is fixed at 100%; font_percent accepts only
+// 100 (or the init default 0). Individual text roles retain their pixel sizes.
 esp_err_t ouse_ui_init(unsigned density_dpi, unsigned locale, unsigned font_percent);
 esp_err_t ouse_ui_set_preferences(unsigned locale, unsigned font_percent);
 int ouse_ui_dp(int value);

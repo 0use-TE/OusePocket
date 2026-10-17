@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 #include "ouse_apps_internal.h"
 #include "ouse_ime.h"
+#include "ouse_tasks.h"
 #include <string.h>
 #include <stdio.h>
 #include "esp_log.h"
@@ -162,6 +163,7 @@ static void close_instance(int index)
 
 esp_err_t ouse_app_open(const char *id)
 {
+    if(ouse_tasks_quiescing() && (!id || strcmp(id,"ouse.settings")))return ESP_ERR_INVALID_STATE;
     if (!id) return ESP_ERR_INVALID_ARG;
     if (!apps.host || !apps.sealed || apps.transitioning) return ESP_ERR_INVALID_STATE;
     int index=find(id);

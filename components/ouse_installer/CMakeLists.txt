@@ -1,4 +1,4 @@
-set(ouse_installer_sources "ouse_installer.c" "ouse_bpk.c" "ouse_protocol.c")
+set(ouse_installer_sources "ouse_uninstall_journal.c" "ouse_installer.c" "ouse_bpk.c" "ouse_protocol.c")
 if(CONFIG_OUSE_DEVICE_DEBUG)
     list(APPEND ouse_installer_sources "ouse_debug_transport.c")
 endif()

@@ -121,7 +121,7 @@ for name, content in headers.items():
 includes = [OUT, ROOT/'tools/checks', ROOT/'components/ouse_tasks/include', ROOT/'components/ouse_devices/include',
             ROOT/'components/ouse_alarm/include', ROOT/'components/ouse_media/include', ROOT/'components/ouse_net/include',
             ROOT/'components/ouse_core/include', ROOT/'components/ouse_system/include', Path('D:/esp/v6.1/esp-idf/components/http_parser')]
-common = [str(compiler), '/nologo', '/std:c11', '/O2', '/MD', '/utf-8', '/D_CRT_SECURE_NO_WARNINGS', '/D_CRT_NONSTDC_NO_DEPRECATE']
+common = [str(compiler), '/nologo', '/std:c11','/experimental:c11atomics', '/O2', '/MD', '/utf-8', '/D_CRT_SECURE_NO_WARNINGS', '/D_CRT_NONSTDC_NO_DEPRECATE']
 common += ['/I'+str(p) for p in includes]
 platform = ROOT/'tools/checks/services-platform.c'
 registry = ROOT/'components/ouse_tasks/ouse_tasks.c'

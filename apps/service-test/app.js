@@ -2,6 +2,8 @@
 let requestId = 0;
 function show(id, text) { Ouse.ui.setText(id, text); }
 function refresh() {
+    const health = Ouse.system.health(), activities = Ouse.system.activities();
+    show("health", "核心状态 " + health.phase + (health.blocker ? " · " + health.blocker : "") + "\n" + health.services.map(s => s.name + ": " + s.state).join(" · ") + "\n本应用可见活动 " + activities.length + (health.activitiesTruncated ? "（系统活动列表已截断）" : ""));
     const clock = Ouse.clock.get(), caps = Ouse.system.capabilities();
     show("clock", "UTC " + new Date(clock.utcMs).toISOString() + "\n时间有效 " + clock.valid + " · 本次已校时 " + clock.syncedThisBoot);
     show("caps", "网络 " + caps.network.available + " · 响应上限 " + caps.network.responseBodyMax + " B\n闹钟 " + caps.alarms.available + " · 每应用 " + caps.alarms.perAppMax + " 个");
@@ -12,6 +14,10 @@ function refresh() {
 }
 function submitted(id) { show("result", id ? "已接受任务 #" + id : "提交被拒绝，请检查服务状态与容量"); }
 Ouse.ui.on("refresh", "click", refresh);
+Ouse.ui.on("stopActivity", "click", () => {
+    const activity = Ouse.system.activities().find(a => a.kind === "native" && a.cancellable && !a.stopping);
+    show("result", activity ? "停止请求 " + Ouse.system.stopActivity(activity.taskId) + "；以任务终态确认" : "没有可停止的本应用原生任务");
+});
 Ouse.ui.on("get", "click", () => {
     const request = Ouse.net.request({url: Ouse.ui.getText("url"), timeoutMs: 10000});
     requestId = request.taskId || 0;

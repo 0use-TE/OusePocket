@@ -323,3 +323,13 @@ python tools/bpk.py --port COM10 --baud 921600 install dist/bpk/api-test.bpk
 含 PNG 的打包需要本地 Pillow；上传需要 pyserial 3.5。CLI 与当前固件默认串口波特率为 921600，必须一致；连接明确使用 115200 的固件时传 `--baud 115200`。上传前先关闭占用同一串口的监视器。此处是打包和安装用法；是否已烧录、安装及通过真机检查，以对应固件版本记录为准。
 
 VS Code / Cursor 扩展识别相同清单、资源路径/类型、长度、图像和累计配额，可直接编辑默认、中英文名称。图标与全部图片资源均已预转换为 OIC1 时，打包只用标准库；任何图标或资源选择 PNG 而当前 Python 缺少 Pillow 时，都会明确报错，不会静默换图。
+
+
+## 0.11.0 健康与后台活动
+
+新增 `Ouse.system.health()`、`activities()`、`stopActivity(taskId)` 和 info 内存最大连续块/最低余量缓存；重启只在原生设置提供。活动列表有容量限制，停止请求以公共任务终态为准。使用方式、口径与异常恢复见 [0.11.0 可靠性](0.11.0-reliability.md)。
+
+
+## 0.12.0 默认文字大小
+
+系统不再提供用户字号倍率，`Ouse.display.setFontPercent` 已移除；`Ouse.display.get()` 的 fontPercent/fontScale 固定 100/1。JSON `fontSize` 保留 8..84 整数请求范围，选择最接近的实际 8..40 角色字体；超过 40 的请求使用 40px。此处是固定字体池的就近选择，不承诺请求像素数必然有对应字库。标题、正文、数字可以使用不同字号，详见 [默认字号与字体池](0.12.0-default-fonts.md)。

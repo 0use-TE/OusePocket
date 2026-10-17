@@ -56,6 +56,8 @@ esp_err_t ouse_storage_purge(const char *app_id);
 // Queue a native stats refresh after package changes. Queries only copy cache.
 esp_err_t ouse_storage_refresh(void);
 esp_err_t ouse_storage_get_stats(ouse_storage_stats_t *out);
+// Includes queued/in-flight maintenance and purge, not just public task records.
+bool ouse_storage_idle(void);
 #ifdef __cplusplus
 }
 #endif

@@ -14,6 +14,7 @@
 #include "ouse_clock.h"
 #include "ouse_media.h"
 #include "ouse_metrics.h"
+#include "ouse_health.h"
 #include "src/misc/cache/instance/lv_image_cache.h"
 #include "quickjs.h"
 #include "esp_timer.h"
@@ -189,6 +190,7 @@ static unsigned net_job_count;
 static QueueHandle_t storage_completions;
 static unsigned storage_job_count; // JS task only, includes closed in-flight jobs
 static instance_t *instances; // worker-owned list
+static atomic_uint background_end_request;
 static QueueHandle_t launches;
 static TaskHandle_t worker_task;
 static portMUX_TYPE stats_lock=portMUX_INITIALIZER_UNLOCKED;
@@ -497,6 +499,7 @@ static JSValue background_api(JSContext *context,JSValueConst self,int argc,JSVa
     if(action==1 && (argc>1 || (argc==1 && (!copy_string(context,argv[0],reason,sizeof(reason)) || !reason[0]))))
         return JS_ThrowTypeError(context,"begin(reason): nonempty string up to 63 UTF-8 bytes");
     if(action==1 && !app->background_allowed)return JS_FALSE;
+    if(action==1 && ouse_tasks_quiescing())return JS_FALSE;
     model_lock(app);
     if(app->closed || app->faulted){model_unlock(app);return JS_FALSE;}
     if(action!=2){bool next=action==1;
@@ -600,6 +603,9 @@ static JSValue system_info(JSContext *context,JSValueConst self,int argc,JSValue
 #define FIELD(name,value) JS_SetPropertyStr(context,object,name,JS_NewFloat64(context,(double)(value)))
     FIELD("internalFree",info.internal_free); FIELD("internalTotal",info.internal_total);
     FIELD("psramFree",info.psram_free); FIELD("psramTotal",info.psram_total);
+    FIELD("internalLargest",info.internal_largest);FIELD("internalMinimum",info.internal_minimum);
+    FIELD("psramLargest",info.psram_largest);FIELD("psramMinimum",info.psram_minimum);
+    FIELD("memorySampledMs",info.memory_sample_ms);
     FIELD("flashBytes",info.flash_bytes); FIELD("cpuMHz",info.cpu_mhz);
     FIELD("uptimeMs",info.uptime_ms); FIELD("resetReason",info.reset_reason);
 #undef FIELD
@@ -755,6 +761,7 @@ static JSValue preference_on(JSContext *context,JSValueConst self,int argc,JSVal
 static JSValue preference_set(JSContext *context,JSValueConst self,int argc,JSValueConst *argv,int group)
 {
     (void)self;instance_t *app=from_js(context);char text[16];int number;
+    if(group==2)return JS_ThrowTypeError(context,"System font scale is fixed");
     if(argc!=1 && !(group==3 && argc==2 && JS_IsBool(argv[1])))return JS_ThrowTypeError(context,"Expected value and optional brightness save flag");
     if(group<2){
         if(!copy_string(context,argv[0],text,sizeof(text)))return JS_ThrowTypeError(context,"Expected string");
@@ -763,7 +770,6 @@ static JSValue preference_set(JSContext *context,JSValueConst self,int argc,JSVa
     }else{
         double exact;if(!JS_IsNumber(argv[0]) || JS_ToFloat64(context,&exact,argv[0])<0 || !isfinite(exact) || floor(exact)!=exact || exact<0 || exact>130)return JS_ThrowTypeError(context,"Expected bounded integer");
         number=(int)exact;
-        if(group==2 && number!=100 && number!=115 && number!=130)return JS_ThrowRangeError(context,"Expected font percent 100/115/130");
         if(group==3 && (number<10 || number>100))return JS_ThrowRangeError(context,"Expected brightness 10..100");
     }
     // Returns acceptance. Applied state and onChange arrive in later snapshots.
@@ -1136,6 +1142,9 @@ static void install_api(instance_t *app)
     JS_SetPropertyStr(context,system,"storage",JS_NewCFunction(context,system_storage,"storage",0));
     JS_SetPropertyStr(context,system,"capabilities",JS_NewCFunction(context,system_capabilities,"capabilities",0));
     JS_SetPropertyStr(context,system,"cpu",JS_NewCFunction(context,system_cpu,"cpu",0));
+    JS_SetPropertyStr(context,system,"health",JS_NewCFunctionMagic(context,system_health,"health",0,JS_CFUNC_generic_magic,0));
+    JS_SetPropertyStr(context,system,"activities",JS_NewCFunctionMagic(context,system_health,"activities",0,JS_CFUNC_generic_magic,1));
+    JS_SetPropertyStr(context,system,"stopActivity",JS_NewCFunctionMagic(context,system_health,"stopActivity",1,JS_CFUNC_generic_magic,2));
     JS_SetPropertyStr(context,api,"system",system);
     JSValue timers=JS_NewObject(context);
     JS_SetPropertyStr(context,timers,"setInterval",JS_NewCFunctionMagic(context,timer_create,"setInterval",2,JS_CFUNC_generic_magic,1));
@@ -1149,7 +1158,7 @@ static void install_api(instance_t *app)
         JSValue group=JS_NewObject(context);
         JS_SetPropertyStr(context,group,"get",JS_NewCFunctionMagic(context,preference_get,"get",0,JS_CFUNC_generic_magic,i));
         JS_SetPropertyStr(context,group,"onChange",JS_NewCFunctionMagic(context,preference_on,"onChange",1,JS_CFUNC_generic_magic,i));
-        JS_SetPropertyStr(context,group,i==2 ? "setFontPercent" : "set",JS_NewCFunctionMagic(context,preference_set,"set",1,JS_CFUNC_generic_magic,i));
+        if(i<2)JS_SetPropertyStr(context,group,"set",JS_NewCFunctionMagic(context,preference_set,"set",1,JS_CFUNC_generic_magic,i));
         if(i==1) JS_SetPropertyStr(context,group,"t",JS_NewCFunction(context,locale_text,"t",1));
         if(i==2) JS_SetPropertyStr(context,group,"setBrightness",JS_NewCFunctionMagic(context,preference_set,"setBrightness",1,JS_CFUNC_generic_magic,3));
         JS_SetPropertyStr(context,api,groups[i],group);
@@ -2030,7 +2039,6 @@ static void ui_pump(lv_timer_t *timer)
     if(detach)wake_worker();
     if(commands & 1u)(void)ouse_core_set_theme((ouse_theme_t)values[0]);
     if(commands & 2u)(void)ouse_core_set_ui((unsigned)values[1],ouse_ui_font_percent());
-    if(commands & 4u)(void)ouse_core_set_ui(ouse_ui_locale(),(unsigned)values[2]);
     if(commands & 8u){if(save)(void)ouse_core_set_brightness((uint8_t)values[3]);else (void)ouse_core_preview_brightness((uint8_t)values[3]);}
     if(commands & 16u)(void)ouse_core_sleep_display();
     if(commands & 32u)(void)ouse_core_wake_display();
@@ -2243,6 +2251,11 @@ static void script_worker(void *opaque)
     (void)opaque;bool runnable=false;
     for(;;){
         (void)ulTaskNotifyTake(pdTRUE,runnable ? pdMS_TO_TICKS(20) : portMAX_DELAY);
+        unsigned end_instance=atomic_exchange(&background_end_request,0);
+        if(end_instance)for(instance_t *app=instances;app;app=app->next)if(app->owner.instance==end_instance){
+            model_lock(app);app->background_active=false;app->background_reason[0]=0;app->background_since_us=0;
+            ++app->lifecycle_revision;model_unlock(app);break;
+        }
         drain_storage_completions();
         drain_net_completions();
         instance_t *launch=NULL;
@@ -2325,6 +2338,13 @@ static void *copy_resource(const void *data,size_t size,bool text)
     if(size)memcpy(copy,data,size);
     if(text || !size)copy[size]=0;
     return copy;
+}
+esp_err_t ouse_runtime_end_background(uint32_t instance_id)
+{
+    if(!instance_id)return ESP_ERR_INVALID_ARG;
+    unsigned empty=0;
+    if(!atomic_compare_exchange_strong(&background_end_request,&empty,instance_id))return ESP_ERR_INVALID_STATE;
+    wake_worker();return ESP_OK;
 }
 static instance_t *allocate_instance(const ouse_script_package_t *package)
 {

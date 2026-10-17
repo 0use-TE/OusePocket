@@ -1,6 +1,4 @@
 // Generated shared font pool.
-LV_FONT_DECLARE(ouse_font_ui_4)
-LV_FONT_DECLARE(ouse_font_ui_6)
 LV_FONT_DECLARE(ouse_font_ui_8)
 LV_FONT_DECLARE(ouse_font_ui_10)
 LV_FONT_DECLARE(ouse_font_ui_12)
@@ -8,16 +6,10 @@ LV_FONT_DECLARE(ouse_font_ui_14)
 LV_FONT_DECLARE(ouse_font_ui_16)
 LV_FONT_DECLARE(ouse_font_ui_18)
 LV_FONT_DECLARE(ouse_font_ui_20)
-LV_FONT_DECLARE(ouse_font_ui_21)
 LV_FONT_DECLARE(ouse_font_ui_22)
 LV_FONT_DECLARE(ouse_font_ui_24)
 LV_FONT_DECLARE(ouse_font_ui_28)
 LV_FONT_DECLARE(ouse_font_ui_32)
 LV_FONT_DECLARE(ouse_font_ui_40)
-LV_FONT_DECLARE(ouse_font_ui_48)
-LV_FONT_DECLARE(ouse_font_ui_56)
-LV_FONT_DECLARE(ouse_font_ui_64)
-LV_FONT_DECLARE(ouse_font_ui_72)
-LV_FONT_DECLARE(ouse_font_ui_84)
-static const unsigned sizes[]={4,6,8,10,12,14,16,18,20,21,22,24,28,32,40,48,56,64,72,84};
-static const lv_font_t *const fonts[]={&ouse_font_ui_4,&ouse_font_ui_6,&ouse_font_ui_8,&ouse_font_ui_10,&ouse_font_ui_12,&ouse_font_ui_14,&ouse_font_ui_16,&ouse_font_ui_18,&ouse_font_ui_20,&ouse_font_ui_21,&ouse_font_ui_22,&ouse_font_ui_24,&ouse_font_ui_28,&ouse_font_ui_32,&ouse_font_ui_40,&ouse_font_ui_48,&ouse_font_ui_56,&ouse_font_ui_64,&ouse_font_ui_72,&ouse_font_ui_84};
+static const unsigned sizes[]={8,10,12,14,16,18,20,22,24,28,32,40};
+static const lv_font_t *const fonts[]={&ouse_font_ui_8,&ouse_font_ui_10,&ouse_font_ui_12,&ouse_font_ui_14,&ouse_font_ui_16,&ouse_font_ui_18,&ouse_font_ui_20,&ouse_font_ui_22,&ouse_font_ui_24,&ouse_font_ui_28,&ouse_font_ui_32,&ouse_font_ui_40};

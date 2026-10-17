@@ -13,6 +13,7 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "sdkconfig.h"
+#include <string.h>
 
 typedef struct { uint8_t brightness, theme, locale, font_percent; uint32_t sequence; } save_request_t;
 static QueueHandle_t requests;
@@ -21,6 +22,13 @@ static portMUX_TYPE state_lock = portMUX_INITIALIZER_UNLOCKED;
 static ouse_settings_state_t settings;
 static uint32_t sequence, flash_bytes;
 static bool initialized;
+static struct {uint32_t largest[2],minimum[2];uint64_t sampled_ms;} memory;
+void ouse_system_sample_memory(void)
+{
+    uint32_t largest[2],minimum[2];const uint32_t caps[]={MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT};
+    for(unsigned i=0;i<2;++i){largest[i]=heap_caps_get_largest_free_block(caps[i]);minimum[i]=heap_caps_get_minimum_free_size(caps[i]);}
+    portENTER_CRITICAL(&state_lock);memcpy(memory.largest,largest,sizeof(largest));memcpy(memory.minimum,minimum,sizeof(minimum));memory.sampled_ms=esp_timer_get_time()/1000;portEXIT_CRITICAL(&state_lock);
+}
 
 static void settings_worker(void *argument)
 {
@@ -40,7 +48,6 @@ static void settings_worker(void *argument)
             error = nvs_set_u8(handle, "brightness", request.brightness);
             if (error == ESP_OK) error = nvs_set_u8(handle, "theme", request.theme);
             if (error == ESP_OK) error = nvs_set_u8(handle, "locale", request.locale);
-            if (error == ESP_OK) error = nvs_set_u8(handle, "font", request.font_percent);
             if (error == ESP_OK) error = nvs_commit(handle);
             nvs_close(handle);
         }
@@ -63,7 +70,7 @@ esp_err_t ouse_system_init(uint8_t *brightness)
     if (!brightness || *brightness < 10 || *brightness > 100) return ESP_ERR_INVALID_ARG;
     if (initialized) return ESP_ERR_INVALID_STATE;
     initialized = true;
-    settings = (ouse_settings_state_t){.requested_brightness = *brightness, .requested_font_percent=100};
+    settings = (ouse_settings_state_t){.requested_brightness = *brightness, .requested_font_percent=100,.saved_font_percent=100};
     esp_err_t error = esp_flash_get_size(NULL, &flash_bytes);
     if (error != ESP_OK) { settings.last_error = error; return error; }
     error = nvs_flash_init();
@@ -76,13 +83,12 @@ esp_err_t ouse_system_init(uint8_t *brightness)
         uint8_t theme=0;
         esp_err_t theme_error=nvs_get_u8(handle,"theme",&theme);
         if (theme_error==ESP_OK && theme<=1) settings.requested_theme=settings.saved_theme=theme;
-        uint8_t locale=0, font=100;
-        esp_err_t le=nvs_get_u8(handle,"locale",&locale), fe=nvs_get_u8(handle,"font",&font);
-        if ((le!=ESP_OK && le!=ESP_ERR_NVS_NOT_FOUND) || (fe!=ESP_OK && fe!=ESP_ERR_NVS_NOT_FOUND)) {
-            nvs_close(handle); settings.last_error=le!=ESP_OK && le!=ESP_ERR_NVS_NOT_FOUND ? le : fe; return settings.last_error;
+        uint8_t locale=0;
+        esp_err_t le=nvs_get_u8(handle,"locale",&locale);
+        if (le!=ESP_OK && le!=ESP_ERR_NVS_NOT_FOUND) {
+            nvs_close(handle); settings.last_error=le; return settings.last_error;
         }
         if (le==ESP_OK && locale<=1) settings.requested_locale=settings.saved_locale=locale;
-        if (fe==ESP_OK && (font==100 || font==115 || font==130)) settings.requested_font_percent=settings.saved_font_percent=font;
         nvs_close(handle);
         if (theme_error!=ESP_OK && theme_error!=ESP_ERR_NVS_NOT_FOUND) { settings.last_error=theme_error; return theme_error; }
         if (error == ESP_OK && saved >= 10 && saved <= 100) {
@@ -111,7 +117,8 @@ esp_err_t ouse_system_init(uint8_t *brightness)
 static esp_err_t request_settings(int brightness, int theme, int locale, int font_percent)
 {
     if (!requests) return ESP_ERR_INVALID_STATE;
-    if (xSemaphoreTake(producers, 0) != pdTRUE) return ESP_ERR_TIMEOUT;
+    if(!ouse_tasks_submission_begin())return ESP_ERR_INVALID_STATE;
+    if (xSemaphoreTake(producers, 0) != pdTRUE){ouse_tasks_submission_end();return ESP_ERR_TIMEOUT;}
     portENTER_CRITICAL(&state_lock);
     if (brightness<0) brightness=settings.requested_brightness;
     if (theme<0) theme=settings.requested_theme;
@@ -120,6 +127,7 @@ static esp_err_t request_settings(int brightness, int theme, int locale, int fon
     if (!settings.pending && settings.last_error == ESP_OK && settings.saved_brightness == brightness && settings.saved_theme == theme && settings.saved_locale==locale && settings.saved_font_percent==font_percent) {
         portEXIT_CRITICAL(&state_lock);
         xSemaphoreGive(producers);
+        ouse_tasks_submission_end();
         return ESP_OK;
     }
     save_request_t request = {.brightness = (uint8_t)brightness, .theme = (uint8_t)theme, .locale=(uint8_t)locale, .font_percent=(uint8_t)font_percent, .sequence = ++sequence};
@@ -131,6 +139,7 @@ static esp_err_t request_settings(int brightness, int theme, int locale, int fon
     portEXIT_CRITICAL(&state_lock);
     xQueueOverwrite(requests, &request);
     xSemaphoreGive(producers);
+    ouse_tasks_submission_end();
     return ESP_OK;
 }
 
@@ -152,7 +161,7 @@ esp_err_t ouse_system_request_settings(uint8_t brightness, uint8_t theme)
 
 esp_err_t ouse_system_request_ui(uint8_t locale,uint8_t font_percent)
 {
-    if (locale>1 || (font_percent!=100 && font_percent!=115 && font_percent!=130)) return ESP_ERR_INVALID_ARG;
+    if (locale>1 || font_percent!=100) return ESP_ERR_INVALID_ARG;
     return request_settings(-1,-1,locale,font_percent);
 }
 
@@ -179,5 +188,7 @@ esp_err_t ouse_system_get_info(ouse_system_info_t *info)
         .reset_reason = esp_reset_reason(), .uptime_ms = (uint64_t)esp_timer_get_time() / 1000,
         .idf_version = esp_get_idf_version(),
     };
+    portENTER_CRITICAL(&state_lock);info->internal_largest=memory.largest[0];info->psram_largest=memory.largest[1];
+    info->internal_minimum=memory.minimum[0];info->psram_minimum=memory.minimum[1];info->memory_sample_ms=memory.sampled_ms;portEXIT_CRITICAL(&state_lock);
     return ESP_OK;
 }

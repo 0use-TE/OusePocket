@@ -30,7 +30,7 @@
   let translations = {};
   let locale = 'zh_CN';
   let mode = 'light';
-  let fontPercent = 100;
+  const fontPercent = 100;
   let brightness = 100;
   let asleep = false;
   let paused = false;
@@ -266,7 +266,9 @@
   }
 
   function scaled(sp) {
-    return (Number(sp) * fontPercent / 100) + 'px';
+    const sizes = [8,10,12,14,16,18,20,22,24,28,32,40];
+    const requested = Number(sp);
+    return sizes.reduce((best,size) => Math.abs(size-requested) < Math.abs(best-requested) ? size : best, sizes[0]) + 'px';
   }
 
   function applyFonts() {
@@ -332,6 +334,7 @@
   }
 
   function box(el, node) {
+    if (node.fontSize !== undefined && (!Number.isInteger(node.fontSize) || node.fontSize < 8 || node.fontSize > 84)) throw new Error("fontSize must be an integer 8..84");
     if (node.width === 'fill') el.classList.add('fill-w');
     else if (typeof node.width === 'number') el.style.width = node.width + 'px';
     if (node.height === 'fill') el.classList.add('fill-h');
@@ -866,15 +869,6 @@
     },
     display: {
       get: displaySnapshot,
-      setFontPercent(percent) {
-        if (percent !== 100 && percent !== 115 && percent !== 130) throw new Error('字号只能是 100、115 或 130');
-        if (fontPercent !== percent) {
-          fontPercent = percent;
-          applyFonts();
-          notify('display', displaySnapshot());
-        }
-        return true;
-      },
       setBrightness(percent, _save) {
         if (typeof percent !== 'number' || percent < 10 || percent > 100) throw new Error('亮度须为 10～100');
         brightness = percent;
@@ -885,11 +879,14 @@
       onChange(fn) { listeners.display = fn || null; },
     },
     system: {
+      health() { return {available: false, simulated: true, phase: 'preview', blocker: '', quiescing: false, sampledMs: 0, systemActivitiesTotal: 0, activitiesTruncated: false, services: []}; },
+      activities() { return []; },
+      stopActivity() { return false; },
       info() {
         return {
           internalFree: 180000, internalTotal: 320000, psramFree: 24000000, psramTotal: 32000000,
           flashBytes: 16 * 1024 * 1024, cpuMHz: 400, uptimeMs: Date.now() - started,
-          resetReason: 1, coreVersion: '0.10.0', idfVersion: 'preview',
+          resetReason: 1, coreVersion: '0.12.1', idfVersion: 'preview',
         };
       },
       storage() {

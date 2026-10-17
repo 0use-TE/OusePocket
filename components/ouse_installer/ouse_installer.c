@@ -6,6 +6,7 @@
 #include "ouse_storage.h"
 #include "ouse_alarm.h"
 #include "ouse_media.h"
+#include "ouse_uninstall_journal.h"
 #include "driver/uart.h"
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
@@ -34,6 +35,15 @@ static size_t received,expected;
 static uint32_t upload_crc,owner;
 static int64_t activity;
 static SemaphoreHandle_t ui_done;
+static portMUX_TYPE status_lock=portMUX_INITIALIZER_UNLOCKED;
+static ouse_installer_state_t status;
+static char pending_remove[48];
+static esp_err_t recovery_error;
+void ouse_installer_get_state(ouse_installer_state_t *out)
+{if(out){portENTER_CRITICAL(&status_lock);*out=status;portEXIT_CRITICAL(&status_lock);}}
+static void publish_status(bool busy,esp_err_t error)
+{portENTER_CRITICAL(&status_lock);status=(ouse_installer_state_t){.ready=storage_ready,.busy=busy,
+    .recovery_pending=pending_remove[0] || recovery_error!=ESP_OK,.error=error};portEXIT_CRITICAL(&status_lock);}
 static struct { int action;ouse_bpk_t *package;const char *id;esp_err_t error;ouse_script_validation_t *validation; } ui;
 
 static void ui_call(void *unused)
@@ -95,6 +105,7 @@ static void restore_packages(void)
     while((entry=readdir(dir))!=NULL){
         size_t n=strlen(entry->d_name);if(n<=4 || n>=52 || strcmp(entry->d_name+n-4,".bpk"))continue;
         char id[48];memcpy(id,entry->d_name,n-4);id[n-4]=0;if(!valid_id(id))continue;
+        if(!strcmp(id,pending_remove))continue; // durable removal cannot resurrect
         char path[128];path_for(id,path);struct stat info;
         if(stat(path,&info)!=0 || info.st_size<=0 || info.st_size>OUSE_BPK_MAX)continue;
         unsigned char *bytes=heap_caps_malloc((size_t)info.st_size,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
@@ -115,6 +126,24 @@ static void restore_packages(void)
 }
 static void abort_upload(void)
 { free(upload);upload=NULL;received=expected=0;owner=0; }
+static esp_err_t finish_uninstall(const char *id)
+{
+    int slot=find_package(id);
+    esp_err_t error=on_ui(2,NULL,id);
+    if(error!=ESP_OK && error!=ESP_ERR_NOT_FOUND)return error;
+    ouse_alarm_register_app(id,false);
+    char path[128];path_for(id,path);
+    if(unlink(path)!=0 && errno!=ENOENT)return ESP_FAIL;
+    error=ouse_media_purge(id);
+    if(error==ESP_OK)error=ouse_alarm_purge(id);
+    if(error==ESP_OK)error=ouse_storage_purge(id);
+    if(error==ESP_OK)error=ouse_uninstall_intent_clear();
+    if(error==ESP_OK){
+        if(slot>=0){ouse_bpk_free(installed[slot]);installed[slot]=NULL;}
+        pending_remove[0]=0;recovery_error=ESP_OK;
+    }
+    (void)ouse_storage_refresh();return error;
+}
 static esp_err_t install_upload(char *result,size_t capacity)
 {
     if(!upload || received!=expected || ouse_crc32(upload,received)!=upload_crc)return ESP_ERR_INVALID_ARG;
@@ -162,11 +191,13 @@ static esp_err_t command(ouse_frame_t *f,char *result,size_t cap)
     if(!strncmp(f->verb,"DBG_",4))return upload?ESP_ERR_INVALID_STATE:ouse_debug_command(f->verb,f->payload,result,cap);
 #endif
     if(!storage_ready)return ESP_ERR_INVALID_STATE;
+    if(ouse_tasks_quiescing())return ESP_ERR_INVALID_STATE;
     if(!strcmp(f->verb,"LIST")){
         size_t pos=0;for(unsigned i=0;i<OUSE_APP_CAPACITY;++i)if(installed[i])pos+=(size_t)snprintf(result+pos,cap-pos,"%s%s",pos?",":"",installed[i]->id);
         return ESP_OK;
     }
     if(!strcmp(f->verb,"BEGIN")){
+        if(pending_remove[0] || recovery_error!=ESP_OK)return ESP_ERR_INVALID_STATE;
         if(upload)return ESP_ERR_INVALID_STATE;
         char *colon=strchr(f->payload,':');uint32_t n,crc;
         if(!colon)return ESP_ERR_INVALID_ARG;
@@ -196,29 +227,16 @@ static esp_err_t command(ouse_frame_t *f,char *result,size_t cap)
         return on_ui(3,NULL,f->payload);
     }
     if(!strcmp(f->verb,"REMOVE")){
-        int slot=valid_id(f->payload)?find_package(f->payload):-1;if(slot<0)return ESP_ERR_NOT_FOUND;
+        if(!valid_id(f->payload))return ESP_ERR_INVALID_ARG;
+        int slot=find_package(f->payload);
+        if(slot<0 && strcmp(f->payload,pending_remove))return ESP_ERR_NOT_FOUND;
         const ouse_task_owner_t system={.app_id="ouse.installer"};uint32_t task_id=0;
         esp_err_t registered=ouse_task_create(&system,OUSE_TASK_PACKAGE,"uninstall",OUSE_TASK_FINISH_ON_CLOSE,false,&task_id);
         if(registered!=ESP_OK)return registered;
         (void)ouse_task_start(task_id,false);
-        char path[128];path_for(f->payload,path);
-        // A prior attempt may have removed the file before UI dispatch failed.
-        // Keep the live package until removal completes; a fresh retry must be
-        // able to finish this already-committed deletion. Other I/O errors still
-        // preserve the registration and report failure.
-        if(unlink(path)!=0 && errno!=ENOENT){ouse_task_finish(task_id,ESP_FAIL,false);return ESP_FAIL;}
-        esp_err_t error=on_ui(2,NULL,f->payload);
-        // A failed purge can be retried after the UI registration is gone.
-        // Closing first prevents the old script from submitting another write
-        // after the storage worker's FIFO deletion barrier.
-        if(error==ESP_OK || error==ESP_ERR_NOT_FOUND){
-            ouse_alarm_register_app(f->payload,false);
-            error=ouse_media_purge(f->payload);
-            if(error==ESP_OK)error=ouse_alarm_purge(f->payload);
-            if(error==ESP_OK)error=ouse_storage_purge(f->payload);
-        }
-        if(error==ESP_OK){ouse_bpk_free(installed[slot]);installed[slot]=NULL;}
-        (void)ouse_storage_refresh();
+        esp_err_t error=ouse_uninstall_intent_write(f->payload);
+        if(error==ESP_OK){strcpy(pending_remove,f->payload);error=finish_uninstall(f->payload);}
+        recovery_error=error;
         ouse_task_finish(task_id,error,false);return error;
     }
     return ESP_ERR_NOT_SUPPORTED;
@@ -239,7 +257,9 @@ static void process_line(char *line)
         return; // conflicting retransmission never executes
     }
     if(cached && frame.token==token && frame.sequence<sequence)return;
+    publish_status(true,recovery_error);
     char result[1080]="-";esp_err_t error=command(&frame,result,sizeof(result));
+    publish_status(false,recovery_error!=ESP_OK ? recovery_error : error);
     int n=snprintf(response,sizeof(response),"OPK1 %08lx %08lx %s %s",(unsigned long)frame.token,(unsigned long)frame.sequence,
         error==ESP_OK?"OK":"ERR",error==ESP_OK?(result[0]?result:"-"):esp_err_to_name(error));
     uint32_t crc=ouse_crc32(response,(size_t)n);
@@ -267,13 +287,22 @@ static void consume_bytes(const unsigned char *bytes,int n)
 static void worker(void *context)
 {
     (void)context;
+    publish_status(true,ESP_OK);
     esp_err_t error=mount_storage();
+    publish_status(true,error);
     if(error==ESP_OK){
-        restore_packages();const char *alarm_apps[OUSE_APP_CAPACITY];unsigned count=0;
+        recovery_error=ouse_uninstall_intent_read(pending_remove);
+        if(recovery_error==ESP_ERR_NOT_FOUND)recovery_error=ESP_OK;
+        // An unreadable intent cannot identify the retiring app. Preserve all
+        // files and defer package activation until explicitly repaired.
+        if(recovery_error==ESP_OK)restore_packages();
+        const char *alarm_apps[OUSE_APP_CAPACITY];unsigned count=0;
         for(unsigned i=0;i<OUSE_APP_CAPACITY;++i)if(installed[i] && installed[i]->package.alarms_allowed)alarm_apps[count++]=installed[i]->id;
         esp_err_t alarm_error=ouse_alarm_start(alarm_apps,count);
         if(alarm_error!=ESP_OK)ESP_LOGW(TAG,"Alarm service unavailable: %s; file preserved",esp_err_to_name(alarm_error));
+        if(pending_remove[0] && recovery_error==ESP_OK)recovery_error=finish_uninstall(pending_remove);
     }else ESP_LOGE(TAG,"Storage unavailable: %s; existing data preserved",esp_err_to_name(error));
+    publish_status(false,error!=ESP_OK ? error : recovery_error);
     ESP_LOGI(TAG,"READY; UART0 921600; protocol=OPK1; storage=%s",storage_ready?"ready":"unavailable");
     unsigned char bytes[256];
     for(;;){
@@ -297,6 +326,7 @@ esp_err_t ouse_installer_start(void)
     esp_err_t error=uart_param_config(UART_NUM_0,&config);
     if(error==ESP_OK)error=uart_driver_install(UART_NUM_0,16384,0,0,NULL,0);
     if(error!=ESP_OK){vSemaphoreDelete(ui_done);ui_done=NULL;free(rx_line);rx_line=NULL;return error;}
-    if(xTaskCreate(worker,"ouse_installer",16384,NULL,3,NULL)!=pdPASS){uart_driver_delete(UART_NUM_0);vSemaphoreDelete(ui_done);ui_done=NULL;free(rx_line);rx_line=NULL;return ESP_ERR_NO_MEM;}
+    publish_status(true,ESP_OK);
+    if(xTaskCreate(worker,"ouse_installer",16384,NULL,3,NULL)!=pdPASS){uart_driver_delete(UART_NUM_0);vSemaphoreDelete(ui_done);ui_done=NULL;free(rx_line);rx_line=NULL;publish_status(false,ESP_ERR_NO_MEM);return ESP_ERR_NO_MEM;}
     started=true;return ESP_OK;
 }

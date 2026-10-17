@@ -1,4 +1,4 @@
-version: "0.10.0"
+version: "0.12.1"
 description: Bounded native LVGL JSON and QuickJS application runtime
 dependencies:
   idf: "==6.1.0"

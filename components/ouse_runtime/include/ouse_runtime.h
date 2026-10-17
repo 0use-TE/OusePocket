@@ -75,6 +75,9 @@ esp_err_t ouse_script_validate_wait(ouse_script_validation_t *validation);
 void ouse_runtime_get_stats(ouse_runtime_stats_t *stats);
 // Cached worker-owned statistics; never walk a JS heap on the caller/UI task.
 void ouse_runtime_get_diagnostics(ouse_runtime_diagnostics_t *out);
+// Native asynchronous lease end. Unique instance ID prevents reopening races;
+// does not close the instance or stop independent native activities.
+esp_err_t ouse_runtime_end_background(uint32_t instance_id);
 #ifdef __cplusplus
 }
 #endif

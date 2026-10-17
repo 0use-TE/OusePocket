@@ -29,6 +29,8 @@ static ouse_wifi_state_t state;
 static ouse_wifi_request_t session;
 static int64_t deadline;
 static unsigned retries;
+static int64_t stop_since;
+static bool recovery_tried,drain_requested;
 static void event(void *argument,esp_event_base_t base,int32_t id,void *data)
 {
     (void)argument;unsigned bits=0;
@@ -126,7 +128,8 @@ static esp_err_t request(ouse_wifi_request_t command)
     const char *expected=(command.action==OUSE_WIFI_DISCONNECT || command.action==OUSE_WIFI_FORGET) ? state.ssid : command.ssid;
     snprintf(expected_ssid,sizeof(expected_ssid),"%s",expected);
     portEXIT_CRITICAL(&event_lock);
-    awaiting_stop=0;stop_result=ESP_OK;
+    awaiting_stop=0;stop_result=ESP_OK;stop_since=0;recovery_tried=false;
+    state.recovering=state.recovery_failed=false;state.recovery_attempts=0;
     if(!command.enabled) {
         state.connecting=state.scanning=state.connected=false;state.ip[0]=0;
         if(started){
@@ -165,7 +168,11 @@ static void handle_events(unsigned bits,int reason,esp_ip4_addr_t ip)
         state.completed_id=session.id;awaiting_stop=0;return;
     }
     if(awaiting_stop){
-        if(bits&awaiting_stop){awaiting_stop=0;state.scanning=state.connecting=false;state.error=stop_result;state.completed_id=session.id;}
+        if(bits&awaiting_stop){
+            if(awaiting_stop==EVENT_STOP){started=false;state.connected=false;state.ip[0]=0;}
+            awaiting_stop=0;stop_since=0;state.recovering=state.recovery_failed=false;
+            state.scanning=state.connecting=false;state.error=stop_result;state.completed_id=session.id;
+        }
         return;
     }
     if(!state.enabled)return;
@@ -220,11 +227,52 @@ void ouse_board_wifi_worker(void *argument)
     int64_t next_signal=0;
     for(;;) {
         bool changed=false;
+        bool draining=ouse_tasks_quiescing();
+        if(draining){
+            // A newer, still queued ID may already own the public snapshot.
+            // Retire it before draining physical events so STA_STOP cannot be
+            // discarded by the old session's identity guard.
+            ouse_wifi_request_t queued;
+            if(ouse_devices_take_wifi(&queued)){
+                (void)ouse_task_cancel(NULL,queued.id,"system_restart");
+                (void)ouse_task_start(queued.id,false);ouse_task_finish(queued.id,ESP_OK,true);
+                session.id=queued.id;state.request_id=queued.id;
+                memset(queued.password,0,sizeof(queued.password));changed=true;
+            }
+        }
         // Drain old events before accepting another session. The driver event
         // stream has no app-instance token, so sessions must never overlap.
         unsigned bits;int reason;esp_ip4_addr_t ip;
         portENTER_CRITICAL(&event_lock);bits=event_bits;event_bits=0;reason=disconnect_reason;ip=ip_address;portEXIT_CRITICAL(&event_lock);
         if(bits){handle_events(bits,reason,ip);changed=true;}
+        if(!draining)drain_requested=false;
+        if(draining && !drain_requested){
+            drain_requested=true;
+            if(started){
+                esp_err_t error=esp_wifi_stop();stop_result=error==ESP_OK ? ESP_OK : error;
+                awaiting_stop=EVENT_STOP;stop_since=esp_timer_get_time();
+                if(error==ESP_ERR_WIFI_NOT_STARTED){started=false;awaiting_stop=0;}
+                else if(error!=ESP_OK)state.error=error;
+                state.scanning=state.connecting=false;changed=true;
+            }
+        }
+        if(awaiting_stop){
+            int64_t now=esp_timer_get_time();if(!stop_since)stop_since=now;
+            if(now-stop_since>=5000000 && !recovery_tried){
+                // Escalate once to a full STA stop. Never open a new epoch
+                // until its STOP event confirms the hardware actually stopped.
+                recovery_tried=true;state.recovering=true;state.recovery_attempts=1;
+                esp_err_t error=esp_wifi_stop();awaiting_stop=EVENT_STOP;stop_since=now;
+                // NOT_STARTED confirms the driver is off, but does not drain
+                // old queued SCAN/DISCONNECT events. Keep the epoch fenced
+                // until STA_STOP; a later request must not consume stale data.
+                if(error==ESP_ERR_WIFI_NOT_STARTED)started=false;
+                else if(error!=ESP_OK)state.error=error;
+                changed=true;
+            }else if(recovery_tried && now-stop_since>=5000000 && !state.recovery_failed){
+                state.recovering=false;state.recovery_failed=true;state.ready=false;state.error=ESP_ERR_TIMEOUT;changed=true;
+            }
+        }
         if(!awaiting_stop && (state.scanning||state.connecting) && esp_timer_get_time()>deadline) {
             unsigned expected=state.scanning ? EVENT_SCAN : EVENT_DISCONNECT;
             esp_err_t stopped=state.scanning ? esp_wifi_scan_stop() : esp_wifi_disconnect();
@@ -235,6 +283,7 @@ void ouse_board_wifi_worker(void *argument)
             if(stopped==ESP_OK)awaiting_stop=expected;
             else if(stopped==ESP_ERR_WIFI_NOT_STARTED || stopped==ESP_ERR_WIFI_NOT_CONNECT)state.completed_id=session.id;
             else {awaiting_stop=expected;state.error=stopped;}
+            if(awaiting_stop)stop_since=esp_timer_get_time();
             changed=true;
         }
         if(state.connected && esp_timer_get_time()>=next_signal && ouse_devices_wifi_current(session.id)) {
@@ -242,7 +291,8 @@ void ouse_board_wifi_worker(void *argument)
             wifi_ap_record_t ap;
             if(esp_wifi_sta_get_ap_info(&ap)==ESP_OK && state.rssi!=ap.rssi){state.rssi=ap.rssi;changed=true;}
         }
-        if(changed){
+        state.stopped=!started && !awaiting_stop;
+        if(changed || draining){
             ouse_devices_publish_wifi(&state,session.id);
             finish_session();
         }
@@ -250,8 +300,13 @@ void ouse_board_wifi_worker(void *argument)
         if(!awaiting_stop && ouse_devices_take_wifi(&command)) {
             ouse_wifi_get(&state);
             bool claimed=ouse_task_start(command.id,false);
-            if(!claimed){ouse_task_finish(command.id,ESP_OK,true);memset(command.password,0,sizeof(command.password));continue;}
+            if(!claimed){
+                session.id=command.id;state.request_id=command.id;state.stopped=!started && !awaiting_stop;
+                ouse_task_finish(command.id,ESP_OK,true);ouse_devices_publish_wifi(&state,session.id);
+                memset(command.password,0,sizeof(command.password));continue;
+            }
             state.error=request(command);memset(command.password,0,sizeof(command.password));
+            if(awaiting_stop && !stop_since)stop_since=esp_timer_get_time();
             if(state.error!=ESP_OK){state.scanning=state.connecting=false;state.completed_id=session.id;ESP_LOGW("OuseWiFi","Operation: %s",esp_err_to_name(state.error));}
             else if(!awaiting_stop && !state.connecting && !state.scanning)state.completed_id=session.id;
             ouse_devices_publish_wifi(&state,session.id);

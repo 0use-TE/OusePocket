@@ -6,6 +6,7 @@
 #include "ouse_alarm.h"
 #include "ouse_clock.h"
 #include "ouse_metrics.h"
+#include "ouse_health.h"
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -87,6 +88,9 @@ static void setup(instance_t *app,JSRuntime *runtime)
     JS_SetPropertyStr(app->context,api,"clock",JS_NewCFunction(app->context,clock_get,"clock",0));
     JS_SetPropertyStr(app->context,api,"caps",JS_NewCFunction(app->context,system_capabilities,"caps",0));
     JS_SetPropertyStr(app->context,api,"cpu",JS_NewCFunction(app->context,system_cpu,"cpu",0));
+    JS_SetPropertyStr(app->context,api,"health",JS_NewCFunctionMagic(app->context,system_health,"health",0,JS_CFUNC_generic_magic,0));
+    JS_SetPropertyStr(app->context,api,"activities",JS_NewCFunctionMagic(app->context,system_health,"activities",0,JS_CFUNC_generic_magic,1));
+    JS_SetPropertyStr(app->context,api,"stopActivity",JS_NewCFunctionMagic(app->context,system_health,"stopActivity",1,JS_CFUNC_generic_magic,2));
     const char *alarms[]={"alarmSet","alarmRemove","alarmDismiss","alarmSnooze","alarmList"};
     const char *media[]={"play","pause","resume","stop","mediaGet"};
     for(int i=0;i<5;++i){JS_SetPropertyStr(app->context,api,alarms[i],JS_NewCFunctionMagic(app->context,alarms_api,alarms[i],1,JS_CFUNC_generic_magic,i));
@@ -104,6 +108,11 @@ int main(void)
 {
     JSRuntime *runtime=JS_NewRuntime();assert(runtime);JS_SetMemoryLimit(runtime,512*1024);instance_t app;setup(&app,runtime);
     net_completions=xQueueCreate(16,sizeof(net_job_t*));
+    ouse_health_snapshot_t health={.available=true,.service_count=1,.activity_count=2,.activities_total=13};strcpy(health.phase,"running");
+    strcpy(health.services[0].name,"wifi");health.services[0].status=OUSE_SERVICE_RECOVERING;
+    strcpy(health.activities[0].app_id,app.id);health.activities[0].task_id=23;strcpy(health.activities[0].reason,"play");
+    strcpy(health.activities[1].app_id,"user.foreign");ouse_health_publish(&health);
+    evaluate(&app,"check(Ouse.health().phase==='running');check(Ouse.health().services[0].state==='recovering');check(Ouse.health().activitiesTruncated);check(Ouse.activities().length===1);check(Ouse.activities()[0].taskId===23);check(Ouse.stopActivity(23)===false);var typeError=false;try{Ouse.stopActivity(NaN)}catch(e){typeError=e instanceof TypeError}check(typeError);");
     evaluate(&app,"check(Ouse.cpu().cores[0].busyPercent===25);check(Ouse.cpu().cores[1].busyPercent===null);check(Ouse.cpu().cores[1].valid===false);");
     evaluate(&app,"check(Ouse.clock().valid&&!Ouse.clock().syncedThisBoot);check(Ouse.caps().network.responseBodyMax===32768);var done=0,received=null,networkError=null;var p=Ouse.request({url:'https://example.test/'});check(p.taskId>0);p.then(r=>{received=JSON.stringify(r);check(r.body==='hello'&&r.status===200);done++;},e=>networkError=String(e));");
     assert(net_job_count==1&&app.references==2);complete_native(0);drain_net_completions();app.visible=false;process_net_results(&app);evaluate(&app,"check(done===0);");

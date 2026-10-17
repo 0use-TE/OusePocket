@@ -14,8 +14,8 @@
 extern "C" {
 #endif
 
-#define OUSE_CORE_VERSION "0.10.0"
-#define OUSE_CORE_API_VERSION 9
+#define OUSE_CORE_VERSION "0.12.1"
+#define OUSE_CORE_API_VERSION 11
 
 // Immutable board specifications; these describe hardware, not current usage.
 typedef struct {
@@ -48,7 +48,7 @@ typedef struct {
     const ouse_app_definition_t *apps; // optional additional apps; settings is built in
     ouse_theme_t initial_theme;
     uint16_t density_dpi; // logical density; 0 defaults to 160, not physical DPI
-    uint8_t initial_locale, initial_font_percent; // zh_CN=0 / en=1; 0 font defaults to 100
+    uint8_t initial_locale, initial_font_percent; // zh_CN=0 / en=1; font is 0(default) or 100 only
     size_t app_count; // at most OUSE_APP_CAPACITY - 1; registration is frozen at startup
 } ouse_core_config_t;
 

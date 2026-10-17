@@ -72,4 +72,7 @@ void app_main(void)
     if(media_error!=ESP_OK)ESP_LOGW("OuseMedia","Playback service unavailable: %s",esp_err_to_name(media_error));
     esp_err_t usb_error=ouse_installer_start();
     if(usb_error!=ESP_OK) ESP_LOGE("OuseUSB","Installer unavailable: %s",esp_err_to_name(usb_error));
+    extern esp_err_t ouse_reliability_start(void);
+    esp_err_t health_error=ouse_reliability_start();
+    if(health_error!=ESP_OK)ESP_LOGE("OuseHealth","Coordinator unavailable: %s",esp_err_to_name(health_error));
 }

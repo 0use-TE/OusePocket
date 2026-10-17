@@ -12,6 +12,8 @@ static struct {
     ouse_task_owner_t owners[OUSE_TASK_OWNERS_MAX];
     uint32_t next_id,next_instance,revision,rejected,recycled;
     void (*notify)(void);
+    bool quiescing;
+    unsigned submitting;
 } registry;
 static bool terminal(ouse_task_state_t state) {return state>=OUSE_TASK_SUCCEEDED;}
 static bool same(const ouse_task_owner_t *a,const ouse_task_owner_t *b)
@@ -48,6 +50,7 @@ esp_err_t ouse_task_owner_open(const char *app_id,ouse_task_owner_t *out)
     if(!app_id || !out || !*app_id || strnlen(app_id,48)>=48)return ESP_ERR_INVALID_ARG;
     esp_err_t result=ESP_ERR_NO_MEM;
     portENTER_CRITICAL(&registry_lock);
+    if(registry.quiescing){portEXIT_CRITICAL(&registry_lock);return ESP_ERR_INVALID_STATE;}
     if(registry.next_instance!=UINT32_MAX)for(unsigned i=0;i<OUSE_TASK_OWNERS_MAX;++i)if(!registry.owners[i].instance){
         strcpy(registry.owners[i].app_id,app_id);registry.owners[i].instance=++registry.next_instance;
         *out=registry.owners[i];++registry.revision;result=ESP_OK;break;
@@ -74,7 +77,7 @@ esp_err_t ouse_task_create(const ouse_task_owner_t *owner,ouse_task_kind_t kind,
     esp_err_t result=ESP_ERR_NO_MEM;unsigned active=0,owned=0;
     ouse_task_snapshot_t *slot=NULL,*oldest=NULL;
     portENTER_CRITICAL(&registry_lock);
-    if(!alive(owner)){result=ESP_ERR_INVALID_STATE;goto done;}
+    if(!alive(owner) || (registry.quiescing && (owner->instance || kind!=OUSE_TASK_SETTINGS))){result=ESP_ERR_INVALID_STATE;goto done;}
     for(unsigned i=0;i<OUSE_TASK_CAPACITY;++i){ouse_task_snapshot_t *task=&registry.records[i];
         if(!task->id){if(!slot)slot=task;continue;}
         if(!terminal(task->state)){++active;if(same(owner,&task->owner))++owned;}
@@ -172,7 +175,7 @@ void ouse_tasks_get_stats(ouse_task_stats_t *out)
 {
     if(!out)return;
     portENTER_CRITICAL(&registry_lock);*out=(ouse_task_stats_t){.rejected=registry.rejected,.recycled=registry.recycled,
-        .revision=registry.revision,.registry_bytes=sizeof(registry)};
+        .revision=registry.revision,.registry_bytes=sizeof(registry),.submitting=registry.submitting};
     for(unsigned i=0;i<OUSE_TASK_CAPACITY;++i)if(registry.records[i].id){
         ++out->records;
         if(!terminal(registry.records[i].state)) ++out->active;
@@ -188,3 +191,20 @@ const char *ouse_task_state_name(ouse_task_state_t state)
 {static const char *names[]={"queued","running","cancelling","succeeded","failed","cancelled"};return (unsigned)state<6 ? names[state] : "unknown";}
 const char *ouse_task_kind_name(ouse_task_kind_t kind)
 {static const char *names[]={"wifi","audio","storage","settings","package","network","alarm"};return (unsigned)kind<7 ? names[kind] : "unknown";}
+void ouse_tasks_quiesce(bool enabled)
+{portENTER_CRITICAL(&registry_lock);registry.quiescing=enabled;portEXIT_CRITICAL(&registry_lock);}
+bool ouse_tasks_quiescing(void)
+{portENTER_CRITICAL(&registry_lock);bool value=registry.quiescing;portEXIT_CRITICAL(&registry_lock);return value;}
+bool ouse_tasks_submission_begin(void)
+{portENTER_CRITICAL(&registry_lock);bool accepted=!registry.quiescing;if(accepted)++registry.submitting;portEXIT_CRITICAL(&registry_lock);return accepted;}
+void ouse_tasks_submission_end(void)
+{portENTER_CRITICAL(&registry_lock);if(registry.submitting)--registry.submitting;portEXIT_CRITICAL(&registry_lock);}
+void ouse_tasks_cancel_active(const char *app_id,const char *reason)
+{
+    portENTER_CRITICAL(&registry_lock);
+    for(unsigned i=0;i<OUSE_TASK_CAPACITY;++i){ouse_task_snapshot_t *task=&registry.records[i];
+        if(task->id && task->cancellable && !terminal(task->state) && (!app_id || !strcmp(task->owner.app_id,app_id)))
+            cancel(task,reason ? reason : "system_stop");
+    }
+    void (*notify)(void)=registry.notify;portEXIT_CRITICAL(&registry_lock);if(notify)notify();
+}

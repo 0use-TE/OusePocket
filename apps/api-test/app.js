@@ -137,7 +137,6 @@ function bindPage(){
  }else if(current==='display'){
   bind('theme','click',()=>{const v=Ouse.theme.get().mode==='light'?'dark':'light';changed('display',Ouse.theme.set(v),()=>Ouse.theme.get().mode===v,'Theme '+v);});
   bind('language','click',()=>{const v=Ouse.locale.get()==='en'?'zh_CN':'en';changed('display',Ouse.locale.set(v),()=>Ouse.locale.get()===v,'Locale '+v);});
-  bind('font','click',()=>{const n=Ouse.display.get().fontPercent,v=n===100?115:n===115?130:100;changed('display',Ouse.display.setFontPercent(v),()=>Ouse.display.get().fontPercent===v,'Font '+v+'%');});
   bind('brightness','change',value=>{brightnessDraft=value;
    if(!Ouse.display.setBrightness(value,false)){error('display',T('亮度请求未接受','Brightness rejected'));return;}
    if(brightnessTimer!==undefined)Ouse.timers.clear(brightnessTimer);

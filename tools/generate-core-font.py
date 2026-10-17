@@ -2,7 +2,7 @@
 
 Regeneration requires Pillow, plus Python's standard library. The existing
 Noto subset is OFL-1.1; rasterized derivatives retain that license. Known UI
-copy has 20 pixel sizes, while app names/SSIDs share three 2-bpp CJK fallbacks.
+copy has 12 pixel sizes, while app names/SSIDs share three 2-bpp CJK fallbacks.
 Use --coverage to inspect the source font without changing generated files.
 """
 from pathlib import Path
@@ -18,7 +18,7 @@ from PIL import Image, ImageDraw, ImageFont
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / 'assets/fonts/NotoSansSC-Regular.subset.ttf'
 DEST = ROOT / 'components/ouse_core/ouse_font_ui_16.c'
-SIZES = [4, 6, 8, 10, 12, 14, 16, 18, 20, 21, 22, 24, 28, 32, 40, 48, 56, 64, 72, 84]
+SIZES = [8, 10, 12, 14, 16, 18, 20, 22, 24, 28, 32, 40]
 CJK_SIZES = [14, 16, 20]
 
 
@@ -113,7 +113,7 @@ def gb2312_codepoints():
 
 def source_copy():
     names = ['ouse_core.c', 'ouse_shell.c', 'ouse_widgets.c', 'ouse_device_ui.c',
-             'ouse_dialog.c', 'ouse_screen.c', 'ouse_navigation.cpp']
+             'ouse_dialog.c', 'ouse_screen.c', 'ouse_navigation.cpp', 'ouse_health_ui.c']
     paths = [DEST.parent / name for name in names]
     paths += sorted(path for path in (ROOT / 'apps').rglob('*') if path.suffix in {'.js', '.json'})
     paths += [ROOT / 'components/ouse_runtime/ouse_runtime.c',

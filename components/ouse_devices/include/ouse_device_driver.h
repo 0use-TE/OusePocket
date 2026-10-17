@@ -37,3 +37,4 @@ void ouse_devices_publish_wifi(const ouse_wifi_state_t *state,uint32_t id);
 void ouse_devices_remember_wifi(const ouse_wifi_request_t *request);
 bool ouse_devices_take_save(ouse_device_config_t *config,uint32_t *id);
 void ouse_devices_saved(uint32_t id,esp_err_t error);
+void ouse_devices_wake_workers(void);

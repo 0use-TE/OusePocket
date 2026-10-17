@@ -33,6 +33,8 @@ typedef struct {
 typedef struct { char ssid[33]; int rssi; uint8_t channel; bool secured; } ouse_wifi_ap_t;
 typedef struct {
     bool available,enabled,ready,scanning,connecting,connected;
+    bool stopped,recovering,recovery_failed;
+    unsigned recovery_attempts;
     char ssid[33],ip[16];
     int rssi,reason;
     unsigned count;

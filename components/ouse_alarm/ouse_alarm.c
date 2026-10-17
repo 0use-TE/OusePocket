@@ -12,6 +12,7 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include <errno.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -38,7 +39,7 @@ typedef struct {
     ouse_alarm_action_t action;
     unsigned snooze;
     uint32_t task;
-    bool purge;
+    bool purge,dismiss_all;
     SemaphoreHandle_t barrier;
     esp_err_t result;
 } command_t;
@@ -49,6 +50,8 @@ static database_t db,cache;
 static int64_t ringing_until[OUSE_ALARM_CAPACITY];
 static uint32_t ring_task;
 static bool any_ringing;
+static atomic_bool drain_ack;
+bool ouse_alarm_quiesced(void){return !commands || atomic_load(&drain_ack);}
 static int64_t ring_retry_at;
 static int64_t retry_at;
 static esp_err_t last_error;
@@ -230,14 +233,22 @@ static void worker(void *unused)
     (void)unused;
     for(;;){command_t *cmd=NULL;
         if(xQueueReceive(commands,&cmd,pdMS_TO_TICKS(250))==pdTRUE){
+            atomic_store(&drain_ack,false);
             bool started=cmd->purge || ouse_task_start(cmd->task,false);
-            cmd->result=started ? execute(cmd) : ESP_OK;
+            if(started && cmd->dismiss_all){for(unsigned i=0;i<db.count;++i)if(ringing_until[i])stop_ringing(i);cmd->result=ESP_OK;}
+            else cmd->result=started ? execute(cmd) : ESP_OK;
             if(!cmd->purge){ouse_task_result_t summary={.present=true};strcpy(summary.value.alarm.id,cmd->spec.id);
                 ouse_task_finish_result(cmd->task,cmd->result,!started,&summary);}
             last_error=cmd->result;
             if(cmd->barrier)xSemaphoreGive(cmd->barrier);else free(cmd);
-            tick();publish(last_error);
-        }else{tick();publish(last_error);}
+        }
+        bool draining=ouse_tasks_quiescing();
+        if(draining){
+            for(unsigned i=0;i<db.count;++i)if(ringing_until[i])stop_ringing(i);
+            if(ring_task)(void)ouse_task_cancel(NULL,ring_task,"system_drain");
+            ring_task=0;any_ringing=false;
+        }else {atomic_store(&drain_ack,false);tick();}
+        publish(last_error);atomic_store(&drain_ack,draining);
     }
 }
 esp_err_t ouse_alarm_start(const char *const *installed_ids,unsigned installed_count)
@@ -295,4 +306,15 @@ esp_err_t ouse_alarm_purge(const char *app_id)
     strcpy(cmd->app_id,app_id);cmd->purge=true;
     xQueueSend(commands,&cmd,portMAX_DELAY);xSemaphoreTake(cmd->barrier,portMAX_DELAY);
     esp_err_t error=cmd->result;vSemaphoreDelete(cmd->barrier);free(cmd);return error;
+}
+esp_err_t ouse_alarm_dismiss_all(void)
+{
+    if(!commands)return ESP_ERR_INVALID_STATE;
+    command_t *cmd=calloc(1,sizeof(*cmd));if(!cmd)return ESP_ERR_NO_MEM;
+    const ouse_task_owner_t owner={.app_id="ouse.alarm"};
+    esp_err_t error=ouse_task_create(&owner,OUSE_TASK_ALARM,"dismissAll",OUSE_TASK_FINISH_ON_CLOSE,true,&cmd->task);
+    if(error!=ESP_OK){free(cmd);return error;}
+    cmd->dismiss_all=true;
+    if(xQueueSend(commands,&cmd,0)==pdTRUE)return ESP_OK;
+    ouse_task_finish(cmd->task,ESP_ERR_NO_MEM,false);free(cmd);return ESP_ERR_NO_MEM;
 }

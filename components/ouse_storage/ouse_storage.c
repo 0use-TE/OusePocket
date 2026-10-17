@@ -50,6 +50,14 @@ static esp_err_t startup_error=ESP_ERR_INVALID_STATE;
 static portMUX_TYPE cache_lock=portMUX_INITIALIZER_UNLOCKED;
 static ouse_storage_stats_t cache;
 static atomic_bool refresh_requested;
+static atomic_uint outstanding;
+bool ouse_storage_idle(void){return atomic_load(&outstanding)==0;}
+static bool enqueue(storage_job_t *job,TickType_t wait)
+{
+    atomic_fetch_add(&outstanding,1);
+    if(xQueueSend(jobs,&job,wait)==pdTRUE)return true;
+    atomic_fetch_sub(&outstanding,1);return false;
+}
 
 static bool valid_app(const char *id)
 {
@@ -341,6 +349,7 @@ static void worker(void *unused)
             ouse_task_finish_result(job->token,error,!claimed,&summary);
         }
         if(job->barrier) {
+            atomic_fetch_sub(&outstanding,1);
             job->barrier_error=error;xSemaphoreGive(job->barrier);
             // The synchronous caller owns this job after giving the barrier.
             continue;
@@ -348,6 +357,7 @@ static void worker(void *unused)
         ouse_storage_complete_t complete=job->complete;void *context=job->context;uint32_t token=job->token;
         free(job->value);free(job);
         if(complete)complete(context,token,error,result);else free(result);
+        atomic_fetch_sub(&outstanding,1);
     }
 }
 esp_err_t ouse_storage_start(void)
@@ -392,7 +402,7 @@ esp_err_t ouse_storage_submit(ouse_storage_operation_t operation,const ouse_task
     if(registered!=ESP_OK){free(job->value);free(job);return registered;}
     job->token=*task_id;
     ouse_task_hold_result(job->token,true);
-    if(xQueueSend(jobs,&job,0)!=pdTRUE){ouse_task_hold_result(job->token,false);ouse_task_finish(job->token,ESP_ERR_NO_MEM,false);free(job->value);free(job);return ESP_ERR_NO_MEM;}
+    if(!enqueue(job,0)){ouse_task_hold_result(job->token,false);ouse_task_finish(job->token,ESP_ERR_NO_MEM,false);free(job->value);free(job);return ESP_ERR_NO_MEM;}
     return ESP_OK;
 }
 esp_err_t ouse_storage_purge(const char *app_id)
@@ -403,18 +413,19 @@ esp_err_t ouse_storage_purge(const char *app_id)
     storage_job_t *job=calloc(1,sizeof(*job));if(!job)return ESP_ERR_NO_MEM;
     job->operation=JOB_PURGE;strcpy(job->app_id,app_id);job->barrier=xSemaphoreCreateBinary();
     if(!job->barrier){free(job);return ESP_ERR_NO_MEM;}
-    xQueueSend(jobs,&job,portMAX_DELAY);xSemaphoreTake(job->barrier,portMAX_DELAY);
+    enqueue(job,portMAX_DELAY);xSemaphoreTake(job->barrier,portMAX_DELAY);
     esp_err_t error=job->barrier_error;vSemaphoreDelete(job->barrier);free(job);return error;
 }
 esp_err_t ouse_storage_refresh(void)
 {
+    if(ouse_tasks_quiescing())return ESP_ERR_INVALID_STATE;
     ouse_storage_stats_t state;ouse_storage_get_stats(&state);if(!state.ready)return ESP_ERR_INVALID_STATE;
     // Every queued operation refreshes after its I/O. If the queue is already
     // full, those future operations provide the refresh without another slot.
     if(atomic_exchange(&refresh_requested,true))return ESP_OK;
     storage_job_t *job=calloc(1,sizeof(*job));if(!job){atomic_store(&refresh_requested,false);return ESP_ERR_NO_MEM;}
     job->operation=JOB_REFRESH;
-    if(xQueueSend(jobs,&job,0)!=pdTRUE)free(job);
+    if(!enqueue(job,0))free(job);
     return ESP_OK;
 }
 esp_err_t ouse_storage_get_stats(ouse_storage_stats_t *out)

@@ -49,6 +49,8 @@ unsigned ouse_alarm_list(const char *app_id,ouse_alarm_snapshot_t *out,unsigned 
 void ouse_alarm_get_stats(ouse_alarm_stats_t *out);
 // Installer-only FIFO barrier after closing/removing app. No UI/JS waits.
 esp_err_t ouse_alarm_purge(const char *app_id);
+bool ouse_alarm_quiesced(void);
+esp_err_t ouse_alarm_dismiss_all(void);
 #ifdef __cplusplus
 }
 #endif

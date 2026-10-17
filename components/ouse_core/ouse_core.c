@@ -10,6 +10,8 @@
 #include "ouse_screen.h"
 #include "ouse_ime.h"
 #include "ouse_notifications.h"
+#include "ouse_health_ui.h"
+#include "ouse_tasks.h"
 #include "src/misc/cache/instance/lv_image_cache.h"
 #include <stdint.h>
 #include <string.h>
@@ -32,12 +34,13 @@ typedef struct {
     lv_obj_t *app_host;
     lv_obj_t *grid,*display_page,*appearance_page,*language_page,*account_page;
     lv_obj_t *theme_value,*theme_switch,*display_value,*language_value;
-    lv_obj_t *locale_marks[2],*font_marks[3],*device_pages[3];
+    lv_obj_t *locale_marks[2],*device_pages[3];
     unsigned settings_page;
     size_t app_count;
     lv_timer_t *status_timer;
     ouse_app_info_t icons[OUSE_APP_CAPACITY];
     lv_obj_t *settings;
+    lv_obj_t *health_page;
     lv_obj_t *slider;
     lv_obj_t *brightness_text;
     lv_obj_t *info;
@@ -86,8 +89,8 @@ static void select_settings_page(unsigned page)
 {
     if(core.settings_page!=page)ouse_device_ui_close_modal();
     core.settings_page=page;
-    lv_obj_t *pages[]={core.settings,core.display_page,core.appearance_page,core.language_page,core.info,core.device_pages[0],core.device_pages[1],core.device_pages[2],core.account_page};
-    for(unsigned i=0;i<9;++i)if(pages[i]) {
+    lv_obj_t *pages[]={core.settings,core.display_page,core.appearance_page,core.language_page,core.info,core.device_pages[0],core.device_pages[1],core.device_pages[2],core.account_page,core.health_page};
+    for(unsigned i=0;i<10;++i)if(pages[i]) {
         if(i==page)lv_obj_remove_flag(pages[i],LV_OBJ_FLAG_HIDDEN);
         else lv_obj_add_flag(pages[i],LV_OBJ_FLAG_HIDDEN);
     }
@@ -108,8 +111,6 @@ static void preference_labels(void)
     theme_label();
     if(core.language_value)ouse_ui_text(core.language_value,ouse_ui_locale() ? "English" : "简体中文");
     for(unsigned i=0;i<2;++i)if(core.locale_marks[i])lv_label_set_text(core.locale_marks[i],ouse_ui_locale()==i ? LV_SYMBOL_OK : "");
-    const unsigned fonts[]={100,115,130};
-    for(unsigned i=0;i<3;++i)if(core.font_marks[i])lv_label_set_text(core.font_marks[i],ouse_ui_font_percent()==fonts[i] ? LV_SYMBOL_OK : "");
 }
 static void retry_settings(void);
 static void settings_error(const char *message) {ouse_dialog_show(message,"重试",retry_settings);}
@@ -126,8 +127,6 @@ esp_err_t ouse_core_set_ui(unsigned locale,unsigned percent)
 }
 static void choose_language(lv_event_t *event)
 { (void)ouse_core_set_ui((unsigned)(uintptr_t)lv_event_get_user_data(event),ouse_ui_font_percent()); }
-static void choose_font(lv_event_t *event)
-{ (void)ouse_core_set_ui(ouse_ui_locale(),(unsigned)(uintptr_t)lv_event_get_user_data(event)); }
 
 esp_err_t ouse_core_set_theme(ouse_theme_t theme)
 {
@@ -159,6 +158,7 @@ static void refresh_status(lv_timer_t *timer)
     if(!core.settings)return;
     if(core.display_value){ouse_ui_unbind_text(core.display_value);lv_label_set_text_fmt(core.display_value,"%u%%",core.brightness);}
     ouse_device_ui_refresh();
+    ouse_health_ui_refresh();
 }
 static void retry_settings(void)
 {
@@ -357,12 +357,13 @@ static esp_err_t settings_open(lv_obj_t *root,void *context)
     section(core.settings,"显示与个性化");
     ouse_widget_row(core.settings,LV_SYMBOL_IMAGE,"显示","",open_settings_page,(void *)(uintptr_t)1,&core.display_value);
     ouse_widget_row(core.settings,LV_SYMBOL_TINT,"外观","明暗主题",open_settings_page,(void *)(uintptr_t)2,NULL);
-    ouse_widget_row(core.settings,LV_SYMBOL_KEYBOARD,"语言与文字","",open_settings_page,(void *)(uintptr_t)3,&core.language_value);
+    ouse_widget_row(core.settings,LV_SYMBOL_KEYBOARD,"语言","",open_settings_page,(void *)(uintptr_t)3,&core.language_value);
     section(core.settings,"设备");
     ouse_widget_row(core.settings,LV_SYMBOL_BATTERY_FULL,"电源",NULL,open_settings_page,(void *)(uintptr_t)5,NULL);
     ouse_widget_row(core.settings,LV_SYMBOL_VOLUME_MAX,"声音",NULL,open_settings_page,(void *)(uintptr_t)6,NULL);
     ouse_widget_row(core.settings,LV_SYMBOL_WIFI,"Wi-Fi",NULL,open_settings_page,(void *)(uintptr_t)7,NULL);
     section(core.settings,"系统");
+    ouse_widget_row(core.settings,LV_SYMBOL_LIST,"后台活动与服务",NULL,open_settings_page,(void *)(uintptr_t)9,NULL);
     ouse_widget_row(core.settings,LV_SYMBOL_LIST,"系统信息","设备与硬件",open_settings_page,(void *)(uintptr_t)4,NULL);
     core.display_page=settings_column(root);page_heading(core.display_page,"显示",true);
     lv_obj_t *card=ouse_widget_box(core.display_page,OUSE_STYLE_PANEL,24);
@@ -380,18 +381,15 @@ static esp_err_t settings_open(lv_obj_t *root,void *context)
     lv_obj_delete(lv_obj_get_child(row,-1));
     core.theme_switch=ouse_widget_switch(row);
     lv_obj_add_event_cb(core.theme_switch,toggle_theme,LV_EVENT_VALUE_CHANGED,NULL);
-    core.language_page=settings_column(root);page_heading(core.language_page,"语言与文字",true);
+    core.language_page=settings_column(root);page_heading(core.language_page,"语言",true);
     section(core.language_page,"语言");
     core.locale_marks[0]=choice(core.language_page,"简体中文",choose_language,0);
     core.locale_marks[1]=choice(core.language_page,"English",choose_language,1);
-    section(core.language_page,"字体大小");
-    core.font_marks[0]=choice(core.language_page,"标准",choose_font,100);
-    core.font_marks[1]=choice(core.language_page,"较大",choose_font,115);
-    core.font_marks[2]=choice(core.language_page,"最大",choose_font,130);
     core.info=settings_column(root);hardware_page(core.info);
     core.account_page=settings_column(root);page_heading(core.account_page,"账号",true);account_header(core.account_page,false);
     const char *titles[]={"电源","声音","Wi-Fi"};
     for(unsigned i=0;i<3;++i){core.device_pages[i]=settings_column(root);page_heading(core.device_pages[i],titles[i],true);ouse_device_ui_build(core.device_pages[i],i+5);}
+    core.health_page=settings_column(root);page_heading(core.health_page,"后台活动与服务",true);ouse_health_ui_build(core.health_page);
     preference_labels();select_settings_page(0);
     core.status_timer=lv_timer_create(refresh_status,300,NULL);refresh_status(NULL);return ESP_OK;
 }
@@ -402,7 +400,8 @@ static void settings_close(void *context)
     if (core.status_timer) lv_timer_delete(core.status_timer);
     core.status_timer=NULL;core.theme_value=NULL;core.theme_switch=NULL;core.display_value=NULL;core.language_value=NULL;
     core.display_page=core.appearance_page=core.language_page=core.account_page=NULL;
-    ouse_device_ui_close();memset(core.device_pages,0,sizeof(core.device_pages));memset(core.locale_marks,0,sizeof(core.locale_marks));memset(core.font_marks,0,sizeof(core.font_marks));
+    core.health_page=NULL;ouse_health_ui_close();
+    ouse_device_ui_close();memset(core.device_pages,0,sizeof(core.device_pages));memset(core.locale_marks,0,sizeof(core.locale_marks));
     core.settings = NULL; core.info = NULL; core.slider = NULL;
     core.brightness_text = NULL;
     core.brightness_failed = false;
@@ -411,7 +410,9 @@ static void settings_close(void *context)
 static void settings_pause(void *context) {
     (void)context; if (core.status_timer) lv_timer_pause(core.status_timer);
     ouse_device_ui_close_modal();
-    ouse_audio_state_t a;if(ouse_audio_get(&a)==ESP_OK && a.mode!=OUSE_AUDIO_IDLE && a.mode!=OUSE_AUDIO_ERROR)(void)ouse_audio_stop();
+    ouse_audio_state_t a;ouse_task_snapshot_t task;
+    if(ouse_audio_get(&a)==ESP_OK && a.mode!=OUSE_AUDIO_IDLE && a.mode!=OUSE_AUDIO_ERROR &&
+       ouse_task_get(NULL,a.request_id,&task) && !strcmp(task.owner.app_id,"ouse.system") && task.kind==OUSE_TASK_AUDIO)(void)ouse_audio_stop();
 }
 static void settings_resume(void *context) { (void)context; if (core.status_timer) lv_timer_resume(core.status_timer); refresh_status(NULL); }
 
@@ -420,7 +421,7 @@ static void rebuild_launcher(void)
     if (!core.grid) return;
     lv_obj_clean(core.grid); lv_obj_update_layout(core.grid);
     int width=lv_obj_get_width(core.grid), height=lv_obj_get_height(core.grid);
-    int cols=width/ouse_ui_dp(ouse_ui_font_percent()>115 ? 120 : 92); if(cols<1)cols=1;
+    int cols=width/ouse_ui_dp(92); if(cols<1)cols=1;
     int cell_w=width/cols, name_h=2*ouse_ui_font(14)->line_height;
     int cell_h=ouse_ui_dp(48+8+10)+name_h, rows=height/cell_h; if(rows<1)rows=1;
     unsigned capacity=(unsigned)(rows*cols); lv_obj_t *page=NULL;

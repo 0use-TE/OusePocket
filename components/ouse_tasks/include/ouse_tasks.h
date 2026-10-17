@@ -43,7 +43,7 @@ typedef struct {
     int64_t created_us, started_us, finished_us;
 } ouse_task_snapshot_t;
 typedef struct {
-    unsigned records, active, pending_delivery, pending_results, owners;
+    unsigned records, active, pending_delivery, pending_results, owners,submitting;
     uint32_t rejected, recycled, revision;
     size_t registry_bytes;
 } ouse_task_stats_t;
@@ -70,6 +70,14 @@ void ouse_task_hold_result(uint32_t id,bool held);
 void ouse_tasks_get_stats(ouse_task_stats_t *out);
 // Install once before JS launches; notification never runs under registry lock.
 void ouse_tasks_set_notify(void (*notify)(void));
+// System drain gate. Existing work still starts/finishes; new requests/owners
+// are rejected. Only system settings bookkeeping may register during drain.
+void ouse_tasks_quiesce(bool enabled);
+bool ouse_tasks_quiescing(void);
+// Admission for short setters which mutate state before worker registration.
+bool ouse_tasks_submission_begin(void);
+void ouse_tasks_submission_end(void);
+void ouse_tasks_cancel_active(const char *app_id,const char *reason);
 const char *ouse_task_state_name(ouse_task_state_t state);
 const char *ouse_task_kind_name(ouse_task_kind_t kind);
 #ifdef __cplusplus

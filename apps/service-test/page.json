@@ -7,6 +7,8 @@
     "children": [
       {"type": "toolbar", "id": "title", "text": "系统服务测试", "width": "fill", "height": 48},
       {"type": "button", "id": "refresh", "text": "查询服务与时间", "width": "fill", "height": 44},
+      {"type": "label", "id": "health", "text": "", "width": "fill", "height": "content", "fontSize": 14},
+      {"type": "button", "id": "stopActivity", "text": "请求停止本应用首个可取消任务", "width": "fill", "height": 44},
       {"type": "label", "id": "clock", "text": "", "width": "fill", "height": "content", "fontSize": 14},
       {"type": "label", "id": "caps", "text": "", "width": "fill", "height": "content", "fontSize": 14},
       {"type": "textInput", "id": "url", "placeholder": "HTTP/HTTPS 测试地址", "width": "fill", "height": 44, "maxLength": 256},

@@ -158,7 +158,26 @@ static void setup(void){ouse_device_port_t p={0};ouse_device_config_t c={.volume
 static void connect_office(void){assert(ouse_wifi_set_enabled(true)==0);pump();event(NULL,WIFI_EVENT,WIFI_EVENT_SCAN_DONE,NULL);pump();assert(ouse_wifi_connect("Office","correctpass")==0);pump();}
 static int regression(const char *name){
  setup();
- if(!strcmp(name,"kernel-drain")){
+ if(!strcmp(name,"kernel-quiesce-queued")){
+  connect_office();queue_ip();pump();assert(snapshot().connected);
+  assert(ouse_wifi_scan()==ESP_OK);uint32_t queued=snapshot().request_id;
+  ouse_tasks_quiesce(true);ouse_tasks_cancel_active(NULL,"restart");pump();
+  assert(awaiting_stop==EVENT_STOP && session.id==queued);
+  event(NULL,WIFI_EVENT,WIFI_EVENT_STA_STOP,NULL);pump();assert(snapshot().stopped);
+  ouse_task_stats_t stats;ouse_tasks_get_stats(&stats);assert(!stats.active);
+  puts("PASS quiesce queued: queued newer ID retired before physical STOP, confirmed cleanup remains observable");return 0;
+ }else if(!strcmp(name,"kernel-recover") || !strcmp(name,"kernel-recover-not-started")){
+  assert(ouse_wifi_set_enabled(true)==ESP_OK);pump();uint32_t id=snapshot().request_id;
+  now+=16000000;pump();assert(awaiting_stop==EVENT_SCAN);
+  if(!strcmp(name,"kernel-recover-not-started")){stop_error=ESP_ERR_WIFI_NOT_STARTED;sdk_started=false;}
+  now+=6000000;pump();assert(awaiting_stop==EVENT_STOP && state.recovering && state.recovery_attempts==1);
+  now+=6000000;pump();assert(state.recovery_failed && !state.recovering);
+  ouse_task_snapshot_t task;assert(ouse_task_get(NULL,id,&task)&&task.state<OUSE_TASK_SUCCEEDED);
+  assert(ouse_wifi_scan()==ESP_ERR_INVALID_STATE);
+  event(NULL,WIFI_EVENT,WIFI_EVENT_STA_STOP,NULL);pump();assert(!awaiting_stop && !started && !state.recovery_failed);
+  assert(ouse_task_get(NULL,id,&task)&&task.state==OUSE_TASK_FAILED);
+  puts("PASS missing stop: one full STA recovery, failure remains fenced, late STOP safely unlocks");return 0;
+ }else if(!strcmp(name,"kernel-drain")){
   assert(ouse_wifi_set_enabled(true)==ESP_OK);pump();uint32_t id=snapshot().request_id;
   ouse_task_snapshot_t task;assert(ouse_task_get(NULL,id,&task) && task.state==OUSE_TASK_RUNNING);
   assert(ouse_wifi_connect("Office","correctpass")==ESP_ERR_INVALID_STATE);
@@ -274,7 +293,7 @@ int main(int argc,char **argv){
 result=subprocess.run([str(compiler),"/nologo","/utf-8","/std:c11","/O2","/MD","/UNDEBUG","/I"+str(OUT),"/I"+str(ROOT/".tools/ouse-core-check"),"/I"+str(ROOT/"components/ouse_devices/include"),"/I"+str(ROOT/"components/ouse_tasks/include"),"/I"+str(ROOT/"components/ouse_media/include"),"/I"+str(ROOT/"components/ouse_system/include"),str(ROOT/"components/ouse_tasks/ouse_tasks.c"),str(OUT/"check.c"),str(ROOT/"components/ouse_devices/ouse_devices.c"),"/Fe"+str(OUT/"check.exe")],cwd=OUT,env=env,capture_output=True,text=True,errors="replace")
 assert result.returncode==0,(result.stdout,result.stderr)
 if "--kernel-only" in sys.argv:
- for case in ("kernel-drain","kernel-disconnect","kernel-owner-close"):
+ for case in ("kernel-drain","kernel-disconnect","kernel-owner-close","kernel-recover","kernel-recover-not-started","kernel-quiesce-queued"):
   subprocess.run([str(OUT/"check.exe"),case],cwd=OUT,check=True,timeout=15)
  sys.exit(0)
 subprocess.run([str(OUT/"check.exe")],cwd=OUT,check=True)

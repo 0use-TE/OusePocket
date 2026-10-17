@@ -6,6 +6,47 @@ static void net_job_release(net_job_t *job)
     if(app && app->context){JS_FreeValue(app->context,job->resolve);JS_FreeValue(app->context,job->reject);}
     ouse_net_result_free(job->result);free(job);--net_job_count;if(app)release_instance(app);
 }
+static JSValue system_health(JSContext *context,JSValueConst self,int argc,JSValueConst *argv,int action)
+{
+    (void)self;instance_t *app=from_js(context);
+    if(action==2){
+        double id=0;if(argc!=1 || !JS_IsNumber(argv[0]) || JS_ToFloat64(context,&id,argv[0]) || !isfinite(id) || id<1 || id>UINT32_MAX || floor(id)!=id)
+            return JS_ThrowTypeError(context,"stopActivity expects task ID");
+        return JS_NewBool(context,ouse_activity_stop_owned(app->id,(uint32_t)id)==ESP_OK);
+    }
+    ouse_health_snapshot_t health;ouse_health_get(&health);
+    JSValue array=JS_NewArray(context);
+    if(action==1){unsigned count=0;
+        for(unsigned i=0;i<health.activity_count;++i){const ouse_activity_t *a=&health.activities[i];if(strcmp(a->app_id,app->id))continue;
+            JSValue value=JS_NewObject(context);
+            JS_SetPropertyStr(context,value,"taskId",JS_NewUint32(context,a->task_id));
+            JS_SetPropertyStr(context,value,"instanceId",JS_NewUint32(context,a->instance_id));
+            JS_SetPropertyStr(context,value,"kind",JS_NewString(context,a->javascript ? "javascript" : "native"));
+            JS_SetPropertyStr(context,value,"reason",JS_NewString(context,a->reason));
+            JS_SetPropertyStr(context,value,"cancellable",JS_NewBool(context,a->cancellable));
+            JS_SetPropertyStr(context,value,"stopping",JS_NewBool(context,a->stopping));
+            JS_SetPropertyUint32(context,array,count++,value);
+        }
+        return array;
+    }
+    JSValue value=JS_NewObject(context);
+    JS_SetPropertyStr(context,value,"available",JS_NewBool(context,health.available));
+    JS_SetPropertyStr(context,value,"phase",JS_NewString(context,health.phase));
+    JS_SetPropertyStr(context,value,"blocker",JS_NewString(context,health.blocker));
+    JS_SetPropertyStr(context,value,"quiescing",JS_NewBool(context,health.quiescing));
+    JS_SetPropertyStr(context,value,"sampledMs",JS_NewFloat64(context,(double)health.sampled_ms));
+    JS_SetPropertyStr(context,value,"systemActivitiesTotal",JS_NewUint32(context,health.activities_total));
+    JS_SetPropertyStr(context,value,"activitiesTruncated",JS_NewBool(context,health.activities_total>health.activity_count));
+    for(unsigned i=0;i<health.service_count;++i){const ouse_service_health_t *s=&health.services[i];JSValue item=JS_NewObject(context);
+        JS_SetPropertyStr(context,item,"name",JS_NewString(context,s->name));
+        JS_SetPropertyStr(context,item,"state",JS_NewString(context,ouse_service_status_name(s->status)));
+        JS_SetPropertyStr(context,item,"error",JS_NewInt32(context,s->error));
+        JS_SetPropertyStr(context,item,"active",JS_NewUint32(context,s->active));
+        JS_SetPropertyStr(context,item,"oldestMs",JS_NewFloat64(context,(double)s->oldest_ms));
+        JS_SetPropertyUint32(context,array,i,item);
+    }
+    JS_SetPropertyStr(context,value,"services",array);return value;
+}
 static void cancel_net_jobs(instance_t *app)
 {
     for(unsigned i=0;i<MAX_NET_PENDING;++i){net_job_t *job=app->network[i];if(!job)continue;

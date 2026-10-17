@@ -47,9 +47,10 @@ void ouse_devices_set_available(unsigned group,bool available,esp_err_t error)
 esp_err_t ouse_power_set_timeout(unsigned seconds)
 {
     if(!timeout_valid(seconds))return ESP_ERR_INVALID_ARG;
-    lock();if(!devices.initialized){unlock();return ESP_ERR_INVALID_STATE;}
+    if(!ouse_tasks_submission_begin())return ESP_ERR_INVALID_STATE;
+    lock();if(!devices.initialized){unlock();ouse_tasks_submission_end();return ESP_ERR_INVALID_STATE;}
     if(devices.config.sleep_seconds!=seconds){devices.config.sleep_seconds=seconds;devices.power.sleep_seconds=seconds;++devices.power.revision;dirty();}
-    unlock();notify(0);return ESP_OK;
+    unlock();ouse_tasks_submission_end();notify(0);return ESP_OK;
 }
 void ouse_power_set_asleep(bool asleep) {lock();if(devices.power.asleep!=asleep){devices.power.asleep=asleep;++devices.power.revision;}unlock();}
 void ouse_devices_publish_power(const ouse_power_state_t *state)
@@ -60,17 +61,20 @@ void ouse_devices_publish_power(const ouse_power_state_t *state)
 esp_err_t ouse_audio_set_volume(unsigned volume)
 {
     if(volume>100)return ESP_ERR_INVALID_ARG;
-    lock();if(!devices.initialized){unlock();return ESP_ERR_INVALID_STATE;}
+    if(!ouse_tasks_submission_begin())return ESP_ERR_INVALID_STATE;
+    lock();if(!devices.initialized){unlock();ouse_tasks_submission_end();return ESP_ERR_INVALID_STATE;}
     if(devices.config.volume!=volume){devices.config.volume=volume;devices.audio.volume=volume;++devices.audio.revision;dirty();}
-    unlock();notify(0);notify(1);return ESP_OK;
+    unlock();ouse_tasks_submission_end();notify(0);notify(1);return ESP_OK;
 }
 esp_err_t ouse_audio_set_muted(bool muted)
 {
-    lock();if(!devices.initialized){unlock();return ESP_ERR_INVALID_STATE;}
+    if(!ouse_tasks_submission_begin())return ESP_ERR_INVALID_STATE;
+    lock();if(!devices.initialized){unlock();ouse_tasks_submission_end();return ESP_ERR_INVALID_STATE;}
     if(devices.config.muted!=muted){devices.config.muted=muted;devices.audio.muted=muted;++devices.audio.revision;dirty();}
-    unlock();notify(0);notify(1);return ESP_OK;
+    unlock();ouse_tasks_submission_end();notify(0);notify(1);return ESP_OK;
 }
 static const ouse_task_owner_t system_owner={.app_id="ouse.system"};
+void ouse_devices_wake_workers(void){notify(0);notify(1);notify(2);}
 esp_err_t ouse_audio_submit(const ouse_task_owner_t *owner,ouse_audio_action_t action,unsigned seconds,uint32_t *id)
 {
     if(!id || (unsigned)action>OUSE_AUDIO_RING || (action==OUSE_AUDIO_CAPTURE && (seconds<1 || seconds>3)) ||
@@ -206,4 +210,4 @@ void ouse_devices_saved(uint32_t id,esp_err_t error)
     lock();ouse_task_finish(devices.save_task,error,false);devices.save_inflight=false;if(id==devices.save_id){devices.save.error=error;devices.save.pending=false;++devices.save.revision;}unlock();
 }
 void ouse_devices_save_state(ouse_device_save_state_t *out) {lock();*out=devices.save;unlock();}
-void ouse_devices_retry_save(void) {lock();if(devices.initialized)dirty();unlock();notify(0);}
+void ouse_devices_retry_save(void) {if(!ouse_tasks_submission_begin())return;lock();if(devices.initialized)dirty();unlock();ouse_tasks_submission_end();notify(0);}
