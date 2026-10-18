@@ -1,0 +1,9 @@
+{
+  "runtime": "ouse-core",
+  "api": 1,
+  "id": "user.presenter",
+  "name": "Presenter",
+  "names": { "zh_CN": "演示笔", "en": "Presenter" },
+  "icon": "icon.bin",
+  "capabilities": { "bluetooth": true, "hid": true }
+}

@@ -1,0 +1,21 @@
+{
+  "runtime": "ouse-core",
+  "api": 1,
+  "id": "user.netease",
+  "name": "NetEase",
+  "names": {
+    "zh_CN": "网易云",
+    "en": "NetEase"
+  },
+  "icon": "icon.bin",
+  "capabilities": {
+    "bluetooth": true,
+    "hid": true
+  },
+  "assets": [
+    { "id": "disc0", "type": "image", "path": "assets/disc0.png" },
+    { "id": "disc1", "type": "image", "path": "assets/disc1.png" },
+    { "id": "disc2", "type": "image", "path": "assets/disc2.png" },
+    { "id": "disc3", "type": "image", "path": "assets/disc3.png" }
+  ]
+}

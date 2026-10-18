@@ -1,0 +1,9 @@
+{
+  "runtime": "ouse-core",
+  "api": 1,
+  "id": "user.mouse",
+  "name": "Mouse",
+  "names": { "zh_CN": "鼠标", "en": "Mouse" },
+  "icon": "icon.bin",
+  "capabilities": { "bluetooth": true, "hid": true }
+}

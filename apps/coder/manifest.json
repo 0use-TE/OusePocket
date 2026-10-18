@@ -1,0 +1,9 @@
+{
+  "runtime": "ouse-core",
+  "api": 1,
+  "id": "user.coder",
+  "name": "Coder",
+  "names": { "zh_CN": "快捷键", "en": "Coder" },
+  "icon": "icon.bin",
+  "capabilities": { "bluetooth": true, "hid": true }
+}

@@ -11,7 +11,7 @@ const WMO={
  85:"小阵雪",86:"强阵雪",
  95:"雷暴",96:"雷暴伴小冰雹",99:"雷暴伴大冰雹"
 };
-const GEO_IP="http://ip-api.com/json/?lang=zh-CN&fields=status,message,city,lat,lon";
+const GEO_IP="https://get.geojs.io/v1/ip/geo.json";
 let busy=false,taskId=0,mode="auto",place=null,hits=[],snapshot=null;
 function text(id,value){Ouse.ui.setText(id,String(value));}
 function visible(id,show){if(show)Ouse.ui.show(id);else Ouse.ui.hide(id);}
@@ -62,10 +62,10 @@ function request(url){
  return Ouse.net.request({url:url,method:"GET",headers:{Accept:"application/json"},timeoutMs:20000,responseType:"text"});
 }
 function weatherUrl(lat,lon){
- return "http://api.open-meteo.com/v1/forecast?latitude="+lat+"&longitude="+lon+"&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&timezone=auto";
+ return "https://api.open-meteo.com/v1/forecast?latitude="+lat+"&longitude="+lon+"&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&timezone=auto";
 }
 function searchUrl(name){
- return "http://geocoding-api.open-meteo.com/v1/search?name="+enc(name)+"&count=5&language=zh&countryCode=CN";
+ return "https://geocoding-api.open-meteo.com/v1/search?name="+enc(name)+"&count=5&language=zh&countryCode=CN";
 }
 function finishBusy(message){
  busy=false;taskId=0;
@@ -101,7 +101,8 @@ function parseGeoIp(body){
  try{data=JSON.parse(body);}catch(error){return null;}
  if(data&&data.simulated===true)return {name:"杭州",lat:30.27,lon:120.15};
  if(data&&data.status&&data.status!=="success")return null;
- const lat=Number(data.lat),lon=Number(data.lon);
+ const lat=Number(data.lat!=null?data.lat:data.latitude);
+ const lon=Number(data.lon!=null?data.lon:data.longitude);
  if(!Number.isFinite(lat)||!Number.isFinite(lon))return null;
  return {name:String(data.city||"当前位置"),lat:lat,lon:lon};
 }
