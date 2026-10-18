@@ -14,6 +14,11 @@
 #include "ouse_health_ui.h"
 #include "ouse_tasks.h"
 #include "ouse_memory.h"
+#include "ouse_app_manager_ui.h"
+#include "ouse_permissions.h"
+#include "ouse_storage.h"
+#include "ouse_ble.h"
+#include <stdatomic.h>
 #include "src/misc/cache/instance/lv_image_cache.h"
 #include <stdint.h>
 #include <string.h>
@@ -38,14 +43,18 @@ typedef struct {
     lv_obj_t *theme_value,*theme_switch,*display_value,*language_value;
     lv_obj_t *locale_marks[2],*device_pages[3];
     lv_obj_t *navigation_marks[2];
-    lv_obj_t *sd_value;
+    lv_obj_t *sd_value,*sd_eject,*sd_recover;
     unsigned settings_page;
     size_t app_count;
     lv_timer_t *status_timer;
-    ouse_app_info_t icons[OUSE_APP_CAPACITY];
+    ouse_app_info_t *icons;
+    unsigned icon_capacity,dot_count;
     lv_obj_t *settings;
     lv_obj_t *health_page,*usb_page,*developer_page,*debug_switch;
-    lv_obj_t *page_dots[OUSE_APP_CAPACITY];
+    lv_obj_t *manager_page;
+    lv_obj_t *bluetooth_page;
+    bool manager_built;
+    lv_obj_t **page_dots;
     unsigned launcher_page,launcher_pages;
     lv_obj_t *slider;
     lv_obj_t *brightness_text;
@@ -55,6 +64,8 @@ typedef struct {
 } core_state_t;
 
 static OUSE_PSRAM_BSS core_state_t core;
+static void rebuild_launcher(void);
+#include "ouse_launcher.inc"
 extern void ouse_navigation_grid(int,int,unsigned,int *,int *,int *,int *);
 
 static lv_obj_t *text(lv_obj_t *parent, const char *value, int x, int y, int width)
@@ -80,28 +91,38 @@ static lv_obj_t *panel(lv_obj_t *parent, int x, int y, int width, int height)
 
 static void app_changed(bool active)
 {
+    if(active)launcher_cancel();
     if (active) { lv_obj_add_flag(core.home, LV_OBJ_FLAG_HIDDEN); ouse_shell_foreground(); }
     else lv_obj_remove_flag(core.home, LV_OBJ_FLAG_HIDDEN);
 }
 
 static void launch_app(lv_event_t *event)
 {
+    if(launcher.suppress_click)return;
     const char *id = lv_event_get_user_data(event);
     esp_err_t error = ouse_app_open(id);
     if (error!=ESP_OK) LV_LOG_WARN("Application open failed");
 }
 
+static void manager_settings_back(void);
+static void bluetooth_refresh(void);
+static void bluetooth_close(void);
+static void bluetooth_pair_prompt(void);
 static void select_settings_page(unsigned page)
 {
     if(core.settings_page!=page)ouse_device_ui_close_modal();
     core.settings_page=page;
-    lv_obj_t *pages[]={core.settings,core.display_page,core.appearance_page,core.language_page,core.info,core.device_pages[0],core.device_pages[1],core.device_pages[2],core.account_page,core.health_page,core.usb_page,core.developer_page};
+    if(page==12 && !core.manager_built){ouse_manager_ui_build(core.manager_page,manager_settings_back);core.manager_built=true;}
+    if(page==12)ouse_manager_ui_refresh();
+    lv_obj_t *pages[]={core.settings,core.display_page,core.appearance_page,core.language_page,core.info,core.device_pages[0],core.device_pages[1],core.device_pages[2],core.account_page,core.health_page,core.usb_page,core.developer_page,core.manager_page,core.bluetooth_page};
     for(unsigned i=0;i<sizeof(pages)/sizeof(pages[0]);++i)if(pages[i]) {
         if(i==page)lv_obj_remove_flag(pages[i],LV_OBJ_FLAG_HIDDEN);
         else lv_obj_add_flag(pages[i],LV_OBJ_FLAG_HIDDEN);
     }
+    if(page==13){ouse_ble_state_t state;ouse_ble_get(&state);if(state.enabled && state.ready)(void)ouse_ble_discoverable();}
 }
 static void show_settings(lv_event_t *event) { (void)event;select_settings_page(0); }
+static void manager_settings_back(void){select_settings_page(0);}
 
 static void theme_label(void)
 {
@@ -163,13 +184,21 @@ static void refresh_status(lv_timer_t *timer)
 {
     (void)timer;
     if(!core.settings)return;
+    ouse_manager_ui_update();
     if(core.display_value){ouse_ui_unbind_text(core.display_value);lv_label_set_text_fmt(core.display_value,"%u%%",core.brightness);}
     ouse_device_ui_refresh();
+    bluetooth_refresh();
     ouse_health_ui_refresh();
     if(core.sd_value) {
         ouse_sd_state_t sd={0};ouse_sd_get(&sd);
         ouse_ui_unbind_text(core.sd_value);
-        if(sd.probing)lv_label_set_text(core.sd_value,ouse_ui_locale() ? "Detecting" : "正在检测");
+        ouse_files_state_t card;ouse_files_get(&card);
+        if(core.sd_eject){if(card.ready && !card.busy)lv_obj_remove_state(core.sd_eject,LV_STATE_DISABLED);else lv_obj_add_state(core.sd_eject,LV_STATE_DISABLED);}
+        if(core.sd_recover){if(!card.busy && !card.recovering && !card.ejecting)lv_obj_remove_state(core.sd_recover,LV_STATE_DISABLED);else lv_obj_add_state(core.sd_recover,LV_STATE_DISABLED);}
+        if(card.recovering)lv_label_set_text(core.sd_value,ouse_ui_locale() ? "Recovering" : "正在恢复");
+        else if(card.ejected)lv_label_set_text(core.sd_value,ouse_ui_locale() ? "Ejected" : "已安全卸载");
+        else if(card.ejecting)lv_label_set_text(core.sd_value,ouse_ui_locale() ? "Ejecting" : "正在卸载");
+        else if(sd.probing)lv_label_set_text(core.sd_value,ouse_ui_locale() ? "Detecting" : "正在检测");
         else if(sd.detected){ouse_files_state_t files;ouse_files_get(&files);
             lv_label_set_text_fmt(core.sd_value,"%s · %llu MiB\n%s · %llu MiB",sd.name,(unsigned long long)(sd.capacity_bytes/(1024*1024)),
                 files.ready ? (ouse_ui_locale() ? "Free" : "可用") : (ouse_ui_locale() ? "Unavailable" : "文件系统不可用"),(unsigned long long)(files.free_bytes/(1024*1024)));
@@ -243,6 +272,7 @@ static void shell_back(void)
     if (ouse_app_back()) return;
     ouse_app_stats_t state;
     if (ouse_app_get_stats(&state)!=ESP_OK) return;
+    if(!strcmp(state.active_id,"ouse.settings") && core.settings_page==12 && ouse_manager_ui_back())return;
     if(!strcmp(state.active_id,"ouse.settings") && core.settings_page)show_settings(NULL);
     else (void)ouse_app_background();
 }
@@ -342,6 +372,14 @@ static lv_obj_t *specification(lv_obj_t *group,const char *title,const char *val
     label=ouse_widget_text(row,value && *value ? value : "未知",16);lv_obj_set_width(label,LV_PCT(100));
     return label;
 }
+static void eject_confirmed(void)
+{
+    if(ouse_files_eject()!=ESP_OK)ouse_dialog_show("请先停止播放、录音和文件操作，再重试。",NULL,NULL);
+}
+static void eject_event(lv_event_t *event)
+{(void)event;ouse_dialog_show("安全卸载 SD 卡？","卸载",eject_confirmed);}
+static void recover_sd_event(lv_event_t *event)
+{(void)event;if(ouse_files_recover()!=ESP_OK)ouse_dialog_show("请先停止播放、录音和文件操作，再重试。",NULL,NULL);}
 static void hardware_page(lv_obj_t *parent)
 {
     page_heading(parent,"关于设备",true);
@@ -357,6 +395,8 @@ static void hardware_page(lv_obj_t *parent)
     specification(group,"运行内存",h ? h->memory : NULL);
     specification(group,"机身存储",h ? h->storage : NULL);
     core.sd_value=specification(group,"SD 卡","正在检测");
+    core.sd_eject=ouse_widget_button(group,"安全卸载 SD 卡",eject_event,NULL);ouse_widget_button_expand(core.sd_eject);
+    core.sd_recover=ouse_widget_button(group,"重新检测 SD 卡",recover_sd_event,NULL);ouse_widget_button_expand(core.sd_recover);
     section(parent,"硬件");group=settings_card(parent);
     specification(group,"屏幕",h ? h->display : NULL);
     specification(group,"触摸",h ? h->touch : NULL);
@@ -384,6 +424,7 @@ static void choose_navigation(lv_event_t *event)
     ouse_shell_set_navigation(mode);
     preference_labels();
 }
+#include "ouse_bluetooth_ui.inc"
 static esp_err_t settings_open(lv_obj_t *root,void *context)
 {
     (void)context;
@@ -397,9 +438,11 @@ static esp_err_t settings_open(lv_obj_t *root,void *context)
     ouse_widget_row(core.settings,LV_SYMBOL_BATTERY_FULL,"电源",NULL,open_settings_page,(void *)(uintptr_t)5,NULL);
     ouse_widget_row(core.settings,LV_SYMBOL_VOLUME_MAX,"声音",NULL,open_settings_page,(void *)(uintptr_t)6,NULL);
     ouse_widget_row(core.settings,LV_SYMBOL_WIFI,"Wi-Fi",NULL,open_settings_page,(void *)(uintptr_t)7,NULL);
+    ouse_widget_row(core.settings,LV_SYMBOL_BLUETOOTH,"蓝牙",NULL,open_settings_page,(void *)(uintptr_t)13,NULL);
     ouse_widget_row(core.settings,LV_SYMBOL_USB,"USB OTG",NULL,open_settings_page,(void *)(uintptr_t)10,NULL);
     section(core.settings,"系统");
-    ouse_widget_row(core.settings,LV_SYMBOL_LIST,"后台活动与服务",NULL,open_settings_page,(void *)(uintptr_t)9,NULL);
+    ouse_widget_row(core.settings,LV_SYMBOL_DIRECTORY,"应用管理",NULL,open_settings_page,(void *)(uintptr_t)12,NULL);
+    ouse_widget_row(core.settings,LV_SYMBOL_LOOP,"后台活动与服务",NULL,open_settings_page,(void *)(uintptr_t)9,NULL);
     ouse_widget_row(core.settings,LV_SYMBOL_LIST,"系统信息","设备与硬件",open_settings_page,(void *)(uintptr_t)4,NULL);
     ouse_widget_row(core.settings,LV_SYMBOL_SETTINGS,"开发者选项",NULL,open_settings_page,(void *)(uintptr_t)11,NULL);
     core.display_page=settings_column(root);page_heading(core.display_page,"显示",true);
@@ -440,6 +483,8 @@ static esp_err_t settings_open(lv_obj_t *root,void *context)
 #if !CONFIG_OUSE_DEVICE_DEBUG
     lv_obj_add_state(core.debug_switch,LV_STATE_DISABLED);
 #endif
+    core.manager_page=settings_column(root);core.manager_built=false;
+    core.bluetooth_page=settings_column(root);page_heading(core.bluetooth_page,"蓝牙",true);bluetooth_build(core.bluetooth_page);
     preference_labels();select_settings_page(0);
     core.status_timer=lv_timer_create(refresh_status,300,NULL);refresh_status(NULL);return ESP_OK;
 }
@@ -452,8 +497,10 @@ static void settings_close(void *context)
     core.display_page=core.appearance_page=core.language_page=core.account_page=NULL;
     core.health_page=core.usb_page=NULL;ouse_health_ui_close();
     core.developer_page=core.debug_switch=NULL;
+    bluetooth_close();core.bluetooth_page=NULL;
+    ouse_manager_ui_close();core.manager_page=NULL;core.manager_built=false;
     memset(core.navigation_marks,0,sizeof(core.navigation_marks));
-    core.sd_value=NULL;
+    core.sd_value=core.sd_eject=core.sd_recover=NULL;
     ouse_device_ui_close();memset(core.device_pages,0,sizeof(core.device_pages));memset(core.locale_marks,0,sizeof(core.locale_marks));
     core.settings = NULL; core.info = NULL; core.slider = NULL;
     core.brightness_text = NULL;
@@ -468,7 +515,7 @@ static void settings_pause(void *context) {
     if(ouse_audio_get(&a)==ESP_OK && a.mode!=OUSE_AUDIO_IDLE && a.mode!=OUSE_AUDIO_ERROR &&
        ouse_task_get(NULL,a.request_id,&task) && !strcmp(task.owner.app_id,"ouse.system") && task.kind==OUSE_TASK_AUDIO)(void)ouse_audio_stop();
 }
-static void settings_resume(void *context) { (void)context; if (core.status_timer) lv_timer_resume(core.status_timer); refresh_status(NULL); }
+static void settings_resume(void *context) { (void)context; if (core.status_timer) lv_timer_resume(core.status_timer);if(core.settings_page==12)ouse_manager_ui_refresh();refresh_status(NULL); }
 
 static void launcher_scrolled(lv_event_t *event)
 {
@@ -482,6 +529,7 @@ static void launcher_scrolled(lv_event_t *event)
 }
 static void navigation_layout(int navigation_height)
 {
+    ouse_ime_set_bottom_inset(navigation_height);
     int height=lv_obj_get_height(core.screen);
     lv_obj_set_height(core.home,height-ouse_ui_dp(40)-navigation_height);
     lv_obj_set_height(core.grid,height-ouse_ui_dp(70)-navigation_height);
@@ -496,6 +544,17 @@ void ouse_core_launcher_state(unsigned *page,unsigned *pages)
 static void rebuild_launcher(void)
 {
     if (!core.grid) return;
+    launcher_cancel();
+    unsigned wanted_pages=(core.app_count+11)/12;
+    if(core.app_count>core.icon_capacity){
+        ouse_app_info_t *icons=ouse_psram_calloc(core.app_count,sizeof(*icons));
+        if(!icons)return;
+        lv_obj_clean(core.grid);free(core.icons);core.icons=icons;core.icon_capacity=core.app_count;
+    }
+    lv_obj_t **dots=ouse_psram_calloc(wanted_pages ? wanted_pages : 1,sizeof(*dots));
+    if(!dots)return;
+    for(unsigned index=0;index<core.dot_count;++index)if(core.page_dots[index])lv_obj_delete(core.page_dots[index]);
+    free(core.page_dots);core.page_dots=dots;core.dot_count=wanted_pages;
     unsigned saved_page=core.launcher_page;
     lv_obj_clean(core.grid); lv_obj_update_layout(core.grid);
     int width=lv_obj_get_width(core.grid), height=lv_obj_get_height(core.grid);
@@ -503,11 +562,16 @@ static void rebuild_launcher(void)
     int cell_w=width/cols, name_h=2*ouse_ui_font(14)->line_height;
     int cell_h=height/rows;
     unsigned capacity=(unsigned)(rows*cols); lv_obj_t *page=NULL;
+    for(unsigned index=0;index<core.app_count;++index)(void)ouse_app_get_info(index,&core.icons[index]);
+    launcher_sort();
+    if(!launcher_tiles(core.app_count))return;
     for(unsigned i=0;i<core.app_count;++i) {
-        (void)ouse_app_get_info(i,&core.icons[i]);
         if(i%capacity==0) { page=panel(core.grid,(int)(i/capacity)*width,0,width,height); lv_obj_add_flag(page,LV_OBJ_FLAG_SNAPPABLE); }
         unsigned slot=i%capacity;
         lv_obj_t *tile=lv_button_create(page); lv_obj_remove_style_all(tile);
+        launcher.tiles[i]=tile;
+        lv_obj_add_flag(tile,LV_OBJ_FLAG_PRESS_LOCK);
+        lv_obj_add_event_cb(tile,launcher_touch,LV_EVENT_ALL,NULL);
         lv_obj_set_pos(tile,(int)(slot%cols)*cell_w,(int)(slot/cols)*cell_h); lv_obj_set_size(tile,cell_w,cell_h);
         lv_obj_set_style_opa(tile,LV_OPA_70,LV_STATE_PRESSED);
         lv_obj_add_event_cb(tile,launch_app,LV_EVENT_CLICKED,core.icons[i].id);
@@ -520,7 +584,6 @@ static void rebuild_launcher(void)
         lv_label_set_long_mode(name,LV_LABEL_LONG_MODE_DOTS); lv_obj_set_style_text_align(name,LV_TEXT_ALIGN_CENTER,0);
         lv_obj_remove_flag(name,LV_OBJ_FLAG_CLICKABLE);
     }
-    for(unsigned index=0;index<OUSE_APP_CAPACITY;++index){if(core.page_dots[index])lv_obj_delete(core.page_dots[index]);core.page_dots[index]=NULL;}
     core.launcher_pages=(core.app_count+capacity-1)/capacity;
     core.launcher_page=saved_page;
     if(core.launcher_page>=core.launcher_pages)core.launcher_page=core.launcher_pages ? core.launcher_pages-1 : 0;
@@ -532,9 +595,38 @@ static void rebuild_launcher(void)
     launcher_scrolled(NULL);
 }
 
+static ouse_permission_prompt_t permission_prompt;
+static uint32_t permission_shown;
+static void permission_choice(unsigned choice)
+{
+    ouse_app_stats_t stats={0};ouse_app_get_stats(&stats);
+    if(ouse_permissions_prompt_current(permission_prompt.instance) && !strcmp(stats.active_id,permission_prompt.app_id)){
+        if(ouse_permissions_set(permission_prompt.app_id,permission_prompt.permission,choice==0 ? OUSE_PERMISSION_ALLOW : OUSE_PERMISSION_DENY)!=ESP_OK)
+            ouse_dialog_show("设置未能保存，请重试",NULL,NULL);
+    }
+    permission_prompt.instance=0;
+}
+static void permission_dialog(void)
+{
+    ouse_app_stats_t stats={0};ouse_app_get_stats(&stats);
+    if(permission_prompt.instance){
+        if(!ouse_permissions_prompt_current(permission_prompt.instance) || strcmp(stats.active_id,permission_prompt.app_id) || lv_tick_elaps(permission_shown)>15000){ouse_dialog_dismiss();permission_prompt.instance=0;}
+        else if(!ouse_dialog_active())permission_prompt.instance=0;
+        return;
+    }
+    if(ouse_dialog_active() || !ouse_permissions_next(&permission_prompt))return;
+    if(strcmp(stats.active_id,permission_prompt.app_id)){permission_prompt.instance=0;return;}
+    ouse_app_info_t info;char title[160];const char *names[]={"麦克风","摄像头","删除共享文件","蓝牙","键盘与鼠标控制"};
+    const char *name=ouse_app_find_info(stats.active_id,&info)==ESP_OK ? info.name : stats.active_id;
+    snprintf(title,sizeof(title),"%s\n%s",name,names[permission_prompt.permission]);
+    static const char *choices[]={"允许","拒绝"};permission_shown=lv_tick_get();
+    ouse_dialog_select(title,choices,2,1,permission_choice);
+}
 static void monitor_errors(lv_timer_t *timer)
 {
     (void)timer;
+    permission_dialog();
+    bluetooth_pair_prompt();
     static bool settings_failed;
     static uint32_t saved_error,audio_error,wifi_error;
     ouse_settings_state_t settings;
@@ -563,7 +655,7 @@ esp_err_t ouse_core_start(const ouse_core_config_t *config)
         !config->port.board_name || config->initial_brightness < 10 ||
         config->initial_brightness > 100) return ESP_ERR_INVALID_ARG;
     if (config->initial_theme!=OUSE_THEME_LIGHT && config->initial_theme!=OUSE_THEME_DARK) return ESP_ERR_INVALID_ARG;
-    if (config->app_count >= OUSE_APP_CAPACITY || (config->app_count && !config->apps)) return ESP_ERR_INVALID_ARG;
+    if (config->app_count && !config->apps) return ESP_ERR_INVALID_ARG;
     for (size_t i = 0; i < config->app_count; ++i) {
         esp_err_t error = ouse_apps_validate(&config->apps[i]);
         if (error != ESP_OK) return error;
@@ -591,6 +683,8 @@ esp_err_t ouse_core_start(const ouse_core_config_t *config)
     }
     core.port = *port; core.app_count=config->app_count+1;
     esp_err_t notification_error=ouse_notifications_init();
+    esp_err_t permissions_error=ouse_permissions_init();
+    if(permissions_error!=ESP_OK)return permissions_error;
     if(notification_error!=ESP_OK){port->unlock(port->context);return notification_error;}
     ouse_theme_set(config->initial_theme);
     core.brightness = config->initial_brightness;
@@ -605,8 +699,9 @@ esp_err_t ouse_core_start(const ouse_core_config_t *config)
     core.home = panel(core.screen, 0, ouse_ui_dp(40), width, height - ouse_ui_dp(64));
     core.grid=panel(core.home,ouse_ui_dp(8),ouse_ui_dp(10),width-ouse_ui_dp(16),height-ouse_ui_dp(94));
     lv_obj_add_event_cb(core.grid,launcher_scrolled,LV_EVENT_SCROLL,NULL);
-    lv_obj_add_flag(core.grid,LV_OBJ_FLAG_SCROLLABLE); lv_obj_set_scroll_dir(core.grid,LV_DIR_HOR);
-    lv_obj_set_scroll_snap_x(core.grid,LV_SCROLL_SNAP_START); lv_obj_set_scrollbar_mode(core.grid,LV_SCROLLBAR_MODE_OFF);
+    lv_obj_add_flag(core.grid,LV_OBJ_FLAG_SCROLLABLE|LV_OBJ_FLAG_SCROLL_ONE); lv_obj_set_scroll_dir(core.grid,LV_DIR_HOR);
+    lv_obj_remove_flag(core.grid,LV_OBJ_FLAG_SCROLL_ELASTIC);
+    lv_obj_set_scroll_snap_x(core.grid,LV_SCROLL_SNAP_CENTER); lv_obj_set_scrollbar_mode(core.grid,LV_SCROLLBAR_MODE_OFF);
     core.app_host = panel(core.screen, 0, ouse_ui_dp(40), width, height - ouse_ui_dp(64));
     ouse_app_definition_t settings = {.id = "ouse.settings", .name = "设置", .icon = LV_SYMBOL_SETTINGS,
         .open = settings_open, .close = settings_close, .pause = settings_pause, .resume = settings_resume};
@@ -625,6 +720,7 @@ esp_err_t ouse_core_start(const ouse_core_config_t *config)
     lv_timer_create(monitor_errors,250,NULL);
     lv_screen_load(core.screen);
     core.started = true;
+    lv_timer_create(launcher_tick,50,NULL);
     port->unlock(port->context);
     return ESP_OK;
 }
@@ -682,6 +778,7 @@ esp_err_t ouse_core_user_apply(const ouse_app_definition_t *definition)
     esp_err_t error=ouse_apps_validate(definition);if(error!=ESP_OK)return error;
     error=ouse_apps_user_check(definition->id);if(error!=ESP_OK)return error;
     const lv_image_dsc_t *old_icon=registered_icon(definition->id);
+    ouse_manager_ui_release_icons();
     // Recents owns borrowed preview pointers: discard them before closing an app.
     ouse_shell_foreground();
     error=ouse_apps_user_apply(definition);
@@ -704,7 +801,16 @@ esp_err_t ouse_core_user_remove(const char *id)
     esp_err_t found=ouse_app_find_info(id,&existing);if(found!=ESP_OK)return found;
     esp_err_t error=ouse_apps_user_check(id);if(error!=ESP_OK)return error;
     const lv_image_dsc_t *old_icon=registered_icon(id);
+    ouse_manager_ui_release_icons();
     ouse_shell_foreground();error=ouse_apps_user_remove(id);
-    if(error==ESP_OK){ouse_notifications_remove_app(id);refresh_apps();if(old_icon)lv_image_cache_drop(old_icon);}
+    if(error==ESP_OK){ouse_notifications_remove_app(id);launcher_forget(id);refresh_apps();if(old_icon)lv_image_cache_drop(old_icon);}
+    return error;
+}
+void ouse_core_launcher_restored(void){launcher.restored=true;}
+esp_err_t ouse_core_user_maintenance(const char *id,bool enabled)
+{
+    if(enabled)ouse_shell_foreground();
+    esp_err_t error=ouse_apps_user_maintenance(id,enabled);
+    if(error==ESP_OK && enabled)ouse_notifications_remove_app(id);
     return error;
 }

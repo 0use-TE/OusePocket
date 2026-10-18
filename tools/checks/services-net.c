@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 static unsigned calls,completions;static bool actual_stopped;static uint32_t current_id;static ouse_net_result_t *delivered;
+esp_err_t ouse_channels_init(void){return ESP_OK;}
 esp_err_t ouse_http_validate(const ouse_http_request_t *r){return r&&r->url&&r->method ? ESP_OK : ESP_ERR_INVALID_ARG;}
 esp_err_t ouse_http_transfer(const ouse_http_request_t *r,int64_t d,size_t limit,ouse_http_response_t *response,ouse_http_sink_t sink,ouse_http_stop_t stop,void *context)
 {

@@ -14,8 +14,8 @@
 extern "C" {
 #endif
 
-#define OUSE_CORE_VERSION "0.18.2"
-#define OUSE_CORE_API_VERSION 21
+#define OUSE_CORE_VERSION "0.28.0"
+#define OUSE_CORE_API_VERSION 31
 
 // Immutable board specifications; these describe hardware, not current usage.
 typedef struct {
@@ -49,7 +49,7 @@ typedef struct {
     ouse_theme_t initial_theme;
     uint16_t density_dpi; // logical density; 0 defaults to 160, not physical DPI
     uint8_t initial_locale, initial_font_percent; // zh_CN=0 / en=1; font is 0(default) or 100 only
-    size_t app_count; // at most OUSE_APP_CAPACITY - 1; registration is frozen at startup
+    size_t app_count;
 } ouse_core_config_t;
 
 // Creates the default desktop and the built-in display settings. No runtime,
@@ -61,7 +61,9 @@ bool ouse_core_is_started(void);
 esp_err_t ouse_core_user_check(const char *id);
 esp_err_t ouse_core_user_apply(const ouse_app_definition_t *definition);
 esp_err_t ouse_core_user_remove(const char *id);
+esp_err_t ouse_core_user_maintenance(const char *id,bool enabled);
 void ouse_core_app_size(int32_t *width, int32_t *height);
+void ouse_core_launcher_restored(void);
 esp_err_t ouse_core_set_ui(unsigned locale, unsigned font_percent); // UI task only
 esp_err_t ouse_core_set_brightness(uint8_t percent); // apply and asynchronously save
 esp_err_t ouse_core_preview_brightness(uint8_t percent); // no Flash request

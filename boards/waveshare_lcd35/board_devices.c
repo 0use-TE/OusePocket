@@ -93,6 +93,10 @@ esp_err_t ouse_board_devices_init(void)
 }
 void ouse_board_start_services(void)
 {
+    extern void ouse_board_sd_bus_init(void);
+    ouse_board_sd_bus_init();
+    extern void ouse_board_camera_attach(void);
+    ouse_board_camera_attach();
     extern void ouse_board_sd_probe(void);
     ouse_board_sd_probe();
     if(xTaskCreate(power_worker,"ouse_power",4096,NULL,2,&workers[0])!=pdPASS)ouse_devices_set_available(0,false,ESP_ERR_NO_MEM);

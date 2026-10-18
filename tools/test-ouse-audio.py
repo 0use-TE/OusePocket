@@ -171,7 +171,7 @@ void audio_codec_delete_data_if(const audio_codec_data_if_t *p){assert(!active_c
 void audio_codec_delete_ctrl_if(const audio_codec_ctrl_if_t *p){free((void*)p);--allocated;}
 void audio_codec_delete_gpio_if(const audio_codec_gpio_if_t *p){free((void*)p);--allocated;}
 int esp_codec_dev_open(void *p,esp_codec_dev_sample_info_t *f){fake_codec_t *c=p;assert(c&&c->data->is_open(c->data)&&f->sample_rate==16000&&f->channel==1&&f->bits_per_sample==16);assert(!c->opened);c->opened=true;++opened;(void)c->data->set_fmt(c->data,3,f);(void)c->data->enable(c->data,3,true);return fail_open?ESP_FAIL:0;}
-int esp_codec_dev_close(void *p){fake_codec_t *c=p;assert(c);if(c->opened){if(observed_task){ouse_task_snapshot_t task;assert(ouse_task_get(NULL,observed_task,&task) && task.state==OUSE_TASK_CANCELLING);observed_cancel_at_close=true;}(void)c->data->enable(c->data,3,false);c->opened=false;++closed;}return 0;}
+int esp_codec_dev_close(void *p){fake_codec_t *c=p;assert(c);if(c->opened){if(observed_task){ouse_task_snapshot_t task;assert(ouse_task_get(NULL,observed_task,&task) && (task.state==OUSE_TASK_CANCELLING || task.state==OUSE_TASK_CANCELLED));observed_cancel_at_close=true;}(void)c->data->enable(c->data,3,false);c->opened=false;++closed;}return 0;}
 int esp_codec_dev_set_out_vol(void *p,int v){assert(p);output_volume=v;return 0;}
 int esp_codec_dev_set_out_mute(void *p,bool m){assert(p);output_muted=m;return 0;}
 int esp_codec_dev_set_in_gain(void *p,float g){assert(p && g==24);return 0;}
@@ -204,12 +204,66 @@ void ouse_media_interrupted(uint32_t id,bool value){assert(id==media_state.task_
 void ouse_media_consumer_done(uint32_t id,esp_err_t error,bool cancelled){assert(media_fixture&&opened==closed&&!media_state.interrupted);media_state.active=false;ouse_task_finish(id,error,cancelled);}
 bool ouse_media_get(const char *app,ouse_media_state_t *state){(void)app;if(!media_fixture)return false;*state=media_state;return true;}
 
-static ouse_audio_request_t take(void){ouse_audio_request_t r;assert(ouse_devices_take_audio(&r) && ouse_task_start(r.id,true));return r;}
+static unsigned sd_samples;static esp_err_t sd_error;static bool sd_done;
+bool ouse_recorder_current(uint32_t id){return !sd_done && sd_samples<1024 && !ouse_task_cancel_requested(id);}
+bool ouse_recorder_write(uint32_t id,const int16_t *samples,unsigned count){assert(id&&samples&&count==256);sd_samples+=count;return true;}
+void ouse_recorder_producer_done(uint32_t id,esp_err_t error){assert(opened==closed);sd_done=true;sd_error=error;ouse_task_finish(id,error,ouse_task_cancel_requested(id));}
+
+static ouse_audio_request_t take(void){ouse_audio_request_t r;assert((ouse_devices_take_audio(&r) || ouse_devices_take_overlay(&r)) && ouse_task_start(r.id,true));return r;}
 static esp_err_t execute_request(ouse_audio_request_t request,ouse_audio_state_t *state){esp_err_t error=run(request,state);ouse_task_finish(request.id,error,ouse_task_cancel_requested(request.id));return error;}
 static void pump(void){if(!setjmp(idle))ouse_board_audio_worker(NULL);}
 int main(int argc,char **argv){
  ouse_device_port_t port={0};ouse_device_config_t config={.volume=40};assert(ouse_devices_init(&port,&config)==0);ouse_devices_set_available(1,true,0);
 
+ if(argc>1 && !strcmp(argv[1],"--mixing")){
+  ouse_task_owner_t player,alert,other;
+  assert(ouse_task_owner_open("user.player",&player)==ESP_OK);
+  assert(ouse_task_owner_open("user.alert",&alert)==ESP_OK);
+  assert(ouse_task_owner_open("user.other",&other)==ESP_OK);
+  uint32_t music,ring,rejected,stop;
+  assert(ouse_task_create(&player,OUSE_TASK_AUDIO,"play",OUSE_TASK_FINISH_ON_CLOSE,true,&music)==ESP_OK);
+  assert(ouse_devices_queue_media(music)==ESP_OK);ouse_audio_request_t request=take();assert(request.id==music);
+  assert(ouse_audio_submit(&alert,OUSE_AUDIO_ALERT,0,&ring)==ESP_OK);
+  int16_t samples[1024];for(unsigned index=0;index<1024;++index)samples[index]=1000;
+  mix_output(samples,1024);assert(mixer.gain==8192);
+  bool varied=false;for(unsigned index=512;index<1024;++index)if(samples[index]!=250)varied=true;assert(varied);
+  ouse_task_snapshot_t task;assert(ouse_task_get(&player,music,&task)&&task.state==OUSE_TASK_RUNNING&&!task.cancel_requested);
+  assert(ouse_task_get(&alert,ring,&task)&&task.state==OUSE_TASK_RUNNING);
+  assert(ouse_audio_submit(&other,OUSE_AUDIO_TEST,0,&rejected)==ESP_ERR_INVALID_STATE);
+  assert(ouse_audio_submit(&other,OUSE_AUDIO_ALERT,0,&rejected)==ESP_ERR_INVALID_STATE);
+  assert(ouse_audio_submit(&other,OUSE_AUDIO_CAPTURE,1,&rejected)==ESP_ERR_INVALID_STATE);
+  assert(ouse_audio_submit(&other,OUSE_AUDIO_STOP,0,&stop)==ESP_OK);
+  assert(!ouse_task_cancel_requested(music)&&!ouse_task_cancel_requested(ring));
+  assert(ouse_audio_submit(&alert,OUSE_AUDIO_STOP,0,&stop)==ESP_OK);
+  for(unsigned index=0;index<1024;++index)samples[index]=1000;
+  mix_output(samples,1024);assert(mixer.gain==32768&&samples[1023]==1000);
+  assert(ouse_task_get(&alert,ring,&task)&&task.state==OUSE_TASK_CANCELLED);
+  assert(!ouse_task_cancel_requested(music));
+  assert(ouse_audio_submit(&alert,OUSE_AUDIO_TEST,0,&ring)==ESP_OK);
+  for(unsigned index=0;index<1024;++index)samples[index]=32767;
+  mix_output(samples,1024);assert(mixer.gain==16384);
+  for(unsigned index=0;index<1024;++index)assert(samples[index]>=0&&samples[index]<=32767);
+  assert(ouse_task_cancel(&alert,ring,"confirmed")==ESP_OK);mix_output(samples,1024);
+  assert(ouse_audio_submit(&alert,OUSE_AUDIO_ALERT,0,&ring)==ESP_OK);mix_output(samples,1024);
+  ouse_task_owner_close(&alert);mix_output(samples,1024);
+  assert(ouse_task_get(NULL,ring,&task)&&task.state==OUSE_TASK_CANCELLED);
+  assert(!ouse_task_cancel_requested(music));
+  ouse_task_finish(music,ESP_OK,false);
+  assert(ouse_audio_submit(&other,OUSE_AUDIO_CAPTURE,1,&rejected)==ESP_OK);
+  assert(ouse_audio_submit(&player,OUSE_AUDIO_TEST,0,&ring)==ESP_ERR_INVALID_STATE);
+  assert(ouse_audio_submit(&player,OUSE_AUDIO_ALERT,0,&ring)==ESP_ERR_INVALID_STATE);
+  puts("PASS mixing: production PCM overlay, 25/50 percent duck and smooth restoration, no clipping, music task preserved, priority, recording exclusion, owner-scoped stop/close");return 0;
+ }
+
+ if(argc>1 && !strcmp(argv[1],"--sd-recording")){
+  ouse_task_owner_t owner;assert(ouse_task_owner_open("user.recorder",&owner)==ESP_OK);uint32_t identifier;
+  assert(ouse_audio_submit(&owner,OUSE_AUDIO_DISK_CAPTURE,0,&identifier)==ESP_OK);
+  uint32_t rejected;assert(ouse_audio_submit(&owner,OUSE_AUDIO_DISK_CAPTURE,0,&rejected)==ESP_ERR_INVALID_STATE);
+  pump();assert(sd_done&&sd_samples==1024&&sd_error==ESP_OK&&opened==closed&&output_muted);
+  sd_done=false;sd_samples=0;fail_open=1;assert(ouse_audio_submit(&owner,OUSE_AUDIO_DISK_CAPTURE,0,&identifier)==ESP_OK);pump();
+  assert(sd_done&&sd_samples==0&&sd_error==ESP_FAIL&&opened==closed);
+  release_codec();puts("PASS SD recorder codec ownership: PCM16 mono 16kHz, bounded frames, busy rejection, mute, cleanup-before-finalization, startup error propagation");return 0;
+ }
  if(argc>1 && !strcmp(argv[1],"--recording-format")){
   ouse_audio_state_t state;ouse_audio_get(&state);assert(ouse_audio_record(3)==ESP_OK);ouse_audio_request_t request=take();
   int64_t started=esp_timer_get_time();assert(execute_request(request,&state)==ESP_OK&&recorded_samples==48000&&state.recorded_ms==3000);
@@ -226,17 +280,18 @@ int main(int argc,char **argv){
   assert(ouse_task_create(&owner,OUSE_TASK_AUDIO,"play",OUSE_TASK_FINISH_ON_CLOSE,true,&id)==ESP_OK);
   media_fixture=true;media_state=(ouse_media_state_t){.active=true,.task_id=id};assert(ouse_devices_queue_media(id)==ESP_OK);pump();
   ouse_task_snapshot_t task;assert(ouse_task_get(&owner,id,&task)&&task.state==OUSE_TASK_SUCCEEDED&&!task.cancel_requested);
-  assert(media_reads==4&&media_samples==512&&media_interrupts==2&&opened==3&&closed==3&&!media_state.active);
+  assert(media_reads==4&&media_samples==512&&media_interrupts==0&&opened==2&&closed==2&&!media_state.active);
   release_codec();assert(!allocated&&!invalid_transitions&&!format_changes);
-  puts("PASS actual codec media focus: close media -> ring -> reopen media; one consumer, unchanged I2S format, no media cancellation, final close before terminal");return 0;
+  puts("PASS actual codec media focus: overlay mixed without interrupting or cancelling media; one writer, remaining alert completes after media EOF");return 0;
  }
  if(argc>1){
   bool cleanup_failure=!strcmp(argv[1],"--cleanup-error");assert(cleanup_failure||!strcmp(argv[1],"--kernel-only"));if(cleanup_failure)fail_disable_rx=1;ouse_task_owner_t owner;assert(ouse_task_owner_open("user.audio",&owner)==ESP_OK);
   uint32_t id;assert(ouse_audio_submit(&owner,OUSE_AUDIO_TEST,0,&id)==ESP_OK);observed_task=id;cancel_after=2;pump();
   ouse_task_snapshot_t task;assert(observed_cancel_at_close && opened==closed && output_muted);
   assert(ouse_task_get(&owner,id,&task) && (cleanup_failure ? task.state==OUSE_TASK_FAILED&&task.error==ESP_FAIL : task.state==OUSE_TASK_CANCELLED) && task.result.present && task.result.value.audio.position_ms>0);
+  if(cleanup_failure)assert(!allocated);
   observed_task=0;ouse_task_owner_close(&owner);release_codec();free(recording);
-  assert(!allocated);puts("PASS actual audio worker: cancellation stays pending through codec close; terminal result follows release");return 0;
+  assert(!allocated);puts("PASS actual overlay worker: cancellation stops further mixed samples, retained position result, codec cleanup and failure release");return 0;
  }
  ouse_audio_state_t state;ouse_audio_request_t req;
  fail_probe=1;assert(ouse_audio_test_tone()==0);req=take();ouse_audio_get(&state);assert(execute_request(req,&state)==ESP_ERR_NOT_FOUND && !allocated);fail_probe=0;
@@ -283,9 +338,13 @@ int main(int argc,char **argv){
 }
 '''.replace("BOARD_AUDIO",(ROOT/"boards/waveshare_lcd35/board_audio.c").as_posix())
 (OUT/"check.c").write_text(fixture,encoding="utf-8")
-result=subprocess.run([str(compiler),"/nologo","/utf-8","/std:c11","/O2","/MD","/UNDEBUG","/I"+str(OUT),"/I"+str(ROOT/".tools/ouse-core-check"),"/I"+str(ROOT/"components/ouse_devices/include"),"/I"+str(ROOT/"components/ouse_tasks/include"),"/I"+str(ROOT/"components/ouse_media/include"),"/I"+str(ROOT/"components/ouse_usb/include"),"/I"+str(ROOT/"components/ouse_system/include"),str(ROOT/"components/ouse_tasks/ouse_tasks.c"),str(OUT/"check.c"),str(ROOT/"components/ouse_devices/ouse_devices.c"),"/Fe"+str(OUT/"check.exe")],cwd=OUT,env=env,capture_output=True,text=True,errors="replace")
+result=subprocess.run([str(compiler),"/nologo","/utf-8","/std:c11","/O2","/MD","/UNDEBUG","/I"+str(OUT),"/I"+str(ROOT/".tools/ouse-core-check"),"/I"+str(ROOT/"components/ouse_devices/include"),"/I"+str(ROOT/"components/ouse_tasks/include"),"/I"+str(ROOT/"components/ouse_media/include"),"/I"+str(ROOT/"components/ouse_recorder/include"),"/I"+str(ROOT/"components/ouse_usb/include"),"/I"+str(ROOT/"components/ouse_system/include"),str(ROOT/"components/ouse_tasks/ouse_tasks.c"),str(OUT/"check.c"),str(ROOT/"components/ouse_devices/ouse_devices.c"),"/Fe"+str(OUT/"check.exe")],cwd=OUT,env=env,capture_output=True,text=True,errors="replace")
 assert result.returncode==0,(result.stdout,result.stderr)
-if "--recording-format" in sys.argv:
+if "--mixing" in sys.argv:
+ subprocess.run([str(OUT/"check.exe"),"--mixing"],cwd=OUT,check=True,timeout=15)
+elif "--sd-recording" in sys.argv:
+ subprocess.run([str(OUT/"check.exe"),"--sd-recording"],cwd=OUT,check=True,timeout=15)
+elif "--recording-format" in sys.argv:
  subprocess.run([str(OUT/"check.exe"),"--recording-format"],cwd=OUT,check=True,timeout=15)
 elif "--cleanup-error" in sys.argv:
  subprocess.run([str(OUT/"check.exe"),"--cleanup-error"],cwd=OUT,check=True,timeout=15)

@@ -29,6 +29,7 @@ typedef int esp_err_t;
 #define ESP_ERR_INVALID_STATE 0x103
 #define ESP_ERR_INVALID_SIZE 0x104
 #define ESP_ERR_NOT_FOUND 0x105
+#define ESP_ERR_NOT_SUPPORTED 0x106
 #define ESP_LOGW(...) ((void)0)
 #define MALLOC_CAP_SPIRAM 1
 #define MALLOC_CAP_8BIT 2
@@ -95,6 +96,10 @@ fixture = r'''
 static void (*worker)(void *);
 static void *queued[8];static int queued_count;
 static int mount_failure,http_status=200,cancelled,terminal,terminal_error,not_ready;
+static unsigned worker_creations,recover_calls,timeout_budget;
+static int status_error,unmount_failure;
+static sdmmc_card_t *recover_card;
+static esp_err_t remount(void){++recover_calls;return ouse_files_init(recover_card);}
 static int64_t now;
 static int formats;
 esp_err_t ouse_sd_browser_init(void){return ESP_OK;}
@@ -114,9 +119,9 @@ void xSemaphoreGive(SemaphoreHandle_t mutex){(void)mutex;}
 void vSemaphoreDelete(SemaphoreHandle_t mutex){(void)mutex;}
 QueueHandle_t xQueueCreate(unsigned count,unsigned size){assert(count==4 && size==sizeof(void *));return (void *)2;}
 int xQueueSend(QueueHandle_t queue,const void *item,unsigned wait){(void)queue;(void)wait;queued[queued_count++]=*(void *const *)item;return 1;}
-int xQueueReceive(QueueHandle_t queue,void *item,unsigned wait){(void)queue;(void)wait;if(!queued_count)longjmp(idle,1);*(void **)item=queued[0];memmove(queued,queued+1,(--queued_count)*sizeof(void *));return 1;}
+int xQueueReceive(QueueHandle_t queue,void *item,unsigned wait){(void)queue;(void)wait;if(!queued_count){if(timeout_budget){--timeout_budget;return 0;}longjmp(idle,1);}*(void **)item=queued[0];memmove(queued,queued+1,(--queued_count)*sizeof(void *));return 1;}
 void vQueueDelete(QueueHandle_t queue){(void)queue;}
-int xTaskCreate(void (*fn)(void *),const char *name,unsigned stack,void *arg,unsigned priority,void *handle){(void)name;(void)stack;(void)arg;(void)priority;(void)handle;worker=fn;return 1;}
+int xTaskCreate(void (*fn)(void *),const char *name,unsigned stack,void *arg,unsigned priority,void *handle){(void)name;(void)stack;(void)arg;(void)priority;(void)handle;worker=fn;++worker_creations;return 1;}
 esp_err_t ff_diskio_get_drive(BYTE *drive){*drive=0;return 0;}
 void ff_diskio_register_sdmmc(BYTE drive,sdmmc_card_t *card){(void)drive;(void)card;}
 void ff_sdmmc_set_disk_status_check(BYTE drive,bool enabled){assert(!drive && !enabled);}
@@ -124,8 +129,8 @@ void ff_diskio_register(BYTE drive,const void *impl){(void)drive;(void)impl;}
 esp_err_t esp_vfs_fat_register(const esp_vfs_fat_conf_t *config,FATFS **out){static FATFS fs;assert(config->max_files==6);*out=&fs;return 0;}
 esp_err_t esp_vfs_fat_unregister_path(const char *path){(void)path;return 0;}
 esp_err_t esp_vfs_fat_info(const char *path,uint64_t *total,uint64_t *free_bytes){(void)path;*total=1024*1024*1024;*free_bytes=*total/2;return 0;}
-int f_mount(FATFS *fs,const char *drive,int mount){(void)fs;(void)drive;return mount && mount_failure ? 1 : 0;}
-esp_err_t sdmmc_get_status(sdmmc_card_t *card){(void)card;return 0;}
+int f_mount(FATFS *fs,const char *drive,int mount){(void)fs;(void)drive;return (mount && mount_failure) || (!mount && unmount_failure) ? 1 : 0;}
+esp_err_t sdmmc_get_status(sdmmc_card_t *card){(void)card;return status_error;}
 esp_err_t ouse_task_create(const ouse_task_owner_t *owner,ouse_task_kind_t kind,const char *op,ouse_task_policy_t policy,bool cancellable,uint32_t *id){(void)owner;(void)kind;(void)op;(void)cancellable;assert(policy==OUSE_TASK_STOP_ON_CLOSE);*id=42;return 0;}
 bool ouse_task_start(uint32_t id,bool cancellable){(void)id;(void)cancellable;return true;}
 bool ouse_task_cancel_requested(uint32_t id){(void)id;return cancelled!=0;}
@@ -140,6 +145,7 @@ int main(int argc,char **argv){
  assert(ouse_files_path("Music/test.wav",path,sizeof(path)));
  if(!strcmp(argv[1],"mount-fail")){mount_failure=1;assert(ouse_files_init(&card)==ESP_FAIL);assert(!formats);assert(ouse_files_format_unmounted(&card)==ESP_OK && formats==1);return 0;}
  assert(ouse_files_init(&card)==ESP_OK);
+ recover_card=&card;assert(ouse_files_start(remount)==ESP_OK && worker_creations==1);
  assert(ouse_files_format_unmounted(&card)==ESP_ERR_INVALID_STATE && !formats);
  assert(ouse_files_discard_partial("../bad")==ESP_ERR_INVALID_ARG);
  assert(ouse_files_discard_partial("Music/unused.wav")==ESP_OK);
@@ -160,7 +166,30 @@ int main(int argc,char **argv){
  assert(ouse_files_checksum("Downloads/download.wav",&bytes,&crc)==ESP_OK && crc==0x352441c2);
  http_status=404;assert(ouse_files_download(&owner,"https://example.test/missing","Downloads/missing.wav",&id)==ESP_OK);pump();assert(terminal_error!=ESP_OK);assert(ouse_files_checksum("Downloads/missing.wav",&bytes,&crc)==ESP_ERR_NOT_FOUND);
  cancelled=1;assert(ouse_files_download(&owner,"https://example.test/cancel","Downloads/cancel.wav",&id)==ESP_OK);pump();assert(terminal==2);assert(ouse_files_checksum("Downloads/cancel.wav",&bytes,&crc)==ESP_ERR_NOT_FOUND);
- puts("PASS actual SD service: scoped paths, no overwrite, CRC, abort/timeout, cached scan, HTTP failure and cancellation");return 0;
+ FILE *held=ouse_files_open("Music/test.wav");assert(held);assert(ouse_files_eject()==ESP_ERR_INVALID_STATE);assert(ouse_files_recover()==ESP_ERR_INVALID_STATE);assert(ouse_files_close(held)==0);
+ assert(ouse_files_upload_begin("Music/busy.wav",3,0)==ESP_OK);assert(ouse_files_eject()==ESP_ERR_INVALID_STATE);ouse_files_upload_abort();
+ assert(ouse_files_eject()==ESP_OK);assert(!ouse_files_lease_begin());assert(!ouse_files_refresh());assert(!ouse_files_open("Music/test.wav"));pump();
+ ouse_files_get(&state);assert(state.ejected && !state.mounted && !state.ready && !state.busy && !state.ejecting);
+ assert(ouse_files_eject()!=ESP_OK);assert(!ouse_files_refresh());
+ for(unsigned cycle=0;cycle<8;++cycle){
+  assert(ouse_files_recover()==ESP_OK);ouse_files_get(&state);assert(state.recovering&&!state.ready);
+  assert(!ouse_files_lease_begin()&&ouse_files_recover()==ESP_ERR_INVALID_STATE);
+  pump();ouse_files_get(&state);assert(state.mounted&&state.ready&&!state.recovering&&!state.busy&&!state.ejected);
+  assert(ouse_files_checksum("Music/test.wav",&bytes,&crc)==ESP_OK);
+  assert(ouse_files_eject()==ESP_OK);pump();
+ }
+ mount_failure=1;assert(ouse_files_recover()==ESP_OK);pump();ouse_files_get(&state);
+ assert(!state.ready&&!state.recovering&&!state.busy&&state.error==ESP_FAIL);
+ mount_failure=0;assert(ouse_files_recover()==ESP_OK);pump();
+ unmount_failure=1;assert(ouse_files_recover()==ESP_OK);pump();ouse_files_get(&state);assert(state.mounted&&!state.ready&&!state.busy);
+ unmount_failure=0;assert(ouse_files_recover()==ESP_OK);pump();
+ unsigned previous=recover_calls;status_error=ESP_FAIL;mount_failure=1;timeout_budget=8;pump();
+ assert(recover_calls==previous+3);ouse_files_get(&state);assert(!state.ready&&!state.busy&&!state.recovering);
+ status_error=0;mount_failure=0;assert(ouse_files_recover()==ESP_OK);pump();ouse_files_get(&state);
+ assert(state.ready&&state.mounted&&worker_creations==1&&!formats);
+ assert(ouse_files_checksum("Music/test.wav",&bytes,&crc)==ESP_OK);
+ puts("PASS SD recovery: repeated eject/remount, lease gate, mount/unmount error and retry, bounded removal recovery, one persistent worker, existing files preserved, no format");
+ puts("PASS actual SD service: paths, CRC, uploads, cancellation, open-handle/write eject exclusion, admission fence and safe unmount");return 0;
 }
 '''
 (OUT / "check.c").write_text(fixture)

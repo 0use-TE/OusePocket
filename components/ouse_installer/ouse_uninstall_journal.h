@@ -6,3 +6,6 @@
 esp_err_t ouse_uninstall_intent_read(char id[48]);
 esp_err_t ouse_uninstall_intent_write(const char *id);
 esp_err_t ouse_uninstall_intent_clear(void);
+esp_err_t ouse_reset_intent_read(char id[48]);
+esp_err_t ouse_reset_intent_write(const char *id);
+esp_err_t ouse_reset_intent_clear(void);

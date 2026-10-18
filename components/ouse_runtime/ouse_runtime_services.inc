@@ -88,6 +88,7 @@ static JSValue net_request(JSContext *context,JSValueConst self,int argc,JSValue
     ouse_http_header_t *headers=NULL;unsigned header_count=0;
     unsigned timeout=10000;
     if(!app->network_allowed || app->validation_only){error=ESP_ERR_NOT_SUPPORTED;goto invalid;}
+    if(ouse_memory_pressure()==OUSE_MEMORY_CRITICAL){error=ESP_ERR_NO_MEM;goto invalid;}
     if(argc!=1 || !JS_IsObject(argv[0]) || JS_IsNull(argv[0]))goto invalid;
     if(!net_string(context,argv[0],"url",url,sizeof(url),NULL) ||
        !net_string(context,argv[0],"method",method,sizeof(method),"GET") ||
@@ -188,6 +189,10 @@ static JSValue clock_get(JSContext *context,JSValueConst self,int argc,JSValueCo
     JS_SetPropertyStr(context,value,"utcMs",JS_NewFloat64(context,state.utc_ms));
     JS_SetPropertyStr(context,value,"valid",JS_NewBool(context,state.valid));
     JS_SetPropertyStr(context,value,"syncedThisBoot",JS_NewBool(context,state.synced_this_boot));
+    JS_SetPropertyStr(context,value,"syncing",JS_NewBool(context,state.syncing));
+    JS_SetPropertyStr(context,value,"failed",JS_NewBool(context,state.failed));
+    JS_SetPropertyStr(context,value,"online",JS_NewBool(context,state.online));
+    JS_SetPropertyStr(context,value,"attempts",JS_NewUint32(context,state.attempts));
     JS_SetPropertyStr(context,value,"lastSyncUptimeMs",JS_NewFloat64(context,state.last_sync_uptime_ms));
     JS_SetPropertyStr(context,value,"source",JS_NewString(context,"system-wall-clock"));return value;
 }
@@ -254,6 +259,9 @@ static JSValue files_api(JSContext *context,JSValueConst self,int argc,JSValueCo
         JS_SetPropertyStr(context,value,"detected",JS_NewBool(context,state.mounted ? state.present : card.detected));
         JS_SetPropertyStr(context,value,"present",JS_NewBool(context,state.present));
         JS_SetPropertyStr(context,value,"ready",JS_NewBool(context,state.ready));
+        JS_SetPropertyStr(context,value,"ejecting",JS_NewBool(context,state.ejecting));
+        JS_SetPropertyStr(context,value,"ejected",JS_NewBool(context,state.ejected));
+        JS_SetPropertyStr(context,value,"recovering",JS_NewBool(context,state.recovering));
         JS_SetPropertyStr(context,value,"busy",JS_NewBool(context,state.busy));
         JS_SetPropertyStr(context,value,"totalBytes",JS_NewFloat64(context,(double)state.total_bytes));
         JS_SetPropertyStr(context,value,"freeBytes",JS_NewFloat64(context,(double)state.free_bytes));
@@ -309,6 +317,7 @@ static JSValue files_api(JSContext *context,JSValueConst self,int argc,JSValueCo
         }
         JS_SetPropertyStr(context,value,"entries",entries);free(directory);return value;
     }
+    if(operation==6)return JS_NewBool(context,!app->validation_only && (app->files_allowed || app->sdcard_allowed) && ouse_files_recover()==ESP_OK);
     if(!app->files_allowed || app->validation_only)return JS_FALSE;
     if(operation==2)return JS_NewBool(context,ouse_files_refresh());
     char path[OUSE_FILES_PATH_MAX],url[OUSE_NET_URL_MAX+1];
@@ -321,6 +330,12 @@ static JSValue files_api(JSContext *context,JSValueConst self,int argc,JSValueCo
 static JSValue media_api(JSContext *context,JSValueConst self,int argc,JSValueConst *argv,int operation)
 {
     (void)self;instance_t *app=from_js(context);
+    if(operation==5){
+        char title[128],artist[128];
+        if(!app->media_allowed || app->validation_only || app->closed)return JS_FALSE;
+        if(argc!=1 || !JS_IsObject(argv[0]) || !net_string(context,argv[0],"title",title,sizeof(title),"") || !net_string(context,argv[0],"artist",artist,sizeof(artist),""))return JS_ThrowTypeError(context,"setInfo expects {title,artist}");
+        return JS_NewBool(context,ouse_media_set_info(app->id,title,artist)==ESP_OK);
+    }
     if(operation==4){
         ouse_media_state_t state;
         if(!app->media_allowed || !ouse_media_get(app->id,&state))return JS_NULL;
@@ -336,7 +351,7 @@ static JSValue media_api(JSContext *context,JSValueConst self,int argc,JSValueCo
 #undef MB
         return value;
     }
-    if(!app->media_allowed || app->validation_only)return JS_FALSE;
+    if(!app->media_allowed || app->validation_only || app->closed)return JS_FALSE;
     if(operation){
         if(argc)return JS_ThrowTypeError(context,"Media control expects no arguments");
         return JS_NewBool(context,(operation==3 ? ouse_media_stop(app->id) : ouse_media_pause(app->id,operation==1))==ESP_OK);
@@ -433,5 +448,7 @@ static JSValue system_capabilities(JSContext *context,JSValueConst self,int argc
     JS_SetPropertyStr(context,granted,"media",JS_NewBool(context,app->media_allowed));
     JS_SetPropertyStr(context,granted,"files",JS_NewBool(context,app->files_allowed));
     JS_SetPropertyStr(context,granted,"sdcard",JS_NewBool(context,app->sdcard_allowed));
+    JS_SetPropertyStr(context,granted,"camera",JS_NewBool(context,app->camera_allowed));
+    JS_SetPropertyStr(context,granted,"photos",JS_NewBool(context,app->photos_allowed));
     JS_SetPropertyStr(context,object,"granted",granted);return object;
 }

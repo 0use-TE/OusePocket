@@ -14,7 +14,7 @@ extern "C" {
 #define OUSE_TASK_OWNERS_MAX 12
 typedef struct { char app_id[48]; uint32_t instance; } ouse_task_owner_t;
 typedef enum { OUSE_TASK_WIFI, OUSE_TASK_AUDIO, OUSE_TASK_STORAGE, OUSE_TASK_SETTINGS, OUSE_TASK_PACKAGE,
-    OUSE_TASK_NETWORK, OUSE_TASK_ALARM } ouse_task_kind_t;
+    OUSE_TASK_NETWORK, OUSE_TASK_ALARM, OUSE_TASK_CAMERA } ouse_task_kind_t;
 typedef enum { OUSE_TASK_QUEUED, OUSE_TASK_RUNNING, OUSE_TASK_CANCELLING,
     OUSE_TASK_SUCCEEDED, OUSE_TASK_FAILED, OUSE_TASK_CANCELLED } ouse_task_state_t;
 typedef enum { OUSE_TASK_FINISH_ON_CLOSE, OUSE_TASK_STOP_ON_CLOSE } ouse_task_policy_t;

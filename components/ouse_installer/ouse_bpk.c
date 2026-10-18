@@ -161,7 +161,7 @@ static bool capabilities(JSContext *ctx,JSValue doc,ouse_bpk_t *p)
     if(valid)valid=JS_GetOwnPropertyNames(ctx,&keys,&count,caps,JS_GPN_STRING_MASK|JS_GPN_ENUM_ONLY)==0;
     for(uint32_t i=0;valid && i<count;++i){
         const char *key=JS_AtomToCString(ctx,keys[i].atom);
-        valid=key && (!strcmp(key,"background") || !strcmp(key,"notifications") || !strcmp(key,"network") || !strcmp(key,"media") || !strcmp(key,"alarms") || !strcmp(key,"files") || !strcmp(key,"sdcard"));
+        valid=key && (!strcmp(key,"background") || !strcmp(key,"notifications") || !strcmp(key,"network") || !strcmp(key,"media") || !strcmp(key,"alarms") || !strcmp(key,"files") || !strcmp(key,"sdcard") || !strcmp(key,"camera") || !strcmp(key,"photos") || !strcmp(key,"bluetooth") || !strcmp(key,"hid"));
         if(key)JS_FreeCString(ctx,key);
     }
     JSValue background=JS_GetPropertyStr(ctx,caps,"background");
@@ -172,8 +172,8 @@ static bool capabilities(JSContext *ctx,JSValue doc,ouse_bpk_t *p)
     valid=valid && (JS_IsUndefined(notifications) || JS_IsBool(notifications));
     if(valid)p->package.notifications_allowed=JS_ToBool(ctx,notifications)>0;
     JS_FreeValue(ctx,notifications);
-    const char *services[]={"network","media","alarms","files","sdcard"};
-    bool *allowed[]={&p->package.network_allowed,&p->package.media_allowed,&p->package.alarms_allowed,&p->package.files_allowed,&p->package.sdcard_allowed};
+    const char *services[]={"network","media","alarms","files","sdcard","camera","photos","bluetooth","hid"};
+    bool *allowed[]={&p->package.network_allowed,&p->package.media_allowed,&p->package.alarms_allowed,&p->package.files_allowed,&p->package.sdcard_allowed,&p->package.camera_allowed,&p->package.photos_allowed,&p->package.bluetooth_allowed,&p->package.hid_allowed};
     for(unsigned i=0;i<sizeof(services)/sizeof(services[0]);++i){JSValue value=JS_GetPropertyStr(ctx,caps,services[i]);
         valid=valid && (JS_IsUndefined(value) || JS_IsBool(value));
         if(valid)*allowed[i]=JS_ToBool(ctx,value)>0;
@@ -241,7 +241,7 @@ void ouse_bpk_free(ouse_bpk_t *p)
         free(p->page);free(p->script);free(p->icon_pixels);free(p);
     }
 }
-esp_err_t ouse_bpk_parse(const unsigned char *bytes,size_t length,ouse_bpk_t **output)
+static esp_err_t parse_package(const unsigned char *bytes,size_t length,ouse_bpk_t **output,bool metadata_only)
 {
     if(!output)return ESP_ERR_INVALID_ARG;
     *output=NULL;
@@ -291,6 +291,7 @@ esp_err_t ouse_bpk_parse(const unsigned char *bytes,size_t length,ouse_bpk_t **o
             if(size>maximum || (asset->type==BPK_ASSET_TEXT && !utf8(source,size)))goto fail;
             data_bytes+=size;if(data_bytes>OUSE_RUNTIME_DATA_BYTES_MAX)goto fail;
         }
+        if(metadata_only)continue;
         asset->data=ouse_psram_malloc(size+1);if(!asset->data){error=ESP_ERR_NO_MEM;goto fail;}
         memcpy(asset->data,source,size);asset->data[size]=0;asset->size=size;
         if(asset->type==BPK_ASSET_IMAGE){
@@ -300,16 +301,35 @@ esp_err_t ouse_bpk_parse(const unsigned char *bytes,size_t length,ouse_bpk_t **o
             .type=asset->type==BPK_ASSET_TEXT?OUSE_SCRIPT_ASSET_TEXT:OUSE_SCRIPT_ASSET_BINARY,.data=asset->data,.size=size};
     }
     const member_t *page=&files[find_file(files,count,"page.json")],*script=&files[find_file(files,count,"app.js")];
-    p->page=ouse_psram_malloc(page->size+1);p->script=ouse_psram_malloc(script->size+1);
-    if(!p->page || !p->script){error=ESP_ERR_NO_MEM;goto fail;}
-    memcpy(p->page,page->data,page->size);p->page[page->size]=0;
-    memcpy(p->script,script->data,script->size);p->script[script->size]=0;
-    p->package.id=p->id;p->package.name=p->name;p->package.page=p->page;p->package.script=p->script;p->package.api=1;
+    if(!metadata_only){
+        p->page=ouse_psram_malloc(page->size+1);p->script=ouse_psram_malloc(script->size+1);
+        if(!p->page || !p->script){error=ESP_ERR_NO_MEM;goto fail;}
+        memcpy(p->page,page->data,page->size);p->page[page->size]=0;
+        memcpy(p->script,script->data,script->size);p->script[script->size]=0;
+    }
+    p->package.id=p->id;p->package.name=p->name;p->package.page=metadata_only ? "" : p->page;p->package.script=metadata_only ? "" : p->script;p->package.api=1;
     p->package.name_zh=*p->name_zh?p->name_zh:NULL;p->package.name_en=*p->name_en?p->name_en:NULL;
     p->package.images=p->images;p->package.assets=p->assets;
     error=ouse_script_prepare(&p->state,&p->package,&p->definition);
     if(error!=ESP_OK)goto fail;
+    p->package.source_version=ouse_crc32(bytes,length);
     free(files);*output=p;return ESP_OK;
 fail:
     free(files);ouse_bpk_free(p);return error;
+}
+
+esp_err_t ouse_bpk_parse(const unsigned char *bytes,size_t length,ouse_bpk_t **output)
+{return parse_package(bytes,length,output,false);}
+esp_err_t ouse_bpk_catalog(const unsigned char *bytes,size_t length,ouse_bpk_t **output)
+{return parse_package(bytes,length,output,true);}
+
+esp_err_t ouse_bpk_make_lazy(ouse_bpk_t *p,
+    esp_err_t (*load)(const char *,uint32_t,const ouse_script_package_t **,void **),void (*release)(void *))
+{
+    if(!p || !load || !release || p->state.instance)return ESP_ERR_INVALID_ARG;
+    free(p->page);free(p->script);p->page=p->script=NULL;
+    for(unsigned index=0;index<p->asset_count;++index){free(p->asset_storage[index].data);p->asset_storage[index].data=NULL;}
+    p->asset_count=0;p->package.page=p->package.script=NULL;
+    p->package.image_count=p->package.asset_count=0;p->package.load=load;p->package.release=release;
+    return ouse_script_prepare(&p->state,&p->package,&p->definition);
 }

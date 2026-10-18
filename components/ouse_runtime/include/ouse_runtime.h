@@ -23,7 +23,7 @@ typedef struct {
     const unsigned char *data;
     size_t size;
 } ouse_script_asset_t;
-typedef struct {
+typedef struct ouse_script_package {
     const char *id, *name, *icon;
     unsigned api;
     const char *page, *script;
@@ -36,7 +36,10 @@ typedef struct {
     bool background_allowed; // manifest capabilities.background
     bool notifications_allowed; // manifest capabilities.notifications
     bool network_allowed; // manifest capabilities.network
-    bool media_allowed, alarms_allowed, files_allowed, sdcard_allowed;
+    bool media_allowed, alarms_allowed, files_allowed, sdcard_allowed,camera_allowed,photos_allowed,bluetooth_allowed,hid_allowed;
+    uint32_t source_version;
+    esp_err_t (*load)(const char *id,uint32_t version,const struct ouse_script_package **package,void **handle);
+    void (*release)(void *handle);
 } ouse_script_package_t;
 typedef struct { const ouse_script_package_t *package; void *instance; } ouse_script_app_t;
 typedef struct {
@@ -73,6 +76,7 @@ esp_err_t ouse_script_validate_begin(const ouse_script_package_t *package,ouse_s
 // Timeout leaves independent source copies with the worker until it finishes.
 esp_err_t ouse_script_validate_wait(ouse_script_validation_t *validation);
 void ouse_runtime_get_stats(ouse_runtime_stats_t *stats);
+void ouse_runtime_get_error(char *out,size_t capacity);
 // Cached worker-owned statistics; never walk a JS heap on the caller/UI task.
 void ouse_runtime_get_diagnostics(ouse_runtime_diagnostics_t *out);
 // Native asynchronous lease end. Unique instance ID prevents reopening races;

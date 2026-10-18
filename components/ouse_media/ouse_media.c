@@ -30,6 +30,7 @@ static struct {
     ouse_media_state_t state;
     bool claimed,producer_done,consumer_done,force_stop,cancelled;
     uint64_t consumed;
+    char title[128],artist[128];
 } session;
 static void lock(void){xSemaphoreTake(mutex,portMAX_DELAY);}
 static void unlock(void){xSemaphoreGive(mutex);}
@@ -46,8 +47,15 @@ static void notify_playback(void)
 {
     if(!session.state.active){(void)ouse_notifications_cancel(session.state.app_id,"ouse.media");return;}
     const char *title=session.state.interrupted ? "播放被闹铃占用" : session.state.paused ? "播放已暂停" : "正在播放";
-    const ouse_notification_request_t request={.id="ouse.media",.title=title,.body="点击返回播放控制",.payload="media",.ongoing=true};
+    const ouse_notification_request_t request={.id="ouse.media",.title=session.title[0] ? session.title : title,.body=session.state.paused || session.state.interrupted ? title : session.artist[0] ? session.artist : "正在播放",.payload="media",.ongoing=true};
     (void)ouse_notifications_publish(session.state.app_id,&request);
+}
+esp_err_t ouse_media_set_info(const char *app_id,const char *title,const char *artist)
+{
+    if(!mutex || !app_id || !title || !artist || strlen(title)>=sizeof(session.title) || strlen(artist)>=sizeof(session.artist))return ESP_ERR_INVALID_ARG;
+    lock();esp_err_t error=session.state.active && !strcmp(app_id,session.state.app_id) ? ESP_OK : ESP_ERR_INVALID_STATE;
+    if(error==ESP_OK){strcpy(session.title,title);strcpy(session.artist,artist);notify_playback();}
+    unlock();return error;
 }
 static void finish_if_stopped(void)
 {
@@ -98,7 +106,7 @@ static void worker(void *unused)
                         total+=count;if(total>128U*1024*1024){error=ESP_ERR_INVALID_SIZE;break;}
                         error=decode(source,buffer,count);vTaskDelay(1);
                     }
-                    fclose(file);
+                    ouse_files_close(file);
                 }
             }else if(source->url[0]){
                 ouse_http_request_t request={.url=source->url,.method="GET",.timeout_ms=15000};
@@ -194,6 +202,14 @@ esp_err_t ouse_media_purge(const char *app_id)
     if(!mutex)return ESP_OK;
     (void)ouse_media_stop(app_id);
     for(;;){lock();bool active=session.state.active && !strcmp(app_id,session.state.app_id);unlock();if(!active)return ESP_OK;vTaskDelay(1);}
+}
+esp_err_t ouse_media_stop_owner(const ouse_task_owner_t *owner)
+{
+    if(!owner || !mutex)return ESP_ERR_INVALID_ARG;
+    lock();uint32_t id=session.state.active ? session.state.task_id : 0;unlock();
+    ouse_task_snapshot_t task;
+    if(!id || !ouse_task_get(owner,id,&task))return ESP_ERR_NOT_FOUND;
+    return ouse_task_cancel(owner,id,"owner_close");
 }
 void ouse_media_consumer_started(uint32_t id)
 {lock();if(match(id))session.claimed=true;unlock();}

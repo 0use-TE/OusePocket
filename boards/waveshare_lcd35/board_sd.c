@@ -1,7 +1,9 @@
 #include "ouse_device_driver.h"
+#include "board_sd_bus.h"
 #include "ouse_notifications.h"
 #include "ouse_files.h"
 #include "driver/sdmmc_host.h"
+#include "driver/sd_host.h"
 #include "sdmmc_cmd.h"
 #include "sd_pwr_ctrl_by_on_chip_ldo.h"
 #include "esp_heap_caps.h"
@@ -11,6 +13,9 @@
 
 static sdmmc_card_t card;
 static sd_pwr_ctrl_handle_t power;
+static bool host_ready,slot_ready;
+static esp_err_t reprobe(void);
+extern sd_host_slot_handle_t sdmmc_get_slot_handle(int slot_id);
 static char layout[128]="not-probed";
 static const char *filesystem_kind(const unsigned char *sector)
 {
@@ -42,23 +47,37 @@ esp_err_t ouse_board_sd_format(const char *confirmation)
 
 void ouse_board_sd_probe(void)
 {
+    esp_err_t error=ouse_files_start(reprobe);
+    if(error==ESP_OK)(void)reprobe();
+    else ESP_LOGW("OuseSD","SD service startup failed: %s",esp_err_to_name(error));
+}
+static esp_err_t reprobe(void)
+{
     ouse_sd_state_t state={.probing=true};
     ouse_devices_publish_sd(&state);
     sd_pwr_ctrl_ldo_config_t supply={.ldo_chan_id=4};
-    esp_err_t error=sd_pwr_ctrl_new_on_chip_ldo(&supply,&power);
-    bool slot_ready=false;
+    esp_err_t error=power ? ESP_OK : sd_pwr_ctrl_new_on_chip_ldo(&supply,&power);
     sdmmc_host_t host=SDMMC_HOST_DEFAULT();
-    host.slot=SDMMC_HOST_SLOT_0;host.max_freq_khz=SDMMC_FREQ_DEFAULT;
+    host.slot=SDMMC_HOST_SLOT_0;host.max_freq_khz=10000;
+    host.unaligned_multi_block_rw_max_chunk_size=8;
     if(error==ESP_OK) {
         host.pwr_ctrl_handle=power;
-        error=sdmmc_host_init();
+        if(!host_ready){error=sdmmc_host_init();if(error==ESP_OK)host_ready=true;}
     }
-    if(error==ESP_OK) {
-        sdmmc_slot_config_t slot={.cd=SDMMC_SLOT_NO_CD,.wp=SDMMC_SLOT_NO_WP,.width=4};
-        error=sdmmc_host_init_slot(host.slot,&slot);
-        slot_ready=error==ESP_OK;
+    if(error==ESP_OK){
+        ouse_board_sd_bus_lock();
+        if(slot_ready){
+            error=sd_host_remove_slot(sdmmc_get_slot_handle(host.slot));
+            if(error==ESP_OK)slot_ready=false;
+        }
+        if(error==ESP_OK){
+            sdmmc_slot_config_t slot={.cd=SDMMC_SLOT_NO_CD,.wp=SDMMC_SLOT_NO_WP,.width=4};
+            error=sdmmc_host_init_slot(host.slot,&slot);
+            slot_ready=error==ESP_OK;
+        }
+        if(error==ESP_OK)error=sdmmc_card_init(&host,&card);
+        ouse_board_sd_bus_unlock();
     }
-    if(error==ESP_OK)error=sdmmc_card_init(&host,&card);
     if(error==ESP_OK) {
         state.detected=true;
         state.sector_bytes=card.csd.sector_size;
@@ -92,19 +111,20 @@ void ouse_board_sd_probe(void)
     ouse_devices_publish_sd(&state);
     if(error==ESP_OK) {
         esp_err_t mounted=ouse_files_init(&card);
+        error=mounted;
         ESP_LOGI("OuseSD","Identified: name=%s capacity=%llu sector=%lu; filesystem=%s; never format",
             state.name,(unsigned long long)state.capacity_bytes,(unsigned long)state.sector_bytes,esp_err_to_name(mounted));
         if(mounted!=ESP_OK){
             ouse_notification_request_t notification={.id="sd-filesystem",.title="SD 卡文件系统不可用",.body="未格式化。请检查文件系统是否受支持。"};
             (void)ouse_notifications_publish("ouse.settings",&notification);
         }
+        else{(void)ouse_notifications_cancel("ouse.settings","sd-filesystem");(void)ouse_notifications_cancel("ouse.settings","sd-probe");}
     } else {
         ESP_LOGW("OuseSD","Read-only probe failed: detected=%u error=%s; no format attempted",state.detected,esp_err_to_name(error));
         char body[128];snprintf(body,sizeof(body),"%s (%s). No format or data writes attempted.",
             state.detected ? "SD card identified but sector read failed" : "SD card could not be identified",esp_err_to_name(error));
         ouse_notification_request_t notification={.id="sd-probe",.title="SD 卡识别失败",.body=body};
         (void)ouse_notifications_publish("ouse.settings",&notification);
-        if(slot_ready)(void)sdmmc_host_deinit_slot(host.slot);
-        if(power){(void)sd_pwr_ctrl_del_on_chip_ldo(power);power=NULL;}
     }
+    return error;
 }

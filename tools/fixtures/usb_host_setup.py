@@ -98,7 +98,7 @@ static void usb_server(void) {
         if(c==5){fail_unlink=1;continue;}
         unsigned char byte=(unsigned char)c;consume_bytes(&byte,1);
     }
-    for(unsigned i=0;i<OUSE_APP_CAPACITY;++i)if(installed[i]){
+    for(unsigned i=0;i<installed_capacity;++i)if(installed[i]){
         assert(on_ui(2,NULL,installed[i]->id)==ESP_OK);ouse_bpk_free(installed[i]);installed[i]=NULL;
     }
     abort_upload();free(rx_line);vSemaphoreDelete(ui_done);

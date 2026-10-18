@@ -27,4 +27,7 @@ typedef struct {
     unsigned asset_count;
 } ouse_bpk_t;
 esp_err_t ouse_bpk_parse(const unsigned char *bytes,size_t length,ouse_bpk_t **output);
+esp_err_t ouse_bpk_catalog(const unsigned char *bytes,size_t length,ouse_bpk_t **output);
 void ouse_bpk_free(ouse_bpk_t *package);
+esp_err_t ouse_bpk_make_lazy(ouse_bpk_t *package,
+    esp_err_t (*load)(const char *,uint32_t,const ouse_script_package_t **,void **),void (*release)(void *));

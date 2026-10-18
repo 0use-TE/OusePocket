@@ -3,6 +3,10 @@ let leftMs = 0;
 let timerId = 0;
 let running = false;
 let label = "";
+let deadlineMs = 0;
+let ringing = false;
+let ringTimerId = 0;
+let toneTask = 0;
 const PRESETS = [
     null,
     [30000, "30秒"],
@@ -32,13 +36,14 @@ function formatSeconds(ms) {
 }
 function showTime() { Ouse.ui.setText("remain", formatSeconds(leftMs)); }
 function buttons() {
-    Ouse.ui.setEnabled("start", !running);
+    Ouse.ui.setEnabled("start", !running && !ringing);
     Ouse.ui.setEnabled("pause", running);
-    Ouse.ui.setEnabled("resume", !running && leftMs >= 1000);
-    Ouse.ui.setEnabled("cancel", running || leftMs > 0);
+    Ouse.ui.setEnabled("resume", !running && !ringing && leftMs >= 1000);
+    Ouse.ui.setEnabled("cancel", !ringing && (running || leftMs > 0));
+    Ouse.ui.setEnabled("preset", !ringing);
 }
 function syncBackground() {
-    if (running) {
+    if (running || ringing) {
         if (!Ouse.background.isActive()) Ouse.background.begin("countdown");
     } else if (Ouse.background.isActive()) Ouse.background.end();
 }
@@ -46,25 +51,47 @@ function clearTimer() {
     if (timerId) { Ouse.timers.clear(timerId); timerId = 0; }
     running = false;
 }
+function beep() {
+    if (!ringing) return;
+    const task = toneTask ? Ouse.tasks.get(toneTask) : null;
+    if (task && (task.state === "queued" || task.state === "running" || task.state === "cancelling")) return;
+    toneTask = Ouse.audio.alert() || 0;
+}
+function stopRinging() {
+    ringing = false;
+    if (ringTimerId) Ouse.timers.clear(ringTimerId);
+    ringTimerId = 0;
+    if (toneTask) Ouse.tasks.cancel(toneTask);
+    toneTask = 0;
+    Ouse.ui.hide("doneDialog");
+    Ouse.notifications.cancel("done");
+    buttons();
+    syncBackground();
+}
 function finish() {
     clearTimer();
     leftMs = 0;
+    ringing = true;
     showTime();
     buttons();
     syncBackground();
+    Ouse.ui.show("doneDialog");
+    beep();
+    ringTimerId = Ouse.timers.setInterval(beep, 1000);
     Ouse.notifications.publish({ id: "done", title: "时间到", body: label || "计时结束" });
 }
 function tick() {
-    leftMs -= 1000;
+    leftMs = Math.max(0, deadlineMs - Ouse.system.info().uptimeMs);
     if (leftMs <= 0) finish();
     else showTime();
 }
 function start(ms, name) {
-    if (ms < 1000) return;
+    if (ringing || ms < 1000) return;
     clearTimer();
     leftMs = ms;
     label = name;
     running = true;
+    deadlineMs = Ouse.system.info().uptimeMs + leftMs;
     showTime();
     buttons();
     Ouse.notifications.cancel("done");
@@ -82,7 +109,7 @@ function selectedPreset() {
     return index > 0 && index < PRESETS.length ? PRESETS[index] : null;
 }
 Ouse.ui.on("preset", "change", () => {
-    if (running) return;
+    if (running || ringing) return;
     const item = selectedPreset();
     if (!item) return;
     leftMs = item[0];
@@ -106,18 +133,23 @@ Ouse.ui.on("start", "click", () => {
 });
 Ouse.ui.on("pause", "click", () => {
     if (!running) return;
+    leftMs = Math.max(0, deadlineMs - Ouse.system.info().uptimeMs);
+    if (!leftMs) { finish(); return; }
     clearTimer();
+    showTime();
     buttons();
     syncBackground();
 });
 Ouse.ui.on("resume", "click", () => {
-    if (running || leftMs < 1000) return;
+    if (running || ringing || leftMs < 1000) return;
     running = true;
+    deadlineMs = Ouse.system.info().uptimeMs + leftMs;
     timerId = Ouse.timers.setInterval(tick, 1000);
     buttons();
     syncBackground();
 });
 Ouse.ui.on("cancel", "click", () => {
+    if (ringing) return;
     clearTimer();
     leftMs = 0;
     showTime();
@@ -125,9 +157,13 @@ Ouse.ui.on("cancel", "click", () => {
     syncBackground();
     Ouse.notifications.cancel("done");
 });
+Ouse.ui.on("confirmDone", "click", stopRinging);
+Ouse.notifications.onOpen(() => { if (ringing) Ouse.ui.show("doneDialog"); });
 globalThis.app = {
+    onResume() { if (ringing) Ouse.ui.show("doneDialog"); },
     onClose() {
         clearTimer();
+        stopRinging();
         if (Ouse.background.isActive()) Ouse.background.end();
     }
 };

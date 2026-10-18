@@ -53,11 +53,13 @@ esp_err_t ouse_storage_submit(ouse_storage_operation_t operation,const ouse_task
 // drain its previously accepted writes then delete only that app's private data.
 // Never call on the UI/JS task; completion has no deadline/lifetime ambiguity.
 esp_err_t ouse_storage_purge(const char *app_id);
+esp_err_t ouse_storage_measure(const char *app_id,size_t *bytes);
 // Queue a native stats refresh after package changes. Queries only copy cache.
 esp_err_t ouse_storage_refresh(void);
 esp_err_t ouse_storage_get_stats(ouse_storage_stats_t *out);
 // Includes queued/in-flight maintenance and purge, not just public task records.
 bool ouse_storage_idle(void);
+esp_err_t ouse_storage_launcher(bool write,const char *value,ouse_storage_complete_t complete,void *context);
 #ifdef __cplusplus
 }
 #endif

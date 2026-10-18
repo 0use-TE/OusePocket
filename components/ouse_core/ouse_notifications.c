@@ -131,6 +131,14 @@ unsigned ouse_notifications_count(const char *app_id)
 }
 uint32_t ouse_notifications_generation(void)
 { if(!lock())return 0;uint32_t value=notifications.generation;unlock();return value; }
+bool ouse_notifications_latest(ouse_notification_t *out)
+{
+    if(!out || !lock())return false;
+    const ouse_notification_t *latest=NULL;
+    for(unsigned index=0;index<notifications.count;++index)if(!latest || notifications.records[index].serial>latest->serial)latest=&notifications.records[index];
+    if(latest)*out=*latest;
+    unlock();return latest!=NULL;
+}
 esp_err_t ouse_notifications_dismiss(uint32_t serial)
 {
     if(!lock())return ESP_ERR_INVALID_STATE;

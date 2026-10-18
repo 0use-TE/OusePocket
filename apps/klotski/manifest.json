@@ -1,0 +1,1 @@
+{"runtime":"ouse-core","api":1,"id":"user.klotski","name":"Klotski","names":{"zh_CN":"华容道","en":"Klotski"},"icon":"icon.bin","capabilities":{"media":true},"assets":[{"id":"click","type":"binary","path":"assets/click.wav"},{"id":"win","type":"binary","path":"assets/win.wav"}]}

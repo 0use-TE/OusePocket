@@ -1,0 +1,5 @@
+{
+  "runtime":"ouse-core","api":1,"id":"user.camera","name":"Camera",
+  "names":{"zh_CN":"相机","en":"Camera"},"icon":"icon.bin",
+  "capabilities":{"camera":true,"files":true,"photos":true}
+}

@@ -194,9 +194,9 @@ def validate(data):
     for locale, value in names.items():
         _name(value, f"names.{locale}")
     capabilities = manifest.get("capabilities", {})
-    if (not isinstance(capabilities, dict) or set(capabilities) - {"background", "notifications", "network", "media", "alarms", "files", "sdcard"} or
+    if (not isinstance(capabilities, dict) or set(capabilities) - {"background", "notifications", "network", "media", "alarms", "files", "sdcard", "camera", "photos", "bluetooth", "hid"} or
             any(type(value) is not bool for value in capabilities.values())):
-        raise ValueError("capabilities supports only background/notifications/network/media/alarms/files/sdcard: true/false")
+        raise ValueError("capabilities supports only background/notifications/network/media/alarms/files/sdcard/camera/photos/bluetooth/hid: true/false")
     _icon(content["icon.bin"])
     assets = _assets(manifest)
     if set(content) != set(FILES) | {asset["path"] for asset in assets}:
@@ -285,7 +285,15 @@ def pack(source, output):
 
 
 def wire(token, sequence, verb, payload):
+    if not verb or len(verb) > 12 or any(char.isspace() for char in verb):
+        raise ValueError("Protocol command must contain 1-12 non-whitespace ASCII characters")
+    if not payload or any(char.isspace() for char in payload):
+        raise ValueError("Protocol payload must be nonempty and contain no whitespace")
+    if not 0 <= token <= 0xffffffff or not 0 <= sequence <= 0xffffffff:
+        raise ValueError("Protocol token and sequence must fit unsigned 32 bits")
     body = f"OPK1 {token:08x} {sequence:08x} {verb} {payload}".encode("ascii")
+    if len(body) + 9 >= 1200:
+        raise ValueError("Protocol frame exceeds the device limit")
     return body + f" {crc(body):08x}\n".encode("ascii")
 
 
@@ -307,6 +315,23 @@ def parse_reply(line, token, sequence):
 
 
 class Client:
+    def list_apps(self):
+        apps, offset = [], 0
+        while True:
+            try:
+                reply = self.request("LIST_PAGE", f"{offset:08x}")
+            except RuntimeError as error:
+                if offset == 0 and "ESP_ERR_NOT_SUPPORTED" in str(error):
+                    return [item for item in self.request("LIST").split(",") if item]
+                raise
+            cursor, values = reply.split(":", 1)
+            following = int(cursor, 16)
+            apps.extend(item for item in values.split(",") if item)
+            if not following:
+                return apps
+            if following <= offset:
+                raise RuntimeError("Invalid application catalog cursor")
+            offset = following
     def __init__(self, port, baud=921600):
         try:
             import serial
@@ -421,7 +446,7 @@ def main():
     try:
         hello = client.request("HELLO", timeout=10)
         if args.command == "sync":
-            installed = [item for item in client.request("LIST").split(",") if item]
+            installed = client.list_apps()
             active = ""
             alive = []
             if "debug=1" in hello:
@@ -438,7 +463,7 @@ def main():
             if args.open:
                 client.request("OPEN", app_id)
         elif args.command == "list":
-            print(client.request("LIST").replace(",", "\n"))
+            print("\n".join(client.list_apps()))
         else:
             if not re.fullmatch(r"user\.[a-z0-9._-]{1,42}", args.id):
                 parser.error("Application ID must be user.*")

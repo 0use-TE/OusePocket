@@ -31,6 +31,24 @@ static ouse_files_state_t state;
 static ouse_file_entry_t *entries;
 static FATFS *filesystem;
 static sdmmc_card_t *medium;
+static unsigned leases;
+static BYTE mounted_drive;
+static job_t eject_job;
+static job_t recover_job;
+static esp_err_t (*recover_handler)(void);
+static bool worker_started;
+static unsigned recover_attempts=3;
+static void lock(void);
+static void unlock(void);
+bool ouse_files_lease_begin(void)
+{
+    if(!mutex)return false;
+    lock();bool accepted=state.mounted && state.present && !state.ejecting && !state.ejected && !state.recovering;
+    if(accepted)++leases;
+    unlock();return accepted;
+}
+void ouse_files_lease_end(void)
+{if(mutex){lock();if(leases)--leases;unlock();}}
 static struct {FILE *file;char target[180],temporary[192];size_t expected,written;uint32_t expected_crc,crc;int64_t touched;} upload;
 static void lock(void){xSemaphoreTake(mutex,portMAX_DELAY);}
 static void unlock(void){xSemaphoreGive(mutex);}
@@ -45,7 +63,7 @@ bool ouse_files_path(const char *path,char *absolute,size_t capacity)
     const char *name=strchr(path,'/');if(!name || !name[1])return false;
     size_t category=(size_t)(name-path);
     if(!((category==5 && !strncmp(path,"Music",5)) || (category==5 && !strncmp(path,"Video",5)) ||
-         (category==8 && !strncmp(path,"Pictures",8)) || (category==9 && !strncmp(path,"Downloads",9))))return false;
+         (category==8 && !strncmp(path,"Pictures",8)) || (category==9 && !strncmp(path,"Downloads",9)) || (category==10 && !strncmp(path,"Recordings",10))))return false;
     ++name;if(*name=='.' || strstr(name,".."))return false;
     for(const unsigned char *cursor=(const unsigned char *)name;*cursor;++cursor)
         if(*cursor<32 || strchr("/\\:<>\"|?*",*cursor))return false;
@@ -70,14 +88,17 @@ FILE *ouse_files_open(const char *path)
 {
     char absolute[180];if(!ouse_files_path(path,absolute,sizeof(absolute)))return NULL;
     ouse_files_state_t snapshot;ouse_files_get(&snapshot);if(!snapshot.ready)return NULL;
-    return fopen(absolute,"rb");
+    if(!ouse_files_lease_begin())return NULL;
+    FILE *file=fopen(absolute,"rb");if(!file)ouse_files_lease_end();return file;
 }
+int ouse_files_close(FILE *file)
+{if(!file)return EOF;int result=fclose(file);ouse_files_lease_end();return result;}
 static int compare(const void *first,const void *second)
 {return strcmp(((const ouse_file_entry_t *)first)->path,((const ouse_file_entry_t *)second)->path);}
 static void scan(void)
 {
     ouse_file_entry_t *found=heap_caps_calloc(OUSE_FILES_TRACK_MAX,sizeof(*found),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
-    if(!found)return;
+    if(!found){lock();state.error=ESP_ERR_NO_MEM;state.ready=false;++state.revision;unlock();return;}
     unsigned count=0;DIR *directory=opendir(ROOT "/Music");esp_err_t error=directory ? ESP_OK : ESP_FAIL;
     if(directory){struct dirent *entry;
         while(count<OUSE_FILES_TRACK_MAX && (entry=readdir(directory))) {
@@ -139,7 +160,7 @@ esp_err_t ouse_files_checksum(const char *path,size_t *size,uint32_t *crc)
     unsigned char buffer[1024];size_t total=0,count;uint32_t value=UINT32_MAX;esp_err_t error=ESP_OK;
     while((count=fread(buffer,1,sizeof(buffer),file))){total+=count;if(total>FILE_LIMIT){error=ESP_ERR_INVALID_SIZE;break;}value=checksum(value,buffer,count);}
     if(ferror(file))error=ESP_FAIL;
-    fclose(file);if(error==ESP_OK){*size=total;*crc=value^UINT32_MAX;}return error;
+    ouse_files_close(file);if(error==ESP_OK){*size=total;*crc=value^UINT32_MAX;}return error;
 }
 esp_err_t ouse_files_upload_begin(const char *path,size_t size,uint32_t crc)
 {
@@ -186,24 +207,78 @@ static void download(job_t *job)
             esp_err_t saved=commit(file,temporary,target,complete);if(error==ESP_OK)error=saved;
             free(response);
         }
-        release();scan();
+        release();if(ouse_files_lease_begin()){scan();ouse_files_lease_end();}
     }
     bool stopped=ouse_task_cancel_requested(job->id);
     ouse_task_finish(job->id,stopped ? ESP_OK : error,stopped);
+}
+static esp_err_t unmount_medium(void)
+{
+    if(!state.mounted)return ESP_OK;
+    char name[3]={(char)('0'+mounted_drive),':',0};
+    if(f_mount(NULL,name,0)!=FR_OK)return ESP_FAIL;
+    esp_err_t error=esp_vfs_fat_unregister_path("/sdcard");
+    if(error!=ESP_OK)return error;
+    ff_diskio_register(mounted_drive,NULL);filesystem=NULL;medium=NULL;
+    lock();state.mounted=false;state.ready=false;state.count=0;unlock();return ESP_OK;
+}
+static void recover_medium(void)
+{
+    esp_err_t error=unmount_medium();
+    if(error==ESP_OK)error=recover_handler ? recover_handler() : ESP_ERR_NOT_SUPPORTED;
+    lock();state.recovering=false;state.busy=false;state.error=error;
+    if(error!=ESP_OK){state.ready=false;state.present=false;state.count=0;}
+    else{state.ejected=false;recover_attempts=0;}
+    ++state.revision;unlock();
 }
 static void worker(void *unused)
 {
     (void)unused;job_t *job;
     for(;;){
-        if(xQueueReceive(jobs,&job,pdMS_TO_TICKS(2000))==pdTRUE){if(job){download(job);free(job);}else scan();}
-        else if(medium){
+        bool timed_out=xQueueReceive(jobs,&job,pdMS_TO_TICKS(2000))!=pdTRUE;
+        if(!timed_out){
+            if(job==&recover_job)recover_medium();
+            else if(job==&eject_job){
+                esp_err_t error=unmount_medium();
+                lock();state.ejecting=false;state.ejected=error==ESP_OK;state.ready=false;
+                state.error=error;state.count=0;state.busy=false;++state.revision;unlock();
+            }else if(job){download(job);free(job);}
+            else if(ouse_files_lease_begin()){scan();ouse_files_lease_end();}
+        }
+        else if(medium && !state.ejected && !state.ejecting && !state.recovering){
             esp_err_t error=sdmmc_get_status(medium);
             if(error!=ESP_OK){lock();state.ready=false;state.present=false;state.error=error;state.count=0;++state.revision;unlock();}
         }
+        lock();bool retry=timed_out && recover_handler && !state.present && !state.ejected && !state.ejecting && !state.recovering && !state.busy && !leases && recover_attempts<3;
+        if(retry)++recover_attempts;
+        unlock();
+        if(retry)(void)ouse_files_recover();
     }
 }
 bool ouse_files_refresh(void)
-{job_t *job=NULL;return jobs && xQueueSend(jobs,&job,0)==pdTRUE;}
+{ouse_files_state_t current;ouse_files_get(&current);job_t *job=NULL;return jobs && !current.recovering && !current.ejecting && !current.ejected && xQueueSend(jobs,&job,0)==pdTRUE;}
+esp_err_t ouse_files_recover(void)
+{
+    if(!worker_started && recover_handler){esp_err_t error=ouse_files_start(NULL);if(error!=ESP_OK)return error;}
+    if(!jobs || !mutex || !recover_handler)return ESP_ERR_INVALID_STATE;
+    lock();esp_err_t error=state.busy || leases || state.ejecting || state.recovering ? ESP_ERR_INVALID_STATE : ESP_OK;
+    if(error==ESP_OK){
+        bool ready=state.ready;state.ready=false;state.recovering=true;state.busy=true;job_t *job=&recover_job;
+        if(xQueueSend(jobs,&job,0)!=pdTRUE){state.ready=ready;state.recovering=false;state.busy=false;error=ESP_ERR_NO_MEM;}
+        ++state.revision;
+    }
+    unlock();return error;
+}
+esp_err_t ouse_files_eject(void)
+{
+    if(!jobs || !mutex)return ESP_ERR_INVALID_STATE;
+    lock();esp_err_t error=!state.mounted || !state.ready || state.busy || leases || state.ejecting ? ESP_ERR_INVALID_STATE : ESP_OK;
+    if(error==ESP_OK){
+        state.ejecting=true;state.ready=false;state.busy=true;++state.revision;job_t *job=&eject_job;
+        if(xQueueSend(jobs,&job,0)!=pdTRUE){state.ejecting=false;state.ready=true;state.busy=false;error=ESP_ERR_NO_MEM;}
+    }
+    unlock();return error;
+}
 esp_err_t ouse_files_download(const ouse_task_owner_t *owner,const char *url,const char *path,uint32_t *id)
 {
     char absolute[180];ouse_http_request_t request={.url=url,.method="GET",.timeout_ms=15000};
@@ -218,7 +293,7 @@ esp_err_t ouse_files_download(const ouse_task_owner_t *owner,const char *url,con
 }
 esp_err_t ouse_files_format_unmounted(sdmmc_card_t *card)
 {
-    if(mutex || !card)return ESP_ERR_INVALID_STATE;
+    if(!card || state.mounted || state.busy || leases)return ESP_ERR_INVALID_STATE;
     BYTE drive;esp_err_t error=ff_diskio_get_drive(&drive);if(error!=ESP_OK)return error;
     char name[3]={(char)('0'+drive),':',0};
     ff_diskio_register_sdmmc(drive,card);
@@ -229,9 +304,21 @@ esp_err_t ouse_files_format_unmounted(sdmmc_card_t *card)
     heap_caps_free(work);ff_diskio_register(drive,NULL);
     return result==FR_OK ? ESP_OK : ESP_FAIL;
 }
+esp_err_t ouse_files_start(esp_err_t (*recover)(void))
+{
+    if(recover)recover_handler=recover;
+    if(worker_started)return ESP_OK;
+    if(!mutex)mutex=xSemaphoreCreateMutex();
+    if(!entries)entries=heap_caps_calloc(OUSE_FILES_TRACK_MAX,sizeof(*entries),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
+    if(!jobs)jobs=xQueueCreate(4,sizeof(job_t *));
+    if(!mutex || !entries || !jobs)return ESP_ERR_NO_MEM;
+    if(xTaskCreate(worker,"ouse_files",8192,NULL,2,NULL)!=pdPASS)return ESP_ERR_NO_MEM;
+    worker_started=true;return ESP_OK;
+}
 esp_err_t ouse_files_init(sdmmc_card_t *card)
 {
-    if(mutex || !card)return ESP_ERR_INVALID_STATE;
+    if(!card || state.mounted)return ESP_ERR_INVALID_STATE;
+    esp_err_t prepared=ouse_files_start(NULL);if(prepared!=ESP_OK)return prepared;
     BYTE drive;esp_err_t error=ff_diskio_get_drive(&drive);if(error!=ESP_OK)return error;
     char name[3]={(char)('0'+drive),':',0};
     ff_diskio_register_sdmmc(drive,card);ff_sdmmc_set_disk_status_check(drive,false);
@@ -240,23 +327,16 @@ esp_err_t ouse_files_init(sdmmc_card_t *card)
     if(error!=ESP_OK){ff_diskio_register(drive,NULL);return error;}
     state.mount_result=f_mount(filesystem,name,1);
     if(state.mount_result!=FR_OK){f_mount(NULL,name,0);esp_vfs_fat_unregister_path("/sdcard");ff_diskio_register(drive,NULL);state.error=ESP_FAIL;return ESP_FAIL;}
-    mutex=xSemaphoreCreateMutex();entries=heap_caps_calloc(OUSE_FILES_TRACK_MAX,sizeof(*entries),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
-    jobs=xQueueCreate(4,sizeof(job_t *));
-    if(!mutex || !entries || !jobs){error=ESP_ERR_NO_MEM;goto failed;}
-    const char *directories[]={ROOT,ROOT "/Music",ROOT "/Video",ROOT "/Pictures",ROOT "/Downloads"};
-    for(unsigned index=0;index<5;++index){struct stat info;
+    const char *directories[]={ROOT,ROOT "/Music",ROOT "/Video",ROOT "/Pictures",ROOT "/Downloads",ROOT "/Recordings"};
+    for(unsigned index=0;index<sizeof(directories)/sizeof(directories[0]);++index){struct stat info;
         if(stat(directories[index],&info)==0){if(!S_ISDIR(info.st_mode)){error=ESP_ERR_INVALID_STATE;goto failed;}}
         else if(mkdir(directories[index],0777)){error=ESP_FAIL;goto failed;}
     }
-    state.mounted=true;state.present=true;medium=card;scan();
-    if(xTaskCreate(worker,"ouse_files",8192,NULL,2,NULL)!=pdPASS){error=ESP_ERR_NO_MEM;goto failed;}
+    lock();state.mounted=true;state.present=true;state.ejected=false;medium=card;mounted_drive=drive;unlock();scan();
     if(ouse_sd_browser_init()!=ESP_OK)ESP_LOGW("OuseFiles","SD browser unavailable: no worker memory");
-    return ESP_OK;
+    lock();esp_err_t scanned=state.ready ? ESP_OK : state.error;if(scanned==ESP_OK)recover_attempts=0;unlock();
+    return scanned;
 failed:
-    if(jobs)vQueueDelete(jobs);
-    jobs=NULL;free(entries);entries=NULL;
-    if(mutex)vSemaphoreDelete(mutex);
-    mutex=NULL;
     f_mount(NULL,name,0);esp_vfs_fat_unregister_path("/sdcard");ff_diskio_register(drive,NULL);
-    state=(ouse_files_state_t){.error=error};return error;
+    lock();state.ready=false;state.mounted=false;state.error=error;++state.revision;unlock();return error;
 }

@@ -19,11 +19,13 @@ bool ouse_media_available(void);
 // Exactly one source: http(s) URL or copied package binary asset. First format
 // is WAV PCM16 mono/stereo 8..48kHz, converted to board 16kHz mono natively.
 // One global session; busy rejects, never silently replaces another app's song.
-// FINISH_ON_CLOSE: copied native session survives Home/instance close, no JS.
+// Native playback survives Home; the runtime stops it on explicit app close.
 esp_err_t ouse_media_play(const ouse_task_owner_t *owner,const char *url,const void *data,size_t size,uint32_t *id);
 bool ouse_media_get(const char *app_id,ouse_media_state_t *out);
+esp_err_t ouse_media_set_info(const char *app_id,const char *title,const char *artist);
 esp_err_t ouse_media_pause(const char *app_id,bool paused);
 esp_err_t ouse_media_stop(const char *app_id);
+esp_err_t ouse_media_stop_owner(const ouse_task_owner_t *owner);
 // Installer worker only, after closing an uninstalled app. Await actual cleanup.
 esp_err_t ouse_media_purge(const char *app_id);
 // Sole board codec consumer. No JS/UI pointers are ever exchanged.

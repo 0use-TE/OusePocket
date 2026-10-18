@@ -26,7 +26,7 @@
 #define STORAGE_TASK_STACK (10 * 1024)
 static const char *TAG="OuseStorage";
 
-enum { JOB_PURGE=OUSE_STORAGE_INFO+1, JOB_REFRESH };
+enum { JOB_PURGE=OUSE_STORAGE_INFO+1, JOB_REFRESH, JOB_MEASURE, JOB_LAUNCHER_GET, JOB_LAUNCHER_SET };
 typedef struct {
     int operation;
     char app_id[48],key[OUSE_STORAGE_KEY_MAX+1];
@@ -274,9 +274,31 @@ static esp_err_t clear_values(const char *app_id,unsigned *removed,bool purge)
     if(error==ESP_OK&&purge&&rmdir(parent)!=0&&errno!=ENOENT)error=ESP_FAIL;
     return error;
 }
+static esp_err_t launcher_value(storage_job_t *job,char **result)
+{
+    const char *path=OUSE_STORAGE_BASE "/launcher-order.v1",*temporary=OUSE_STORAGE_BASE "/launcher-order.tmp";
+    if(job->operation==JOB_LAUNCHER_GET){
+        struct stat info;
+        if(stat(path,&info)){if(errno!=ENOENT)return ESP_FAIL;*result=json_copy("");return *result ? ESP_OK : ESP_ERR_NO_MEM;}
+        if(!S_ISREG(info.st_mode) || info.st_size<0 || info.st_size>1024*1024)return ESP_ERR_INVALID_SIZE;
+        size_t size=(size_t)info.st_size;char *value=allocate(size+1);if(!value)return ESP_ERR_NO_MEM;
+        FILE *file=fopen(path,"rb");bool ok=file!=NULL;
+        if(file){ok=fread(value,1,size,file)==size&&!ferror(file);if(fclose(file))ok=false;}
+        if(!ok || memchr(value,0,size)){free(value);return ESP_ERR_INVALID_RESPONSE;}
+        value[size]=0;*result=value;return ESP_OK;
+    }
+    FILE *file=fopen(temporary,"wb");bool ok=file!=NULL;
+    if(file){ok=fwrite(job->value,1,job->value_size,file)==job->value_size;
+        if(fflush(file))ok=false;
+        if(fsync(fileno(file)))ok=false;
+        if(fclose(file))ok=false;}
+    if(!ok || rename(temporary,path)){unlink(temporary);return ESP_FAIL;}
+    return ESP_OK;
+}
 static esp_err_t execute(storage_job_t *job,char **result)
 {
     switch(job->operation) {
+    case JOB_LAUNCHER_GET:case JOB_LAUNCHER_SET:return launcher_value(job,result);
     case OUSE_STORAGE_GET:return read_value(job,result);
     case OUSE_STORAGE_SET:return write_value(job,result);
     case OUSE_STORAGE_REMOVE:return remove_value(job,result);
@@ -296,6 +318,7 @@ static esp_err_t execute(storage_job_t *job,char **result)
         *result=json_copy(text);return *result ? ESP_OK : ESP_ERR_NO_MEM;
     }
     case JOB_PURGE: {unsigned removed=0;return clear_values(job->app_id,&removed,true);}
+    case JOB_MEASURE: {app_scan_t scan;esp_err_t error=scan_app(job->app_id,&scan);if(error==ESP_OK)job->value_size=scan.bytes;return error;}
     default:return ESP_ERR_INVALID_ARG;
     }
 }
@@ -337,13 +360,13 @@ static void worker(void *unused)
         storage_job_t *job=NULL;
         if(xQueueReceive(jobs,&job,portMAX_DELAY)!=pdTRUE)continue;
         char *result=NULL;
-        bool tracked=job->complete!=NULL;
+        bool tracked=job->token!=0;
         bool claimed=!tracked || ouse_task_start(job->token,false);
         esp_err_t error=!claimed ? ESP_ERR_INVALID_STATE : job->operation==JOB_REFRESH ? ESP_OK : execute(job,&result);
         // Clear before scanning. A package change racing with this snapshot
         // can then queue another refresh instead of being silently coalesced
         // into a scan that has already passed the package directory.
-        atomic_store(&refresh_requested,false);refresh_stats(error);
+        if(job->operation!=JOB_MEASURE){atomic_store(&refresh_requested,false);refresh_stats(error);}
         if(tracked){
             ouse_task_result_t summary={.present=claimed && error==ESP_OK,.value.storage={.json_bytes=result ? strlen(result) : 0}};
             ouse_task_finish_result(job->token,error,!claimed,&summary);
@@ -405,6 +428,20 @@ esp_err_t ouse_storage_submit(ouse_storage_operation_t operation,const ouse_task
     if(!enqueue(job,0)){ouse_task_hold_result(job->token,false);ouse_task_finish(job->token,ESP_ERR_NO_MEM,false);free(job->value);free(job);return ESP_ERR_NO_MEM;}
     return ESP_OK;
 }
+esp_err_t ouse_storage_launcher(bool write,const char *value,ouse_storage_complete_t complete,void *context)
+{
+    if(!complete || (write && !value))return ESP_ERR_INVALID_ARG;
+    size_t size=write ? strnlen(value,1024*1024+1) : 0;
+    if(size>1024*1024)return ESP_ERR_INVALID_SIZE;
+    ouse_storage_stats_t snapshot;ouse_storage_get_stats(&snapshot);if(!snapshot.ready)return ESP_ERR_INVALID_STATE;
+    storage_job_t *job=calloc(1,sizeof(*job));if(!job)return ESP_ERR_NO_MEM;
+    job->operation=write ? JOB_LAUNCHER_SET : JOB_LAUNCHER_GET;job->complete=complete;job->context=context;
+    if(write){job->value=allocate(size+1);if(!job->value){free(job);return ESP_ERR_NO_MEM;}memcpy(job->value,value,size+1);job->value_size=size;}
+    if(!ouse_tasks_submission_begin()){free(job->value);free(job);return ESP_ERR_INVALID_STATE;}
+    bool accepted=enqueue(job,0);ouse_tasks_submission_end();
+    if(!accepted){free(job->value);free(job);return ESP_ERR_NO_MEM;}
+    return ESP_OK;
+}
 esp_err_t ouse_storage_purge(const char *app_id)
 {
     if(!valid_app(app_id))return ESP_ERR_INVALID_ARG;
@@ -415,6 +452,18 @@ esp_err_t ouse_storage_purge(const char *app_id)
     if(!job->barrier){free(job);return ESP_ERR_NO_MEM;}
     enqueue(job,portMAX_DELAY);xSemaphoreTake(job->barrier,portMAX_DELAY);
     esp_err_t error=job->barrier_error;vSemaphoreDelete(job->barrier);free(job);return error;
+}
+esp_err_t ouse_storage_measure(const char *app_id,size_t *bytes)
+{
+    if(!bytes || !valid_app(app_id))return ESP_ERR_INVALID_ARG;
+    if(xTaskGetCurrentTaskHandle()==storage_task)return ESP_ERR_INVALID_STATE;
+    ouse_storage_stats_t state;ouse_storage_get_stats(&state);if(!state.ready)return ESP_ERR_INVALID_STATE;
+    storage_job_t *job=calloc(1,sizeof(*job));if(!job)return ESP_ERR_NO_MEM;
+    job->operation=JOB_MEASURE;strcpy(job->app_id,app_id);job->barrier=xSemaphoreCreateBinary();
+    if(!job->barrier){free(job);return ESP_ERR_NO_MEM;}
+    enqueue(job,portMAX_DELAY);xSemaphoreTake(job->barrier,portMAX_DELAY);
+    esp_err_t error=job->barrier_error;if(error==ESP_OK)*bytes=job->value_size;
+    vSemaphoreDelete(job->barrier);free(job);return error;
 }
 esp_err_t ouse_storage_refresh(void)
 {

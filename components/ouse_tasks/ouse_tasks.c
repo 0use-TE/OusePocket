@@ -73,7 +73,7 @@ void ouse_task_owner_close(const ouse_task_owner_t *owner)
 esp_err_t ouse_task_create(const ouse_task_owner_t *owner,ouse_task_kind_t kind,
     const char *operation,ouse_task_policy_t policy,bool cancellable,uint32_t *id)
 {
-    if((unsigned)kind>OUSE_TASK_ALARM || (unsigned)policy>OUSE_TASK_STOP_ON_CLOSE || !owner || !operation || !id || strnlen(owner->app_id,48)>=48 || !*operation || strnlen(operation,24)>=24)return ESP_ERR_INVALID_ARG;
+    if((unsigned)kind>OUSE_TASK_CAMERA || (unsigned)policy>OUSE_TASK_STOP_ON_CLOSE || !owner || !operation || !id || strnlen(owner->app_id,48)>=48 || !*operation || strnlen(operation,24)>=24)return ESP_ERR_INVALID_ARG;
     esp_err_t result=ESP_ERR_NO_MEM;unsigned active=0,owned=0;
     ouse_task_snapshot_t *slot=NULL,*oldest=NULL;
     portENTER_CRITICAL(&registry_lock);
@@ -190,7 +190,7 @@ void ouse_tasks_set_notify(void (*notify)(void))
 const char *ouse_task_state_name(ouse_task_state_t state)
 {static const char *names[]={"queued","running","cancelling","succeeded","failed","cancelled"};return (unsigned)state<6 ? names[state] : "unknown";}
 const char *ouse_task_kind_name(ouse_task_kind_t kind)
-{static const char *names[]={"wifi","audio","storage","settings","package","network","alarm"};return (unsigned)kind<7 ? names[kind] : "unknown";}
+{static const char *names[]={"wifi","audio","storage","settings","package","network","alarm","camera"};return (unsigned)kind<8 ? names[kind] : "unknown";}
 void ouse_tasks_quiesce(bool enabled)
 {portENTER_CRITICAL(&registry_lock);registry.quiescing=enabled;portEXIT_CRITICAL(&registry_lock);}
 bool ouse_tasks_quiescing(void)

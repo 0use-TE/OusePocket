@@ -9,7 +9,16 @@
 #include "ouse_media.h"
 #include "ouse_metrics.h"
 #include "ouse_usb.h"
+#include "ouse_ble.h"
 #include "esp_netif.h"
+#include "esp_rom_sys.h"
+
+static void allocation_failed(size_t bytes,uint32_t caps,const char *function)
+{
+    static unsigned failures;
+    unsigned count=__atomic_add_fetch(&failures,1,__ATOMIC_RELAXED);
+    if(count<=16 || count%128==0)esp_rom_printf("[OuseMemory] allocation failed: bytes=%u caps=0x%lx function=%s count=%u\n",(unsigned)bytes,(unsigned long)caps,function,count);
+}
 
 static esp_err_t save_brightness(void *context, uint8_t percent)
 {
@@ -39,6 +48,7 @@ static esp_err_t save_ui(void *context,uint8_t locale,uint8_t percent)
 
 void app_main(void)
 {
+    (void)heap_caps_register_failed_alloc_callback(allocation_failed);
     extern void ouse_fault_report_previous(void);
     ESP_LOGI("OuseCore", "Starting core %s; API %d; reset reason %d",
              ouse_core_version(), OUSE_CORE_API_VERSION, esp_reset_reason());
@@ -74,6 +84,12 @@ void app_main(void)
     if(network_error!=ESP_OK)ESP_LOGW("OuseNet","Request service unavailable: %s",esp_err_to_name(network_error));
     esp_err_t media_error=ouse_media_init();
     if(media_error!=ESP_OK)ESP_LOGW("OuseMedia","Playback service unavailable: %s",esp_err_to_name(media_error));
+    extern esp_err_t ouse_recorder_init(void);
+    esp_err_t recorder_error=ouse_recorder_init();
+    if(recorder_error!=ESP_OK)ESP_LOGW("OuseRecorder","Recording service unavailable: %s",esp_err_to_name(recorder_error));
+    extern esp_err_t ouse_board_radio_prepare(void);
+    esp_err_t bluetooth_error=ouse_ble_start(ouse_board_radio_prepare);
+    if(bluetooth_error!=ESP_OK)ESP_LOGW("OuseBLE","Bluetooth service unavailable: %s",esp_err_to_name(bluetooth_error));
     esp_err_t installer_error=ouse_installer_start();
     if(installer_error!=ESP_OK) ESP_LOGE("OuseInstaller","UART installer unavailable: %s",esp_err_to_name(installer_error));
     esp_err_t usb_error=ouse_usb_start();

@@ -1,0 +1,5 @@
+{
+  "runtime":"ouse-core","api":1,"id":"user.recorder","name":"Recorder",
+  "names":{"zh_CN":"录音机","en":"Recorder"},"icon":"icon.bin",
+  "capabilities":{"files":true,"media":true}
+}

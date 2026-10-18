@@ -6,6 +6,7 @@
 #include "ouse_dialog.h"
 #include "ouse_screen.h"
 #include "ouse_ime.h"
+#include "ouse_clock.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -14,7 +15,7 @@ static struct {
     lv_obj_t *wifi,*wifi_switch,*networks,*network_group,*available_heading,*scan,*empty;
     lv_obj_t *current_heading,*current,*current_title,*current_detail,*current_signal;
     lv_obj_t *popup,*form,*ssid,*password,*popup_title,*popup_note;
-    lv_obj_t *details,*details_ssid,*details_ip,*details_signal;
+    lv_obj_t *details,*details_ssid,*details_ip,*details_signal,*details_time;
     lv_obj_t *usb_switch,*usb_network,*usb_audio_row,*usb_network_row;
     ouse_wifi_ap_t aps[OUSE_WIFI_AP_MAX];
     ouse_wifi_state_t wifi_state;
@@ -215,6 +216,8 @@ static void build_details(lv_obj_t *page)
     lv_obj_remove_flag(row,LV_OBJ_FLAG_CLICKABLE);lv_obj_delete(lv_obj_get_child(row,-1));
     row=ouse_widget_row(card,NULL,"信号强度","",NULL,NULL,&ui.details_signal);
     lv_obj_remove_flag(row,LV_OBJ_FLAG_CLICKABLE);lv_obj_delete(lv_obj_get_child(row,-1));
+    row=ouse_widget_row(card,NULL,"时间同步","",NULL,NULL,&ui.details_time);
+    lv_obj_remove_flag(row,LV_OBJ_FLAG_CLICKABLE);lv_obj_delete(lv_obj_get_child(row,-1));
     row=ouse_widget_box(card,OUSE_STYLE_PANEL,0);lv_obj_set_size(row,LV_PCT(100),LV_SIZE_CONTENT);
     lv_obj_set_style_pad_column(row,ouse_ui_dp(8),0);lv_obj_set_flex_flow(row,LV_FLEX_FLOW_ROW_WRAP);
     ouse_widget_button(row,"断开连接",disconnect_event,NULL);ouse_widget_button(row,"忘记网络",forget_event,NULL);
@@ -348,6 +351,8 @@ void ouse_device_ui_refresh(void)
         if(w.connected) {
             raw_text(ui.details_ssid,w.ssid);raw_text(ui.details_ip,w.ip);
             snprintf(text,sizeof(text),"%d dBm",w.rssi);raw_text(ui.details_signal,text);
+            ouse_clock_state_t clock;ouse_clock_get(&clock);
+            raw_text(ui.details_time,clock.syncing ? "正在同步" : clock.failed ? "同步失败，将重试" : clock.synced_this_boot ? "已同步" : "未同步");
         }
         // Periodic status reads leave the list and its hit targets intact. Only
         // list content, current-network identity or UI metrics can replace rows.

@@ -13,14 +13,15 @@ static int checked_rename(const char *a,const char *b){if(fail_rename){errno=EIO
 #define OUSE_UNINSTALL_DIRECTORY "journal-data"
 #include "JOURNAL_SOURCE"
 #undef rename
-typedef struct {char id[48];} package_t;
+typedef struct {char id[48];struct {bool alarms_allowed;} package;} package_t;
 static package_t *installed[8];
-static char pending_remove[48];
+static char pending_remove[48],pending_reset[48];
+static bool locked;
 static esp_err_t recovery_error;
 static int failure,media_calls,alarm_calls,storage_calls;
 static int find_package(const char *id){return installed[0]&&!strcmp(installed[0]->id,id) ? 0 : -1;}
-static esp_err_t on_ui(int action,void *p,const char *id){assert(action==2&&!p&&!strcmp(id,"user.a"));return failure==1 ? ESP_FAIL : ESP_ERR_NOT_FOUND;}
-static void ouse_alarm_register_app(const char *id,bool allowed){assert(!allowed&&!strcmp(id,"user.a"));}
+static esp_err_t on_ui(int action,void *p,const char *id){assert((action==2||action==4||action==5)&&!p&&!strcmp(id,"user.a"));if(failure==1 || (action==5 && failure==5))return ESP_FAIL;if(action==4)locked=true;if(action==5)locked=false;return action==2 ? ESP_ERR_NOT_FOUND : ESP_OK;}
+static void ouse_alarm_register_app(const char *id,bool allowed){(void)allowed;assert(!strcmp(id,"user.a"));}
 static void path_for(const char *id,char path[128]){snprintf(path,128,"journal-data/%s.bpk",id);}
 static esp_err_t ouse_media_purge(const char *id){(void)id;++media_calls;return failure==2 ? ESP_FAIL : ESP_OK;}
 static esp_err_t ouse_alarm_purge(const char *id){(void)id;++alarm_calls;return failure==3 ? ESP_FAIL : ESP_OK;}
@@ -30,7 +31,7 @@ static esp_err_t ouse_storage_refresh(void){return ESP_OK;}
 /* UNINSTALL_FINISH */
 int main(void)
 {
-    _mkdir("journal-data");_unlink("journal-data/remove.pending");_unlink("journal-data/remove.tmp");char id[48];
+    _mkdir("journal-data");_unlink("journal-data/remove.pending");_unlink("journal-data/remove.tmp");_unlink("journal-data/reset.pending");_unlink("journal-data/reset.tmp");char id[48];
     assert(ouse_uninstall_intent_read(id)==ESP_ERR_NOT_FOUND);
     assert(ouse_uninstall_intent_write("../../bad")==ESP_ERR_INVALID_ARG);
     fail_rename=true;assert(ouse_uninstall_intent_write("user.a")==ESP_FAIL);assert(ouse_uninstall_intent_read(id)==ESP_ERR_NOT_FOUND);fail_rename=false;
@@ -48,5 +49,17 @@ int main(void)
     FILE *f=fopen("journal-data/remove.pending","r+b");assert(f);fseek(f,12,SEEK_SET);fputc('!',f);fclose(f);
     assert(ouse_uninstall_intent_read(id)==ESP_ERR_INVALID_STATE);assert(ouse_uninstall_intent_write("user.a")==ESP_ERR_INVALID_STATE);
     assert(_access("journal-data/remove.pending",0)==0);_unlink("journal-data/remove.pending");
-    puts("PASS journal: actual disk schema/CRC/failed commit preservation and real uninstall cleanup retries across each service failure");
+    for(int stage=1;stage<=5;++stage){
+        installed[0]=calloc(1,sizeof(package_t));strcpy(installed[0]->id,"user.a");installed[0]->package.alarms_allowed=true;
+        FILE *file=fopen("journal-data/user.a.bpk","wb");assert(file);fputs("package",file);fclose(file);
+        assert(ouse_reset_intent_write("user.a")==ESP_OK);assert(ouse_reset_intent_write("user.b")==ESP_ERR_INVALID_STATE);strcpy(pending_reset,"user.a");
+        failure=stage;assert(finish_reset("user.a")==ESP_FAIL);assert(installed[0] && _access("journal-data/user.a.bpk",0)==0 && pending_reset[0]);
+        assert(ouse_reset_intent_read(id)==(stage==5 ? ESP_ERR_NOT_FOUND : ESP_OK));
+        failure=0;assert(finish_reset("user.a")==ESP_OK);assert(installed[0] && !locked && !pending_reset[0]);assert(ouse_reset_intent_read(id)==ESP_ERR_NOT_FOUND);
+        free(installed[0]);installed[0]=NULL;
+    }
+    assert(ouse_reset_intent_write("user.a")==ESP_OK);assert(ouse_uninstall_intent_read(id)==ESP_ERR_NOT_FOUND);
+    FILE *reset=fopen("journal-data/reset.pending","r+b");assert(reset);fseek(reset,20,SEEK_SET);fputc('!',reset);fclose(reset);
+    assert(ouse_reset_intent_read(id)==ESP_ERR_INVALID_STATE);_unlink("journal-data/reset.pending");_unlink("journal-data/user.a.bpk");
+    puts("PASS journal: CRC/failed commits, uninstall retries, separate reset intent, preserved package, reopen lock and cleanup retry at every failure stage");
 }

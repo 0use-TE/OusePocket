@@ -112,8 +112,8 @@ def gb2312_codepoints():
 
 
 def source_copy():
-    names = ['ouse_core.c', 'ouse_shell.c', 'ouse_widgets.c', 'ouse_device_ui.c',
-             'ouse_dialog.c', 'ouse_screen.c', 'ouse_navigation.cpp', 'ouse_health_ui.c']
+    names = ['ouse_core.c', 'ouse_launcher.inc', 'ouse_bluetooth_ui.inc', 'ouse_shell.c', 'ouse_widgets.c', 'ouse_device_ui.c',
+             'ouse_dialog.c', 'ouse_screen.c', 'ouse_navigation.cpp', 'ouse_health_ui.c', 'ouse_app_manager_ui.c']
     paths = [DEST.parent / name for name in names]
     paths += sorted(path for path in (ROOT / 'apps').rglob('*') if path.suffix in {'.js', '.json'})
     paths += [ROOT / 'components/ouse_runtime/ouse_runtime.c',

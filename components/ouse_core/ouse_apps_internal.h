@@ -11,3 +11,4 @@ esp_err_t ouse_apps_background_fast(void);
 esp_err_t ouse_apps_user_check(const char *id);
 esp_err_t ouse_apps_user_apply(const ouse_app_definition_t *definition);
 esp_err_t ouse_apps_user_remove(const char *id);
+esp_err_t ouse_apps_user_maintenance(const char *id,bool enabled);

@@ -5,6 +5,9 @@
 #include "ouse_ime.h"
 #include "ouse_tasks.h"
 #include "ouse_memory.h"
+#include "ouse_memory_pressure.h"
+#include "ouse_shell.h"
+#include "ouse_dialog.h"
 #include <string.h>
 #include <stdio.h>
 #include "esp_log.h"
@@ -19,7 +22,7 @@ typedef struct {
     lv_draw_buf_t *preview;
     lv_image_dsc_t image;
     uint32_t preview_generation;
-    bool preview_deferred;
+    bool preview_deferred,maintenance;
     uint64_t touched;
     void *context;
 } entry_t;
@@ -28,13 +31,25 @@ static struct {
     uint64_t serial;
     void (*changed)(bool);
     entry_t *entries;
-    unsigned count;
+    unsigned count,capacity;
     int active;
     int host_y;
     bool skip_preview;
     bool sealed, transitioning;
     uint32_t opened, closed, failed;
 } apps;
+
+static esp_err_t reserve_entries(unsigned count)
+{
+    if(count<=apps.capacity)return ESP_OK;
+    unsigned capacity=apps.capacity ? apps.capacity*2 : 8;
+    if(capacity<count)capacity=count;
+    if(capacity<count || capacity>SIZE_MAX/sizeof(entry_t))return ESP_ERR_NO_MEM;
+    entry_t *entries=ouse_psram_calloc(capacity,sizeof(*entries));
+    if(!entries)return ESP_ERR_NO_MEM;
+    if(apps.count)memcpy(entries,apps.entries,apps.count*sizeof(*entries));
+    free(apps.entries);apps.entries=entries;apps.capacity=capacity;return ESP_OK;
+}
 
 esp_err_t ouse_apps_validate(const ouse_app_definition_t *app)
 {
@@ -82,8 +97,7 @@ esp_err_t ouse_apps_init(lv_obj_t *host, void (*changed)(bool))
 {
     if (!host || !changed) return ESP_ERR_INVALID_ARG;
     if (apps.host) return ESP_ERR_INVALID_STATE;
-    apps.entries=ouse_psram_calloc(OUSE_APP_CAPACITY,sizeof(*apps.entries));
-    if(!apps.entries)return ESP_ERR_NO_MEM;
+    if(reserve_entries(8)!=ESP_OK)return ESP_ERR_NO_MEM;
     lv_obj_update_layout(host);
     apps.host = host; apps.changed = changed; apps.active = -1;apps.host_y=lv_obj_get_y(host);
     lv_obj_add_flag(host, LV_OBJ_FLAG_HIDDEN);
@@ -97,7 +111,7 @@ esp_err_t ouse_apps_register(const ouse_app_definition_t *app)
     if (!apps.host || apps.sealed) return ESP_ERR_INVALID_STATE;
     for (unsigned i = 0; i < apps.count; ++i)
         if (!strcmp(apps.entries[i].info.id, app->id)) return ESP_ERR_INVALID_STATE;
-    if (apps.count == OUSE_APP_CAPACITY) return ESP_ERR_NO_MEM;
+    if (reserve_entries(apps.count+1)!=ESP_OK) return ESP_ERR_NO_MEM;
     entry_t *entry = &apps.entries[apps.count++];
     copy_definition(entry,app);
     ESP_LOGI("OuseApps", "Registered: %s", entry->info.id);
@@ -132,6 +146,7 @@ bool ouse_app_back(void)
 }
 static void capture_preview(entry_t *entry)
 {
+    if(ouse_memory_pressure()!=OUSE_MEMORY_NORMAL){free_preview(entry);entry->preview_deferred=false;return;}
     bool host_hidden=lv_obj_has_flag(apps.host,LV_OBJ_FLAG_HIDDEN);
     bool root_hidden=lv_obj_has_flag(entry->root,LV_OBJ_FLAG_HIDDEN);
     lv_obj_remove_flag(apps.host,LV_OBJ_FLAG_HIDDEN);
@@ -177,7 +192,20 @@ esp_err_t ouse_app_open(const char *id)
     if (!apps.host || !apps.sealed || apps.transitioning) return ESP_ERR_INVALID_STATE;
     int index=find(id);
     if (index<0) return ESP_ERR_NOT_FOUND;
+    if(apps.entries[index].maintenance)return ESP_ERR_INVALID_STATE;
     if (apps.active==index) return ESP_OK;
+    if(!apps.entries[index].root && ouse_memory_pressure()!=OUSE_MEMORY_NORMAL){
+        ouse_shell_foreground();
+        for(unsigned current=0;current<apps.count;++current)free_preview(&apps.entries[current]);
+#if LV_CACHE_DEF_SIZE > 0
+        lv_image_cache_drop(NULL);
+#endif
+        if(ouse_memory_pressure()==OUSE_MEMORY_CRITICAL && strcmp(id,"ouse.settings")){
+            ++apps.failed;
+            ouse_dialog_show(ouse_ui_locale() ? "Low memory. Close unused apps and retry." : "内存不足，请关闭部分应用后重试。",NULL,NULL);
+            return ESP_ERR_NO_MEM;
+        }
+    }
     apps.transitioning=true;
     background_instance();
     entry_t *entry=&apps.entries[index];
@@ -219,6 +247,9 @@ esp_err_t ouse_app_open(const char *id)
 esp_err_t ouse_app_background(void)
 {
     if (!apps.host || !apps.sealed || apps.transitioning) return ESP_ERR_INVALID_STATE;
+#if CONFIG_OUSE_DEVICE_DEBUG
+    if(apps.active>=0)ESP_LOGI("OuseApps","Background source: %p",__builtin_return_address(0));
+#endif
     apps.transitioning=true;
     background_instance();
     lv_obj_add_flag(apps.host,LV_OBJ_FLAG_HIDDEN);
@@ -332,7 +363,7 @@ esp_err_t ouse_apps_user_check(const char *id)
     for(const char *p=id;*p;++p)
         if(!((*p>='a' && *p<='z') || (*p>='0' && *p<='9') || *p=='.' || *p=='_' || *p=='-'))return ESP_ERR_INVALID_ARG;
     if(!apps.host || !apps.sealed || apps.transitioning)return ESP_ERR_INVALID_STATE;
-    return find(id)>=0 || apps.count<OUSE_APP_CAPACITY ? ESP_OK : ESP_ERR_NO_MEM;
+    return find(id)>=0 ? ESP_OK : reserve_entries(apps.count+1);
 }
 esp_err_t ouse_apps_user_apply(const ouse_app_definition_t *definition)
 {
@@ -358,4 +389,12 @@ esp_err_t ouse_apps_user_remove(const char *id)
     --apps.count;memset(&apps.entries[apps.count],0,sizeof(entry_t));
     if(apps.active>index)--apps.active;
     return ESP_OK;
+}
+esp_err_t ouse_apps_user_maintenance(const char *id,bool enabled)
+{
+    esp_err_t error=ouse_apps_user_check(id);if(error!=ESP_OK)return error;
+    int index=find(id);if(index<0)return ESP_ERR_NOT_FOUND;
+    apps.entries[index].maintenance=enabled;
+    if(enabled){error=ouse_app_close_id(id);if(error!=ESP_OK)apps.entries[index].maintenance=false;}
+    return error;
 }

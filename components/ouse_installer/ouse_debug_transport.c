@@ -8,6 +8,7 @@
 #include "ouse_usb.h"
 #include "ouse_devices.h"
 #include "ouse_files.h"
+#include "ouse_ble.h"
 #include "ouse_protocol.h"
 #include "esp_heap_caps.h"
 #include "esp_attr.h"
@@ -25,6 +26,7 @@
 #include <stdarg.h>
 
 #if CONFIG_OUSE_DEVICE_DEBUG
+extern esp_err_t ouse_board_debug_ble_probe(char *out,size_t capacity) __attribute__((weak));
 // Optional board diagnostic: the installer remains independent of any BSP.
 extern esp_err_t ouse_board_debug_lcd_transfer(int enabled, bool *current_enabled,
                                               uint32_t *skipped) __attribute__((weak));
@@ -323,6 +325,8 @@ esp_err_t ouse_debug_command(const char *verb,const char *payload,char *out,size
         if(error==ESP_OK)snprintf(out,cap,"formatted=FAT32");
         return error;
     }
+    if(!strcmp(verb,"DBG_SDRETRY"))return ouse_files_recover();
+    if(!strcmp(verb,"DBG_SDEJECT"))return ouse_files_eject();
     if(!strcmp(verb,"DBG_SD")){
         ouse_sd_state_t state;esp_err_t error=ouse_sd_get(&state);if(error!=ESP_OK)return error;
         ouse_files_state_t files;ouse_files_get(&files);
@@ -364,6 +368,21 @@ esp_err_t ouse_debug_command(const char *verb,const char *payload,char *out,size
     if(!strcmp(verb,"DBG_CHECK")){
         if(!heap_caps_check_integrity_all(true))return ESP_FAIL;
         snprintf(out,cap,"ok=1");return ESP_OK;
+    }
+#if CONFIG_OUSE_DEVICE_DEBUG
+    if(!strcmp(verb,"DBG_BLE")){
+        ouse_ble_state_t state;ouse_ble_get(&state);
+        snprintf(out,cap,"enabled=%u,ready=%u,starting=%u,scan=%u,advertising=%u,connected=%u,encrypted=%u,bonded=%u,pending=%u,pair_id=%lu,number=%06lu,peers=%u,bonds=%u,address=%s,peer=%s,error=%d",state.enabled,state.ready,state.starting,state.scanning,state.advertising,state.connected,state.encrypted,state.bonded,state.pair_pending,(unsigned long)state.pair_id,(unsigned long)state.number,state.count,state.bonds,state.address,state.peer,state.error);return ESP_OK;
+    }
+    if(!strcmp(verb,"DBG_BLEON")){if(strcmp(payload,"0") && strcmp(payload,"1"))return ESP_ERR_INVALID_ARG;return ouse_ble_enable(payload[0]=='1');}
+    if(!strcmp(verb,"DBG_BLESCAN"))return ouse_ble_scan();
+    if(!strcmp(verb,"DBG_BLEADV"))return ouse_ble_discoverable();
+    if(!strcmp(verb,"DBG_BLEPAIR")){const char *cursor=payload;unsigned id,accept;if(!decimal(&cursor,&id,':') || !decimal(&cursor,&accept,0) || accept>1)return ESP_ERR_INVALID_ARG;return ouse_ble_confirm(id,accept!=0);}
+#endif
+    if(!strcmp(verb,"DBG_ERROR")){
+        free(resource);resource=heap_caps_calloc(1,2048,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);if(!resource)return ESP_ERR_NO_MEM;
+        ouse_runtime_get_error((char *)resource,2048);resource_size=strlen((char *)resource);
+        snprintf(out,cap,"%u:%08lx",(unsigned)resource_size,(unsigned long)ouse_crc32(resource,resource_size));return ESP_OK;
     }
     if(!strcmp(verb,"DBG_REPAINT")){
         esp_err_t error=call_ui(U_REPAINT);

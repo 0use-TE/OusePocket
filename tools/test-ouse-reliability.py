@@ -1,6 +1,9 @@
 """Focused real coordinator/registry/journal checks with deterministic native doubles."""
 from pathlib import Path
-import os, subprocess
+import argparse, os, subprocess
+parser=argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--checks',nargs='+',choices=['coordinator','journal'],default=['coordinator','journal'])
+args=parser.parse_args()
 ROOT=Path(__file__).resolve().parents[1]
 OUT=ROOT/'.tools/ouse-reliability-check'
 OUT.mkdir(parents=True,exist_ok=True)
@@ -34,12 +37,12 @@ esp_err_t ouse_runtime_end_background(uint32_t);
 for name,value in headers.items():(OUT/name).write_text(value,encoding='utf-8')
 includes=[OUT]+[ROOT/f'components/{p}/include' for p in ['ouse_system','ouse_tasks','ouse_devices','ouse_storage','ouse_installer','ouse_net','ouse_media','ouse_alarm']]+[ROOT/'components/ouse_installer',BASE]
 command=[str(compiler),'/nologo','/std:c11','/experimental:c11atomics','/O2','/MD','/utf-8','/D_CRT_SECURE_NO_WARNINGS']+['/I'+str(p) for p in includes]
-for name in ['coordinator','journal']:
+for name in args.checks:
     fixture=(ROOT/f'tools/checks/reliability-{name}.c').read_text(encoding='utf-8')
     fixture=fixture.replace('COORDINATOR_SOURCE',(ROOT/'main/ouse_reliability.c').as_posix())
     fixture=fixture.replace('JOURNAL_SOURCE',(ROOT/'components/ouse_installer/ouse_uninstall_journal.c').as_posix())
     source=(ROOT/'components/ouse_installer/ouse_installer.c').read_text(encoding='utf-8')
-    fixture=fixture.replace('/* UNINSTALL_FINISH */',source[source.index('static esp_err_t finish_uninstall('):source.index('static esp_err_t install_upload(')])
+    fixture=fixture.replace('/* UNINSTALL_FINISH */',source[source.index('static esp_err_t finish_uninstall('):source.index('static esp_err_t refresh_manager(')])
     path=OUT/f'{name}.c';path.write_text(fixture,encoding='utf-8')
     sources=[path]
     if name=='coordinator':sources += [ROOT/'tools/checks/services-platform.c',ROOT/'components/ouse_tasks/ouse_tasks.c',ROOT/'components/ouse_system/ouse_health.c']

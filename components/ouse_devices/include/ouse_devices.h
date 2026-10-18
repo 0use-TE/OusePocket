@@ -16,7 +16,7 @@ typedef struct {
     esp_err_t error;
 } ouse_sd_state_t;
 esp_err_t ouse_sd_get(ouse_sd_state_t *state);
-typedef enum { OUSE_AUDIO_STOP,OUSE_AUDIO_TEST,OUSE_AUDIO_CAPTURE,OUSE_AUDIO_REPLAY,OUSE_AUDIO_RING,OUSE_AUDIO_MEDIA,OUSE_AUDIO_USB } ouse_audio_action_t;
+typedef enum { OUSE_AUDIO_STOP,OUSE_AUDIO_TEST,OUSE_AUDIO_CAPTURE,OUSE_AUDIO_REPLAY,OUSE_AUDIO_RING,OUSE_AUDIO_MEDIA,OUSE_AUDIO_USB,OUSE_AUDIO_DISK_CAPTURE,OUSE_AUDIO_ALERT } ouse_audio_action_t;
 typedef enum { OUSE_WIFI_ENABLE,OUSE_WIFI_SCAN,OUSE_WIFI_CONNECT,OUSE_WIFI_DISCONNECT,OUSE_WIFI_FORGET } ouse_wifi_action_t;
 // Owned submission returns the registry ID. NULL owner means system service.
 esp_err_t ouse_audio_submit(const ouse_task_owner_t *owner,ouse_audio_action_t action,unsigned seconds,uint32_t *id);
@@ -37,6 +37,8 @@ typedef struct {
     ouse_audio_mode_t mode;
     esp_err_t error;
     uint32_t revision,request_id,completed_id;
+    uint32_t alert_task_id;
+    bool alert_active;
 } ouse_audio_state_t;
 typedef struct { char ssid[33]; int rssi; uint8_t channel; bool secured; } ouse_wifi_ap_t;
 typedef struct {

@@ -8,6 +8,8 @@
 #include "ouse_installer.h"
 #include "ouse_net.h"
 #include "ouse_media.h"
+#include "ouse_camera.h"
+#include "ouse_recorder.h"
 #include "ouse_alarm.h"
 #include "ouse_usb.h"
 #include "esp_system.h"
@@ -24,7 +26,7 @@ static void close_ui(void *unused)
 {
     (void)unused;
     if(close_all){
-        for(unsigned i=0;i<OUSE_APP_CAPACITY;++i){ouse_app_info_t app;
+        for(unsigned i=0;i<OUSE_RECENTS_CAPACITY;++i){ouse_app_info_t app;
             if(ouse_app_get_info(i,&app)==ESP_OK && strcmp(app.id,"ouse.settings"))(void)ouse_app_close_id(app.id);
         }
     }else if(closing_app[0])(void)ouse_app_close_id(closing_app);
@@ -92,6 +94,8 @@ static const char *drain_blocker(int64_t since_us)
     // appear in the worker's cached live-context count.
     if(tasks.owners)return "javascript-instances";
     if(!ouse_storage_idle())return "storage-maintenance";
+    if(!ouse_camera_idle())return "camera-worker";
+    if(!ouse_recorder_idle())return "recorder-worker";
     if(!ouse_alarm_quiesced())return "alarm-worker";
     ouse_usb_state_t usb;ouse_usb_get(&usb);
     if(usb.available && (usb.enabled || usb.audio_running || usb.network_up || usb.network_stopping))return "usb-stop-confirmation";

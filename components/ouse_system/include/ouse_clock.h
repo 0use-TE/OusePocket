@@ -7,12 +7,16 @@ extern "C" {
 #endif
 typedef struct {
     int64_t utc_ms,last_sync_uptime_ms;
-    bool valid,synced_this_boot;
+    bool valid,synced_this_boot,syncing,failed,online;
+    unsigned attempts;
 } ouse_clock_state_t;
 // valid means plausible system wall time (2024..2100), not an accuracy claim.
 // synced_this_boot is set only by the board SNTP success callback.
 void ouse_clock_get(ouse_clock_state_t *out);
 void ouse_clock_note_sync(void);
+void ouse_clock_note_attempt(void);
+void ouse_clock_note_failure(void);
+void ouse_clock_note_network(bool online);
 #ifdef __cplusplus
 }
 #endif

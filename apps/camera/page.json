@@ -1,0 +1,24 @@
+{
+  "api":1,"units":"dp","initialPage":"camera","pages":[{"id":"camera","root":{
+    "type":"container","id":"root","width":"fill","height":"fill","layout":"column","padding":0,"gap":0,"style":{"backgroundColor":"#000000"},"children":[
+      {"type":"container","id":"viewfinder","width":"fill","height":"fill","children":[
+        {"type":"image","id":"preview","src":"@camera","width":"fill","height":"fill"}
+      ]},
+      {"type":"container","id":"controls","width":"fill","height":104,"layout":"row","padding":12,"gap":0,"style":{"backgroundColor":"#000000"},"children":[
+        {"type":"container","id":"album","width":56,"height":56,"padding":0,"style":{"backgroundColor":"#000000","textColor":"#ffffff","borderWidth":0,"radius":12},"children":[
+          {"type":"label","id":"albumLabel","text":"相册","y":16,"width":"fill","height":24,"fontSize":16,"style":{"textColor":"#ffffff","textAlign":"center"}},
+          {"type":"image","id":"albumThumb","src":"@thumb0","width":"fill","height":"fill","style":{"hidden":true,"radius":12}}
+        ]},
+        {"type":"container","id":"leftGap","width":"fill","height":1,"children":[]},
+        {"type":"container","id":"shutter","width":76,"height":76,"padding":0,"style":{"backgroundColor":"#000000","borderColor":"#ffffff","borderWidth":3,"radius":38},"children":[
+          {"type":"divider","id":"shutterCore","x":8,"y":8,"width":54,"height":54,"style":{"backgroundColor":"#ffffff","radius":27}}
+        ]},
+        {"type":"container","id":"rightGap","width":"fill","height":1,"children":[]},
+        {"type":"container","id":"balance","width":56,"height":56,"children":[]}
+      ]},
+      {"type":"dialog","id":"dialog","text":"提示","width":276,"height":"content","children":[
+        {"type":"label","id":"detail","text":"","width":"fill","height":96,"fontSize":16},
+        {"type":"button","id":"dismiss","text":"知道了","width":"fill","height":40}
+      ]}
+    ]
+  }}]}

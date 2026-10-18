@@ -14,6 +14,12 @@
 #include "ouse_clock.h"
 #include "ouse_media.h"
 #include "ouse_files.h"
+#include "ouse_camera.h"
+#include "ouse_recorder.h"
+#include "ouse_permissions.h"
+#include "ouse_channels.h"
+#include "ouse_ble.h"
+#include "ouse_ble_app.h"
 #include "ouse_usb.h"
 #include "ouse_metrics.h"
 #include "ouse_health.h"
@@ -23,6 +29,7 @@
 #include "esp_log.h"
 #include "esp_heap_caps.h"
 #include "ouse_memory.h"
+#include "ouse_memory_pressure.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
@@ -166,6 +173,10 @@ typedef struct instance {
     SemaphoreHandle_t model_lock, validated;
     QueueHandle_t events;
     char id[48], *page, *script;
+    uint32_t source_version;
+    uint32_t permission_revision,permission_checked_at,microphone_task;
+    esp_err_t (*load_sources)(const char *,uint32_t,const ouse_script_package_t **,void **);
+    void (*release_sources)(void *);
     ouse_script_image_t images[16];
     lv_image_dsc_t image_descriptors[16];
     char image_ids[16][32];
@@ -179,7 +190,10 @@ typedef struct instance {
     JSValue task_handler;
     char background_reason[64];
     int64_t background_since_us;
-    bool background_allowed, notifications_allowed, network_allowed, media_allowed, alarms_allowed, files_allowed, sdcard_allowed;
+    bool background_allowed, notifications_allowed, network_allowed, media_allowed, alarms_allowed, files_allowed, sdcard_allowed,camera_allowed,photos_allowed,bluetooth_allowed,hid_allowed;
+    atomic_uint_least32_t bluetooth_session;
+    atomic_bool bluetooth_hid;
+    lv_image_dsc_t native_images[OUSE_CAMERA_IMAGES];uint32_t native_image_versions[OUSE_CAMERA_IMAGES];
     JSRuntime *runtime;
     JSContext *context;
     lv_obj_t *root, *viewport;    // UI only
@@ -208,6 +222,7 @@ typedef struct instance {
     JSValue rejected_promises[MAX_JOBS], rejection_reasons[MAX_JOBS];
     // Shared model fields below are protected by model_lock.
     bool visible, closed, ready, built, faulted, fault_shown, background_active, home_requested;
+    char launch_requested[48];
     bool validation_only;
     navigation_stage_t navigation_stage;
     navigation_action_t navigation_action;
@@ -217,7 +232,7 @@ typedef struct instance {
     unsigned pending_commands, dropped_events;
     int command_values[4];
     bool brightness_save;
-    char fault_message[240];
+    char fault_message[1024];
     ui_snapshot_t snapshot;
     esp_err_t validation_result;
     // Worker-local execution policy and cached UI snapshot.
@@ -252,6 +267,7 @@ static atomic_uint background_end_request;
 static QueueHandle_t launches;
 static TaskHandle_t worker_task;
 static portMUX_TYPE stats_lock=portMUX_INITIALIZER_UNLOCKED;
+static OUSE_PSRAM_BSS struct {char id[48],message[1024];} last_fault;
 static ouse_runtime_stats_t runtime_stats;
 static ouse_runtime_diagnostics_t runtime_diagnostics;
 static unsigned error_count;
@@ -264,8 +280,11 @@ static void wake_worker(void) {if(worker_task)xTaskNotifyGive(worker_task);}
 static void release_instance(instance_t *app)
 {
     if(atomic_fetch_sub(&app->references,1)!=1)return;
-    ouse_task_owner_close(&app->owner);ouse_sd_browser_forget(&app->owner);
+    (void)ouse_media_stop_owner(&app->owner);
+    ouse_permissions_cancel(app->owner.instance);ouse_channels_close_owner(&app->owner);ouse_ble_app_close(&app->owner);
+    ouse_task_owner_close(&app->owner);ouse_sd_browser_forget(&app->owner);ouse_camera_forget(&app->owner);
     for(unsigned i=0;i<app->image_count;++i)free((void *)app->image_descriptors[i].data);
+    for(unsigned image=0;image<OUSE_CAMERA_IMAGES;++image)free((void *)app->native_images[image].data);
     for(unsigned i=0;i<app->asset_count;++i)free((void *)app->assets[i].data);
     free(app->page);free(app->script);
     if(app->events)vQueueDelete(app->events);
@@ -338,16 +357,19 @@ static void fault(instance_t *app,const char *message)
     model_lock(app);
     bool first=!app->faulted;
     app->faulted=true;app->background_active=false;
-    snprintf(app->fault_message,sizeof(app->fault_message),"%s",message);
+    if(first)snprintf(app->fault_message,sizeof(app->fault_message),"%s",message);
     model_unlock(app);
     if(!first)return;
+    portENTER_CRITICAL(&stats_lock);snprintf(last_fault.id,sizeof(last_fault.id),"%s",app->id);snprintf(last_fault.message,sizeof(last_fault.message),"%s",message);portEXIT_CRITICAL(&stats_lock);
     ++error_count;
     for(unsigned i=0;i<MAX_TIMERS;++i){
         if(app->context)JS_FreeValue(app->context,app->timers[i].handler);
         app->timers[i].handler=JS_UNDEFINED;app->timers[i].id=0;
     }
-    ouse_task_owner_close(&app->owner);ouse_sd_browser_forget(&app->owner);
+    (void)ouse_media_stop_owner(&app->owner);
+    ouse_task_owner_close(&app->owner);ouse_sd_browser_forget(&app->owner);ouse_camera_forget(&app->owner);
     cancel_storage_jobs(app);
+    ouse_permissions_cancel(app->owner.instance);ouse_channels_close_owner(&app->owner);ouse_ble_app_close(&app->owner);
     cancel_net_jobs(app);
     ESP_LOGE("OuseJS","%s: %s",app->id,message);
 }
@@ -359,10 +381,19 @@ static void exception(instance_t *app)
     bool timed_out=app->interrupted;
     begin_call(app);
     const char *message=JS_ToCString(app->context,value);
-    char copy[240];
+    char copy[1024];
     snprintf(copy,sizeof(copy),"%s",timed_out ? "JavaScript execution time exceeded" : message ? message : "JavaScript exception");
     if (message) JS_FreeCString(app->context,message);
     else { JSValue nested=JS_GetException(app->context); JS_FreeValue(app->context,nested); }
+    if(!timed_out && JS_IsObject(value)){
+        JSValue stack=JS_GetPropertyStr(app->context,value,"stack");
+        if(!JS_IsException(stack) && JS_IsString(stack)){
+            const char *trace=JS_ToCString(app->context,stack);
+            if(trace){size_t used=strlen(copy);snprintf(copy+used,sizeof(copy)-used,"\n%s",trace);JS_FreeCString(app->context,trace);}
+            else{JSValue nested=JS_GetException(app->context);JS_FreeValue(app->context,nested);}
+        }else if(JS_IsException(stack)){JSValue nested=JS_GetException(app->context);JS_FreeValue(app->context,nested);}
+        JS_FreeValue(app->context,stack);
+    }
     JS_FreeValue(app->context,value);
     fault(app,copy);
 }
@@ -545,6 +576,14 @@ static JSValue native_home(JSContext *context,JSValueConst self,int argc,JSValue
     model_lock(app);bool visible=app->visible;if(visible)app->home_requested=true;model_unlock(app);
     return JS_NewBool(context,visible);
 }
+static JSValue native_open_app(JSContext *context,JSValueConst self,int argc,JSValueConst *argv)
+{
+    (void)self;instance_t *app=from_js(context);char id[48];
+    if(argc!=1 || !copy_string(context,argv[0],id,sizeof(id)) || !id[0])return JS_ThrowTypeError(context,"openApp expects app id");
+    model_lock(app);bool accepted=!app->validation_only && app->visible && !app->closed && !app->faulted;
+    if(accepted)strcpy(app->launch_requested,id);
+    model_unlock(app);return JS_NewBool(context,accepted);
+}
 static JSValue lifecycle_snapshot(instance_t *app)
 {
     model_lock(app);bool visible=app->visible,active=app->background_active,closed=app->closed,faulted=app->faulted;model_unlock(app);
@@ -682,6 +721,8 @@ static JSValue system_info(JSContext *context,JSValueConst self,int argc,JSValue
     FIELD("memorySampledMs",info.memory_sample_ms);
     FIELD("flashBytes",info.flash_bytes); FIELD("cpuMHz",info.cpu_mhz);
     FIELD("uptimeMs",info.uptime_ms); FIELD("resetReason",info.reset_reason);
+    ouse_memory_pressure_t pressure=ouse_memory_classify(info.internal_free,info.internal_largest,info.psram_free);
+    JS_SetPropertyStr(context,object,"memoryPressure",JS_NewString(context,pressure==OUSE_MEMORY_CRITICAL ? "critical" : pressure==OUSE_MEMORY_WARNING ? "warning" : "normal"));
 #undef FIELD
     JS_SetPropertyStr(context,object,"coreVersion",JS_NewString(context,ouse_core_version()));
     JS_SetPropertyStr(context,object,"idfVersion",JS_NewString(context,info.idf_version));
@@ -764,6 +805,7 @@ static JSValue device_snapshot(JSContext *context,int group)
         ouse_audio_state_t a={0};ouse_audio_get(&a);
         const char *modes[]={"idle","starting","playing","recording","playback","error"};
         BOOL("available",a.available);BOOL("muted",a.muted);NUM("volume",a.volume);NUM("peak",a.peak);
+        BOOL("alertActive",a.alert_active);NUM("alertTaskId",a.alert_task_id);
         NUM("recordedMs",a.recorded_ms);NUM("positionMs",a.position_ms);STR("state",modes[a.mode]);NUM("error",a.error);
         NUM("requestId",a.request_id);NUM("completedId",a.completed_id);
     } else {
@@ -790,6 +832,9 @@ static JSValue device_snapshot(JSContext *context,int group)
 static JSValue device_command(JSContext *context,JSValueConst self,int argc,JSValueConst *argv,int command)
 {
     (void)self;esp_err_t error=ESP_ERR_INVALID_ARG;uint32_t task_id=0;instance_t *app=from_js(context);
+    if(command==6 && (!app->media_allowed || ouse_permissions_get(app->id,OUSE_PERMISSION_MICROPHONE)!=OUSE_PERMISSION_ALLOW))return JS_FALSE;
+    if(command==6 && ouse_memory_pressure()==OUSE_MEMORY_CRITICAL)return JS_FALSE;
+    if(command==14 && !app->notifications_allowed)return JS_FALSE;
     if(command==11) {
         char ssid[33],password[65];
         if(argc!=2 || !copy_string(context,argv[0],ssid,sizeof(ssid)) || !copy_string(context,argv[1],password,sizeof(password)))return JS_ThrowTypeError(context,"connect(ssid, password) expects strings <=32/64 UTF-8 bytes");
@@ -813,9 +858,26 @@ static JSValue device_command(JSContext *context,JSValueConst self,int argc,JSVa
         case 10:error=ouse_wifi_submit(&app->owner,OUSE_WIFI_SCAN,false,NULL,NULL,&task_id);break;
         case 12:error=ouse_wifi_submit(&app->owner,OUSE_WIFI_DISCONNECT,false,NULL,NULL,&task_id);break;
         case 13:error=ouse_wifi_submit(&app->owner,OUSE_WIFI_FORGET,false,NULL,NULL,&task_id);break;
+        case 14:error=ouse_audio_submit(&app->owner,OUSE_AUDIO_ALERT,0,&task_id);break;
         }
     }
+    if(command==6 && error==ESP_OK){model_lock(app);app->microphone_task=task_id;model_unlock(app);}
     return error==ESP_OK && task_id ? JS_NewUint32(context,task_id) : JS_NewBool(context,error==ESP_OK);
+}
+static JSValue permission_api(JSContext *context,JSValueConst self,int argc,JSValueConst *argv,int action)
+{
+    (void)self;instance_t *app=from_js(context);char name[32];
+    if(argc!=1 || !copy_string(context,argv[0],name,sizeof(name)))return JS_ThrowTypeError(context,"Expected permission name");
+    int permission=!strcmp(name,"microphone") ? OUSE_PERMISSION_MICROPHONE : !strcmp(name,"camera") ? OUSE_PERMISSION_CAMERA : !strcmp(name,"sharedDelete") ? OUSE_PERMISSION_DELETE : !strcmp(name,"bluetooth") ? OUSE_PERMISSION_BLUETOOTH : !strcmp(name,"hid") ? OUSE_PERMISSION_HID : -1;
+    if(permission<0)return JS_ThrowTypeError(context,"Unknown permission");
+    bool declared=permission==OUSE_PERMISSION_MICROPHONE ? app->media_allowed : permission==OUSE_PERMISSION_CAMERA ? app->camera_allowed : permission==OUSE_PERMISSION_BLUETOOTH ? app->bluetooth_allowed : permission==OUSE_PERMISSION_HID ? app->hid_allowed : app->files_allowed || app->photos_allowed;
+    if(!declared || app->validation_only)return JS_NewString(context,"denied");
+    if(action){
+        model_lock(app);bool visible=app->visible && !app->closed && !app->faulted;model_unlock(app);
+        if(!visible || ouse_permissions_request(app->id,app->owner.instance,permission)!=ESP_OK)return JS_NewString(context,"denied");
+    }
+    const char *states[]={"ask","granted","denied"};
+    return JS_NewString(context,states[ouse_permissions_get(app->id,permission)]);
 }
 static uint32_t group_revision(instance_t *app,unsigned group) {return group<3 ? app->worker_ui.revisions[group] : ouse_devices_revision(group-3);}
 static JSValue preference_snapshot(JSContext *context,int group)
@@ -1167,7 +1229,11 @@ static void navigation_changed(instance_t *app)
 static JSValue ui_set_style(JSContext *context,JSValueConst self,int argc,JSValueConst *argv);
 #include "ouse_runtime_diagnostics.inc"
 #include "ouse_runtime_services.inc"
+#include "ouse_runtime_camera.inc"
+#include "ouse_runtime_recorder.inc"
+#include "ouse_runtime_bluetooth.inc"
 
+#include "ouse_runtime_channels.inc"
 static void install_api(instance_t *app)
 {
     JSContext *context=app->context;
@@ -1196,18 +1262,44 @@ static void install_api(instance_t *app)
     JS_SetPropertyStr(context,api,"storage",storage);
     JSValue net=JS_NewObject(context);
     JS_SetPropertyStr(context,net,"request",JS_NewCFunction(context,net_request,"request",1));
+    JS_SetPropertyStr(context,net,"ping",JS_NewCFunctionMagic(context,channel_api,"ping",1,JS_CFUNC_generic_magic,2));
+    const char *channel_methods[]={"get","poll","close"};
+    for(unsigned index=0;index<3;++index)JS_SetPropertyStr(context,net,channel_methods[index],JS_NewCFunctionMagic(context,channel_api,channel_methods[index],1,JS_CFUNC_generic_magic,3+index));
+    for(unsigned kind=0;kind<2;++kind){
+        JSValue channel=JS_NewObject(context);JS_SetPropertyStr(context,channel,"connect",JS_NewCFunctionMagic(context,channel_api,"connect",1,JS_CFUNC_generic_magic,kind));
+        for(unsigned index=0;index<3;++index)JS_SetPropertyStr(context,channel,channel_methods[index],JS_NewCFunctionMagic(context,channel_api,channel_methods[index],1,JS_CFUNC_generic_magic,3+index));
+        JS_SetPropertyStr(context,channel,kind ? "publish" : "send",JS_NewCFunctionMagic(context,channel_api,kind ? "publish" : "send",kind ? 5 : 2,JS_CFUNC_generic_magic,kind ? 7 : 6));
+        if(kind)JS_SetPropertyStr(context,channel,"subscribe",JS_NewCFunctionMagic(context,channel_api,"subscribe",3,JS_CFUNC_generic_magic,8));
+        JS_SetPropertyStr(context,api,kind ? "mqtt" : "websocket",channel);
+    }
     JS_SetPropertyStr(context,api,"net",net);
     JSValue clock=JS_NewObject(context);JS_SetPropertyStr(context,clock,"get",JS_NewCFunction(context,clock_get,"get",0));
     JS_SetPropertyStr(context,api,"clock",clock);
     JSValue alarms=JS_NewObject(context);const char *alarm_methods[]={"set","remove","dismiss","snooze","list","setEnabled"};
     for(int i=0;i<6;++i)JS_SetPropertyStr(context,alarms,alarm_methods[i],JS_NewCFunctionMagic(context,alarms_api,alarm_methods[i],i==4 ? 0 : i==3 || i==5 ? 2 : 1,JS_CFUNC_generic_magic,i));
     JS_SetPropertyStr(context,api,"alarms",alarms);
-    JSValue media=JS_NewObject(context);const char *media_methods[]={"play","pause","resume","stop","get"};
-    for(int i=0;i<5;++i)JS_SetPropertyStr(context,media,media_methods[i],JS_NewCFunctionMagic(context,media_api,media_methods[i],i==0 ? 1 : 0,JS_CFUNC_generic_magic,i));
+    JSValue media=JS_NewObject(context);const char *media_methods[]={"play","pause","resume","stop","get","setInfo"};
+    for(int i=0;i<6;++i)JS_SetPropertyStr(context,media,media_methods[i],JS_NewCFunctionMagic(context,media_api,media_methods[i],i==0 || i==5 ? 1 : 0,JS_CFUNC_generic_magic,i));
     JS_SetPropertyStr(context,api,"media",media);
-    JSValue files=JS_NewObject(context);const char *file_methods[]={"get","list","refresh","download","browse","directory"};
-    for(int index=0;index<6;++index)JS_SetPropertyStr(context,files,file_methods[index],JS_NewCFunctionMagic(context,files_api,file_methods[index],index==1 || index==4 ? 2 : index==5 ? 1 : 0,JS_CFUNC_generic_magic,index));
+    JSValue files=JS_NewObject(context);const char *file_methods[]={"get","list","refresh","download","browse","directory","recover"};
+    for(int index=0;index<7;++index)JS_SetPropertyStr(context,files,file_methods[index],JS_NewCFunctionMagic(context,files_api,file_methods[index],index==1 || index==4 ? 2 : index==5 ? 1 : 0,JS_CFUNC_generic_magic,index));
     JS_SetPropertyStr(context,api,"files",files);
+    JSValue bluetooth=JS_NewObject(context);const char *bluetooth_methods[]={"get","open","close","poll","scan","connect","disconnect","services","characteristics","descriptors","read","write","subscribe","keyboard","consumer","mouse","release","pair"};
+    for(unsigned index=0;index<sizeof(bluetooth_methods)/sizeof(bluetooth_methods[0]);++index)JS_SetPropertyStr(context,bluetooth,bluetooth_methods[index],JS_NewCFunctionMagic(context,bluetooth_api,bluetooth_methods[index],0,JS_CFUNC_generic_magic,index));
+    JS_SetPropertyStr(context,api,"bluetooth",bluetooth);
+    JSValue camera=JS_NewObject(context);const char *camera_methods[]={"get","start","stop","capture"};
+    for(int index=0;index<4;++index)JS_SetPropertyStr(context,camera,camera_methods[index],JS_NewCFunctionMagic(context,camera_api,camera_methods[index],0,JS_CFUNC_generic_magic,index));
+    JS_SetPropertyStr(context,camera,"record",JS_NewCFunctionMagic(context,camera_api,"record",0,JS_CFUNC_generic_magic,7));
+    JS_SetPropertyStr(context,camera,"recordStop",JS_NewCFunctionMagic(context,camera_api,"recordStop",0,JS_CFUNC_generic_magic,8));
+    JS_SetPropertyStr(context,api,"camera",camera);
+    JSValue photos=JS_NewObject(context);const char *photo_methods[]={"get","list","open"};
+    for(int index=0;index<3;++index)JS_SetPropertyStr(context,photos,photo_methods[index],JS_NewCFunctionMagic(context,camera_api,photo_methods[index],index ? 1 : 0,JS_CFUNC_generic_magic,index+4));
+    JS_SetPropertyStr(context,photos,"remove",JS_NewCFunctionMagic(context,camera_api,"remove",1,JS_CFUNC_generic_magic,10));
+    JS_SetPropertyStr(context,photos,"stop",JS_NewCFunctionMagic(context,camera_api,"stop",0,JS_CFUNC_generic_magic,9));
+    JS_SetPropertyStr(context,api,"photos",photos);
+    JSValue recorder=JS_NewObject(context);const char *recorder_methods[]={"get","start","stop","list","rename","remove"};const int recorder_arities[]={0,0,0,1,2,1};
+    for(int index=0;index<6;++index)JS_SetPropertyStr(context,recorder,recorder_methods[index],JS_NewCFunctionMagic(context,recorder_api,recorder_methods[index],recorder_arities[index],JS_CFUNC_generic_magic,index));
+    JS_SetPropertyStr(context,api,"recorder",recorder);
     JSValue navigation=JS_NewObject(context);
     const char *navigation_methods[]={"push","back","replace","get","onChange","onBack","setBackEnabled"};
     for(int i=0;i<7;++i)JS_SetPropertyStr(context,navigation,navigation_methods[i],JS_NewCFunctionMagic(context,navigation_api,navigation_methods[i],i==1 || i==3 ? 0 : 1,JS_CFUNC_generic_magic,i));
@@ -1231,7 +1323,12 @@ static void install_api(instance_t *app)
     const int notification_actions[]={0,1,2,3,0};
     for(int i=0;i<5;++i)JS_SetPropertyStr(context,notifications,notification_methods[i],JS_NewCFunctionMagic(context,notification_api,notification_methods[i],i==2 ? 0 : 1,JS_CFUNC_generic_magic,notification_actions[i]));
     JS_SetPropertyStr(context,api,"notifications",notifications);
+    JSValue permissions=JS_NewObject(context);
+    JS_SetPropertyStr(context,permissions,"get",JS_NewCFunctionMagic(context,permission_api,"get",1,JS_CFUNC_generic_magic,0));
+    JS_SetPropertyStr(context,permissions,"request",JS_NewCFunctionMagic(context,permission_api,"request",1,JS_CFUNC_generic_magic,1));
+    JS_SetPropertyStr(context,api,"permissions",permissions);
     JS_SetPropertyStr(context,api,"home",JS_NewCFunction(context,native_home,"home",0));
+    JS_SetPropertyStr(context,api,"openApp",JS_NewCFunction(context,native_open_app,"openApp",1));
     JSValue system=JS_NewObject(context);
     JS_SetPropertyStr(context,system,"info",JS_NewCFunction(context,system_info,"info",0));
     JS_SetPropertyStr(context,system,"tasks",JS_NewCFunctionMagic(context,tasks_api,"tasks",0,JS_CFUNC_generic_magic,4));
@@ -1250,6 +1347,8 @@ static void install_api(instance_t *app)
     JS_SetPropertyStr(context,timers,"setInterval",JS_NewCFunctionMagic(context,timer_create,"setInterval",2,JS_CFUNC_generic_magic,1));
     JS_SetPropertyStr(context,timers,"setTimeout",JS_NewCFunctionMagic(context,timer_create,"setTimeout",2,JS_CFUNC_generic_magic,0));
     JS_SetPropertyStr(context,timers,"clear",JS_NewCFunction(context,timer_clear,"clear",1));
+    JS_SetPropertyStr(context,timers,"clearInterval",JS_NewCFunction(context,timer_clear,"clearInterval",1));
+    JS_SetPropertyStr(context,timers,"clearTimeout",JS_NewCFunction(context,timer_clear,"clearTimeout",1));
     JS_SetPropertyStr(context,api,"timers",timers);
     JS_SetPropertyStr(context,api,"apiVersion",JS_NewInt32(context,OUSE_RUNTIME_API_VERSION));
 
@@ -1264,14 +1363,14 @@ static void install_api(instance_t *app)
         JS_SetPropertyStr(context,api,groups[i],group);
     }
     const char *device_groups[]={"power","audio","wifi"};
-    const char *methods[]={"setTimeout","sleep","wake","setVolume","setMuted","testTone","record","playRecording","stop","setEnabled","scan","connect","disconnect","forget"};
-    const int owners[]={0,0,0,1,1,1,1,1,1,2,2,2,2,2};
-    const int arities[]={1,0,0,1,1,0,1,0,0,1,0,2,0,0};
+    const char *methods[]={"setTimeout","sleep","wake","setVolume","setMuted","testTone","record","playRecording","stop","setEnabled","scan","connect","disconnect","forget","alert"};
+    const int owners[]={0,0,0,1,1,1,1,1,1,2,2,2,2,2,1};
+    const int arities[]={1,0,0,1,1,0,1,0,0,1,0,2,0,0,0};
     for(int i=0;i<3;++i) {
         JSValue group=JS_NewObject(context);
         JS_SetPropertyStr(context,group,"get",JS_NewCFunctionMagic(context,preference_get,"get",0,JS_CFUNC_generic_magic,i+3));
         JS_SetPropertyStr(context,group,"onChange",JS_NewCFunctionMagic(context,preference_on,"onChange",1,JS_CFUNC_generic_magic,i+3));
-        for(int j=0;j<14;++j)if(owners[j]==i)JS_SetPropertyStr(context,group,methods[j],JS_NewCFunctionMagic(context,device_command,methods[j],arities[j],JS_CFUNC_generic_magic,j));
+        for(int j=0;j<15;++j)if(owners[j]==i)JS_SetPropertyStr(context,group,methods[j],JS_NewCFunctionMagic(context,device_command,methods[j],arities[j],JS_CFUNC_generic_magic,j));
         JS_SetPropertyStr(context,api,device_groups[i],group);
     }
     JSValue console=JS_NewObject(context);
@@ -1300,6 +1399,7 @@ static bool integer_property(instance_t *app,JSValueConst object,const char *key
 }
 static const lv_image_dsc_t *find_image(instance_t *app,const char *id)
 {
+    for(unsigned image=0;image<OUSE_CAMERA_IMAGES;++image)if(!strcmp(native_image_names[image],id))return (image ? app->photos_allowed : app->camera_allowed) ? &app->native_images[image] : NULL;
     for(unsigned i=0;i<app->image_count;++i)if(!strcmp(app->images[i].id,id))return app->images[i].image;
     return NULL;
 }
@@ -1699,6 +1799,9 @@ static void input_event(lv_event_t *event)
     model_lock(app);bool accept=app->visible && !app->closed && !app->faulted && app->navigation_stage==NAV_IDLE;uint32_t generation=app->generation;model_unlock(app);
     if(!accept)return;
     for(unsigned i=0;i<app->node_count;++i){node_t *node=&app->nodes[i];if(node->object!=object)continue;
+#if CONFIG_OUSE_DEVICE_DEBUG
+        if(code==LV_EVENT_CLICKED && (!strcmp(app->id,"user.camera") || !strcmp(app->id,"user.gallery")))ESP_LOGI("OuseInput","%s click %s",app->id,node->model.id);
+#endif
         input_event_t input={.node=i,.event=type,.generation=generation};node_type_t kind=node->model.type;
         if(kind==TEXT_INPUT){
             const char *text=lv_textarea_get_text(object);size_t length=strlen(text);
@@ -2093,7 +2196,7 @@ static void build_nodes(instance_t *app)
             node->caption=object;lv_label_set_long_mode(object,LV_LABEL_LONG_WRAP);
             lv_obj_set_style_text_color(object,lv_color_hex(ouse_theme_colors().text),0);
         }
-        else if(model.type==IMAGE){lv_image_set_src(object,find_image(app,model.image));lv_image_set_inner_align(object,LV_IMAGE_ALIGN_STRETCH);}
+        else if(model.type==IMAGE){lv_image_set_src(object,find_image(app,model.image));lv_image_set_inner_align(object,model.image[0]=='@' ? !strcmp(model.image,"@photo") ? LV_IMAGE_ALIGN_CONTAIN : LV_IMAGE_ALIGN_COVER : LV_IMAGE_ALIGN_STRETCH);}
         else if(model.type==TEXT_INPUT){
             ouse_theme_apply(object,OUSE_STYLE_PANEL,0);
             lv_textarea_set_one_line(object,!model.multiline);lv_textarea_set_max_length(object,model.max_length);
@@ -2168,14 +2271,35 @@ static void show_fault(instance_t *app)
     ouse_ime_hide_root(app->root);
     lv_obj_t *panel=lv_obj_create(app->root);lv_obj_remove_style_all(panel);lv_obj_set_size(panel,LV_PCT(100),LV_PCT(100));
     lv_obj_remove_flag(panel,LV_OBJ_FLAG_SCROLLABLE);ouse_theme_apply(panel,OUSE_STYLE_APP,0);
-    lv_obj_t *label=lv_label_create(panel);ouse_ui_use_font(label,20);ouse_ui_text(label,"应用运行出错");lv_obj_align(label,LV_ALIGN_TOP_MID,0,ouse_ui_dp(40));
+    lv_obj_set_flex_flow(panel,LV_FLEX_FLOW_COLUMN);lv_obj_set_style_pad_all(panel,ouse_ui_dp(16),0);lv_obj_set_style_pad_row(panel,ouse_ui_dp(12),0);
+    lv_obj_t *label=lv_label_create(panel);ouse_ui_use_font(label,20);ouse_ui_text(label,"应用运行出错");
+    lv_obj_t *details=lv_obj_create(panel);lv_obj_remove_style_all(details);lv_obj_set_width(details,LV_PCT(100));lv_obj_set_height(details,0);lv_obj_set_flex_grow(details,1);
+    lv_obj_set_scroll_dir(details,LV_DIR_VER);lv_obj_add_flag(details,LV_OBJ_FLAG_SCROLLABLE);lv_obj_set_flex_flow(details,LV_FLEX_FLOW_COLUMN);lv_obj_set_style_pad_row(details,ouse_ui_dp(8),0);
+    label=lv_label_create(details);ouse_ui_use_font(label,16);lv_obj_set_width(label,LV_PCT(100));lv_label_set_long_mode(label,LV_LABEL_LONG_WRAP);lv_label_set_text(label,app->id);
+    char message[sizeof(app->fault_message)];model_lock(app);memcpy(message,app->fault_message,sizeof(message));model_unlock(app);message[sizeof(message)-1]=0;
+    label=lv_label_create(details);ouse_ui_use_font(label,16);lv_obj_set_width(label,LV_PCT(100));lv_label_set_long_mode(label,LV_LABEL_LONG_WRAP);lv_label_set_text(label,message);
     lv_obj_t *button=lv_button_create(panel);lv_obj_remove_style_all(button);ouse_theme_apply(button,OUSE_STYLE_BUTTON,0);
-    lv_obj_set_size(button,ouse_ui_dp(180),ouse_ui_dp(44));lv_obj_align(button,LV_ALIGN_BOTTOM_MID,0,-ouse_ui_dp(28));
+    lv_obj_set_size(button,LV_PCT(100),ouse_ui_dp(44));
     lv_obj_add_event_cb(button,home_event,LV_EVENT_CLICKED,NULL);label=lv_label_create(button);ouse_ui_text(label,"回到桌面");lv_obj_center(label);
+}
+static void enforce_permissions(instance_t *app)
+{
+    if(app->bluetooth_session && (ouse_permissions_get(app->id,OUSE_PERMISSION_BLUETOOTH)!=OUSE_PERMISSION_ALLOW || (app->bluetooth_hid && ouse_permissions_get(app->id,OUSE_PERMISSION_HID)!=OUSE_PERMISSION_ALLOW))){ouse_ble_app_close(&app->owner);}
+    uint32_t revision=ouse_permissions_revision();
+    uint32_t now=lv_tick_get();
+    if(revision==app->permission_revision && now-app->permission_checked_at<100)return;
+    app->permission_revision=revision;app->permission_checked_at=now;
+    if(ouse_permissions_get(app->id,OUSE_PERMISSION_CAMERA)!=OUSE_PERMISSION_ALLOW)ouse_camera_stop(&app->owner);
+    if(ouse_permissions_get(app->id,OUSE_PERMISSION_MICROPHONE)!=OUSE_PERMISSION_ALLOW){
+        (void)ouse_recorder_stop(&app->owner);
+        model_lock(app);uint32_t task=app->microphone_task;app->microphone_task=0;model_unlock(app);
+        if(task)(void)ouse_task_cancel(&app->owner,task,"permission_revoked");
+    }
 }
 static void ui_pump(lv_timer_t *timer)
 {
     instance_t *app=lv_timer_get_user_data(timer);
+    enforce_permissions(app);
     model_lock(app);bool detach=app->navigation_stage==NAV_REQUESTED && !app->closed && !app->faulted;
     if(detach)app->ready=false;
     model_unlock(app);
@@ -2191,10 +2315,10 @@ static void ui_pump(lv_timer_t *timer)
     if(snapshot.revisions[2]!=app->core_display_revision || snapshot.app_width!=previous.app_width || snapshot.app_height!=previous.app_height ||
         snapshot.keyboard_visible!=previous.keyboard_visible || snapshot.keyboard_height!=previous.keyboard_height || snapshot.keyboard_inset!=previous.keyboard_inset)++app->display_revision;
     app->core_display_revision=snapshot.revisions[2];snapshot.revisions[2]=app->display_revision;
-    unsigned commands;int values[4];bool save,ready,faulted,visible,home;navigation_stage_t navigation_stage;
+    unsigned commands;int values[4];bool save,ready,faulted,visible,home;char launch[48];navigation_stage_t navigation_stage;
     model_lock(app);app->snapshot=snapshot;commands=app->pending_commands;app->pending_commands=0;memcpy(values,app->command_values,sizeof(values));save=app->brightness_save;
     if(detach)app->navigation_stage=NAV_DETACHED;
-    ready=app->ready;faulted=app->faulted;visible=app->visible;home=app->home_requested;app->home_requested=false;navigation_stage=app->navigation_stage;model_unlock(app);
+    ready=app->ready;faulted=app->faulted;visible=app->visible;home=app->home_requested;app->home_requested=false;strcpy(launch,app->launch_requested);app->launch_requested[0]=0;navigation_stage=app->navigation_stage;model_unlock(app);
     if(detach)wake_worker();
     if(commands & 1u)(void)ouse_core_set_theme((ouse_theme_t)values[0]);
     if(commands & 2u)(void)ouse_core_set_ui((unsigned)values[1],ouse_ui_font_percent());
@@ -2209,6 +2333,7 @@ static void ui_pump(lv_timer_t *timer)
         model_lock(app);app->snapshot=snapshot;app->built=true;app->navigation_stage=NAV_IDLE;app->navigation_event_pending=true;model_unlock(app);wake_worker();
     }
     if(!faulted && ready && visible && app->built && navigation_stage!=NAV_REQUESTED && navigation_stage!=NAV_DETACHED){
+        native_images_pump(app);
         for(unsigned i=0;i<app->node_count;++i){node_t *node=&app->nodes[i];node_model_t model;model_lock(app);model=node->model;model_unlock(app);
             if(node->shown_text!=model.text_revision){show_text(app,node,&model);node->shown_text=model.text_revision;}
             if(node->shown_image!=model.image_revision){lv_image_set_src(node->object,find_image(app,model.image));node->shown_image=model.image_revision;}
@@ -2237,7 +2362,8 @@ static void ui_pump(lv_timer_t *timer)
             model_lock(app);node->shown_scroll=revision;node->scroll_y=position;node->scroll_bottom=bottom;node->scroll_height=height;model_unlock(app);
         }
     }
-    if(home && visible)(void)ouse_app_background();
+    if(launch[0] && visible && !faulted)(void)ouse_app_open(launch);
+    else if(home && visible)(void)ouse_app_background();
 }
 // Worker functions below never enter LVGL or synchronously request the UI task.
 static void lifecycle(instance_t *app,const char *name)
@@ -2252,7 +2378,7 @@ static void lifecycle(instance_t *app,const char *name)
         JS_FreeValue(app->context,handler);
     }
     JS_FreeValue(app->context,object);JS_FreeValue(app->context,global);
-    model_lock(app);app->home_requested=false;model_unlock(app);
+    model_lock(app);app->home_requested=false;app->launch_requested[0]=0;model_unlock(app);
 }
 static void destroy_js(instance_t *app)
 {
@@ -2270,9 +2396,19 @@ static void destroy_js(instance_t *app)
     }
     if(app->runtime){JS_FreeRuntime(app->runtime);app->runtime=NULL;}
 }
+static esp_err_t copy_instance_resources(instance_t *app,const ouse_script_package_t *package);
 static esp_err_t initialize_js(instance_t *app)
 {
     int64_t startup_started=esp_timer_get_time();
+    if(app->load_sources){
+        const ouse_script_package_t *package=NULL;void *handle=NULL;
+        esp_err_t error=app->load_sources(app->id,app->source_version,&package,&handle);
+        if(error==ESP_OK)error=package ? copy_instance_resources(app,package) : ESP_ERR_INVALID_STATE;
+        if(handle)app->release_sources(handle);
+        app->load_sources=NULL;
+        if(error!=ESP_OK)return error;
+    }
+    model_lock(app);bool closed=app->closed;model_unlock(app);if(closed)return ESP_ERR_INVALID_STATE;
     app->translations=app->lifecycle_handler=app->notification_handler=app->navigation_handler=app->back_handler=app->task_handler=JS_UNDEFINED;
     for(unsigned i=0;i<MAX_PAGES;++i)app->page_roots[i]=JS_UNDEFINED;
     for(unsigned i=0;i<6;++i){app->changes[i]=JS_UNDEFINED;app->revisions[i]=group_revision(app,i);}
@@ -2332,6 +2468,7 @@ static bool update_policy(instance_t *app)
     // are created while genuinely suspended retain their full requested delay.
     if(app->timer_clock_frozen && visible)set_timer_clock(app,true);
     app->worker_visible=visible;
+    if(visibility_changed && !visible && (app->bluetooth_hid || !app->background_allowed))ouse_ble_app_close(&app->owner);
     if(app->policy_known && visibility_changed)lifecycle(app,visible ? "onResume" : "onPause");
     if(!reconcile_policy(app))return false;
     model_lock(app);revision=app->lifecycle_revision;bool faulted=app->faulted;model_unlock(app);
@@ -2407,8 +2544,9 @@ static void publish_stats(void)
             if(app->background_active){strcpy(entry->background_reason,app->background_reason);entry->background_since_ms=app->background_since_us/1000;}
             entry->timers=timers;entry->queued_events=queued;entry->js_heap_bytes=app->sampled_js_bytes;
             entry->memory_sample_ms=app->sampled_memory_us/1000;
-            entry->native_known_bytes=sizeof(*app)+strlen(app->page)+1+strlen(app->script)+1;
+            entry->native_known_bytes=sizeof(*app)+(app->page ? strlen(app->page)+1 : 0)+(app->script ? strlen(app->script)+1 : 0);
             for(unsigned i=0;i<app->image_count;++i)entry->native_known_bytes+=app->image_descriptors[i].data_size;
+            for(unsigned image=0;image<OUSE_CAMERA_IMAGES;++image)entry->native_known_bytes+=app->native_images[image].data_size;
             for(unsigned i=0;i<app->asset_count;++i)entry->native_known_bytes+=app->assets[i].size+(app->assets[i].type==OUSE_SCRIPT_ASSET_TEXT ? 1 : 0);
             entry->last_scheduled_us=app->budget.scheduled_us;entry->last_elapsed_us=app->budget.observed_us-app->budget.started_us;
             entry->budget_checkpoints=app->budget.samples;entry->wall_guard_hit=app->budget.wall_exceeded;
@@ -2433,6 +2571,7 @@ static void script_worker(void *opaque)
         if(xQueueReceive(launches,&launch,0)==pdTRUE){
             model_lock(launch);launch->worker_ui=launch->snapshot;bool closed=launch->closed;model_unlock(launch);
             esp_err_t error=closed ? ESP_ERR_INVALID_STATE : initialize_js(launch);
+            model_lock(launch);closed=closed || launch->closed;model_unlock(launch);
             if(launch->validation_only){launch->validation_result=error;destroy_js(launch);xSemaphoreGive(launch->validated);release_instance(launch);}
             else if(closed){destroy_js(launch);release_instance(launch);}
             else {if(error!=ESP_OK && !launch->faulted)fault(launch,error==ESP_ERR_NO_MEM ? "JavaScript memory unavailable" : "Invalid page.json or app.js");launch->next=instances;instances=launch;}
@@ -2524,21 +2663,35 @@ static instance_t *allocate_instance(const ouse_script_package_t *package)
     atomic_init(&app->references,1);
     if(ouse_task_owner_open(package->id,&app->owner)!=ESP_OK){free(app);return NULL;}
     app->model_lock=xSemaphoreCreateMutex();app->events=xQueueCreate(MAX_EVENTS,sizeof(input_event_t));
-    app->page=copy_resource(package->page,strlen(package->page),true);app->script=copy_resource(package->script,strlen(package->script),true);strcpy(app->id,package->id);app->background_allowed=package->background_allowed;app->notifications_allowed=package->notifications_allowed;
+    strcpy(app->id,package->id);app->background_allowed=package->background_allowed;app->notifications_allowed=package->notifications_allowed;
     app->network_allowed=package->network_allowed;app->media_allowed=package->media_allowed;app->alarms_allowed=package->alarms_allowed;app->files_allowed=package->files_allowed;app->sdcard_allowed=package->sdcard_allowed;
-    if(!app->model_lock || !app->events || !app->page || !app->script){release_instance(app);return NULL;}
+    app->camera_allowed=package->camera_allowed;app->photos_allowed=package->photos_allowed;
+    app->bluetooth_allowed=package->bluetooth_allowed;app->hid_allowed=package->hid_allowed;
+    app->load_sources=package->load;app->release_sources=package->release;app->source_version=package->source_version;
+    if(!app->model_lock || !app->events || (!package->load && copy_instance_resources(app,package)!=ESP_OK)){release_instance(app);return NULL;}
+    capture_ui(&app->snapshot);app->core_display_revision=app->snapshot.revisions[2];app->display_revision=1;app->snapshot.revisions[2]=app->display_revision;return app;
+}
+static esp_err_t copy_instance_resources(instance_t *app,const ouse_script_package_t *package)
+{
+    app->page=copy_resource(package->page,strlen(package->page),true);app->script=copy_resource(package->script,strlen(package->script),true);
+    if(!app->page || !app->script)return ESP_ERR_NO_MEM;
+    for(unsigned image=0;image<OUSE_CAMERA_IMAGES;++image)if(image ? app->photos_allowed : app->camera_allowed){
+        unsigned width=ouse_camera_image_width(image),height=ouse_camera_image_height(image);size_t size=width*height*2;
+        void *pixels=ouse_psram_calloc(1,size);if(!pixels)return ESP_ERR_NO_MEM;
+        app->native_images[image]=(lv_image_dsc_t){.header={.magic=LV_IMAGE_HEADER_MAGIC,.cf=LV_COLOR_FORMAT_RGB565,.w=width,.h=height,.stride=width*2},.data=pixels,.data_size=size};
+    }
     size_t bytes=0;
     for(unsigned i=0;i<package->image_count;++i){const ouse_script_image_t *source=&package->images[i];
-        if(!source->id || strlen(source->id)>=sizeof(app->image_ids[i]) || !source->image || !source->image->data || source->image->data_size>MAX_ASSET_BYTES-bytes){release_instance(app);return NULL;}
-        void *data=copy_resource(source->image->data,source->image->data_size,false);if(!data){release_instance(app);return NULL;}bytes+=source->image->data_size;
+        if(!source->id || strlen(source->id)>=sizeof(app->image_ids[i]) || !source->image || !source->image->data || source->image->data_size>MAX_ASSET_BYTES-bytes)return ESP_ERR_INVALID_ARG;
+        void *data=copy_resource(source->image->data,source->image->data_size,false);if(!data)return ESP_ERR_NO_MEM;bytes+=source->image->data_size;
         strcpy(app->image_ids[i],source->id);app->image_descriptors[i]=*source->image;app->image_descriptors[i].data=data;app->image_descriptors[i].reserved=NULL;app->image_descriptors[i].reserved_2=NULL;
         app->images[i]=(ouse_script_image_t){.id=app->image_ids[i],.image=&app->image_descriptors[i]};++app->image_count;
     }
     for(unsigned i=0;i<package->asset_count;++i){const ouse_script_asset_t *source=&package->assets[i];
-        void *data=copy_resource(source->data,source->size,source->type==OUSE_SCRIPT_ASSET_TEXT);if(!data){release_instance(app);return NULL;}
+        void *data=copy_resource(source->data,source->size,source->type==OUSE_SCRIPT_ASSET_TEXT);if(!data)return ESP_ERR_NO_MEM;
         strcpy(app->asset_ids[i],source->id);app->assets[i]=(ouse_script_asset_t){.id=app->asset_ids[i],.type=source->type,.data=data,.size=source->size};++app->asset_count;
     }
-    capture_ui(&app->snapshot);app->core_display_revision=app->snapshot.revisions[2];app->display_revision=1;app->snapshot.revisions[2]=app->display_revision;return app;
+    return ESP_OK;
 }
 static bool enqueue_instance(instance_t *app)
 {
@@ -2574,7 +2727,7 @@ static void pause_app(void *opaque)
     instance_t *app=((ouse_script_app_t *)opaque)->instance;if(!app)return;
     model_lock(app);app->visible=false;app->home_requested=false;++app->generation;++app->lifecycle_revision;
     if(app->ready)for(unsigned i=0;i<app->node_count;++i)if(modal_widget(app->nodes[i].model.type))set_node_hidden_locked(app,&app->nodes[i],true);
-    model_unlock(app);
+    model_unlock(app);ouse_camera_stop(&app->owner);
     if(app->built){
         // LVGL reparents an expanded dropdown list to the screen. It must be
         // closed explicitly before hiding its application root.
@@ -2592,27 +2745,39 @@ static void close_app(void *opaque)
 {
     ouse_script_app_t *state=opaque;instance_t *app=state->instance;if(!app)return;
     state->instance=NULL;model_lock(app);app->closed=true;app->visible=false;app->background_active=false;++app->generation;model_unlock(app);
-    ouse_task_owner_close(&app->owner);ouse_sd_browser_forget(&app->owner);
+    ouse_permissions_cancel(app->owner.instance);
+    ouse_channels_close_owner(&app->owner);
+    ouse_ble_app_close(&app->owner);
+    (void)ouse_media_stop_owner(&app->owner);
+    ouse_task_owner_close(&app->owner);ouse_sd_browser_forget(&app->owner);ouse_camera_forget(&app->owner);
     if(app->pump){lv_timer_delete(app->pump);app->pump=NULL;}
+    if(app->built)for(unsigned image=0;image<OUSE_CAMERA_IMAGES;++image)if(app->native_images[image].data)lv_image_cache_drop(&app->native_images[image]);
     ouse_ime_hide_root(app->root);
     if(app->built)for(unsigned i=0;i<app->node_count;++i){node_t *node=&app->nodes[i];if(node->object){lv_obj_remove_event_cb(node->object,input_event);if(node->model.type==DROPDOWN)lv_dropdown_close(node->object);if(node->model.type==TEXT_INPUT)ouse_ime_detach(node->object);node->object=node->caption=node->subtitle=node->overlay=NULL;}}
     // Objects and decoder cache must release copied image descriptors before
     // the UI reference disappears; the manager deletes the now-empty root next.
     if(app->viewport)lv_obj_clean(app->viewport);
-    for(unsigned i=0;i<app->image_count;++i)lv_image_cache_drop(&app->image_descriptors[i]);
+    if(app->built)for(unsigned i=0;i<app->image_count;++i)lv_image_cache_drop(&app->image_descriptors[i]);
     app->root=app->viewport=NULL;wake_worker();release_instance(app);
 }
 esp_err_t ouse_script_prepare(ouse_script_app_t *state,const ouse_script_package_t *package,ouse_app_definition_t *definition)
 {
-    if(!state || !package || !definition || state->instance || !package->page || !package->script ||
+    if(!state || !package || !definition || state->instance ||
+        (package->load ? !package->release : (!package->page || !package->script)) ||
         !package->id || !*package->id || strlen(package->id)>47 || !package->name || !*package->name || strlen(package->name)>47 ||
         !package->icon || !*package->icon || strlen(package->icon)>15 ||
         (package->name_zh && strlen(package->name_zh)>47) || (package->name_en && strlen(package->name_en)>47) ||
-        package->api!=OUSE_RUNTIME_API_VERSION || strlen(package->page)>MAX_SOURCE || strlen(package->script)>MAX_SOURCE ||
+        package->api!=OUSE_RUNTIME_API_VERSION || (!package->load && (strlen(package->page)>MAX_SOURCE || strlen(package->script)>MAX_SOURCE)) ||
         !valid_package_resources(package))return ESP_ERR_INVALID_ARG;
     state->package=package;
     *definition=(ouse_app_definition_t){.id=package->id,.name=package->name,.icon=package->icon,.open=open_app,.close=close_app,.pause=pause_app,.resume=resume_app,.back=back_app,.context=state,
         .name_zh=package->name_zh,.name_en=package->name_en,.icon_image=package->icon_image};return ESP_OK;
+}
+void ouse_runtime_get_error(char *out,size_t capacity)
+{
+    if(!out || !capacity)return;
+    char id[48],message[1024];portENTER_CRITICAL(&stats_lock);memcpy(id,last_fault.id,sizeof(id));memcpy(message,last_fault.message,sizeof(message));portEXIT_CRITICAL(&stats_lock);
+    snprintf(out,capacity,"%s%s%s",id,id[0] ? "\n" : "",message);
 }
 void ouse_runtime_get_stats(ouse_runtime_stats_t *stats)
 {

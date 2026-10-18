@@ -40,6 +40,7 @@ void ouse_ime_focus(lv_obj_t *textarea);
 bool ouse_ime_focused(const lv_obj_t *textarea);
 bool ouse_ime_blur(lv_obj_t *textarea);
 void ouse_ime_hide(void);
+void ouse_ime_set_bottom_inset(int pixels);
 void ouse_ime_hide_root(lv_obj_t *root);
 bool ouse_ime_active(void);
 void ouse_ime_get_state(ouse_ime_state_t *state);

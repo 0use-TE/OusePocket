@@ -27,19 +27,22 @@ static OUSE_PSRAM_BSS struct {
     unsigned notification_count;
     uint32_t notification_generation,notification_ui_generation,notification_age_minute;
     bool notifications_selected;
-    struct {char app_id[48];lv_image_dsc_t image;} notification_icons[OUSE_APP_CAPACITY];
+    lv_obj_t *wifi_icon,*notification_dot,*banner,*banner_title,*banner_body;
+    uint32_t banner_seen,notification_read,banner_serial,banner_until;
+    int wifi_level;
+    struct {char app_id[48];lv_image_dsc_t image;} notification_icons[OUSE_NOTIFICATION_CAPACITY];
     unsigned notification_icon_count;
     lv_obj_t *gear,*light,*clock,*battery,*status,*nav,*volume_box,*volume_slider,*volume_icon;
     quick_tile_t wifi_tile,power_tile,sound_tile,theme_tile;
-    lv_obj_t *recents,*strip,*clear,*cards[OUSE_APP_CAPACITY],*card_titles[OUSE_APP_CAPACITY];
+    lv_obj_t *recents,*strip,*clear,*cards[OUSE_RECENTS_CAPACITY],*card_titles[OUSE_RECENTS_CAPACITY];
     lv_obj_t *shield,*back_indicator,*back_arrow,*flight,*flight_image,*pill;
     lv_obj_t *bottom_guard;
     lv_obj_t *navigation_buttons[3],*navigation_icons[3];
     unsigned navigation;
     lv_point_t navigation_start;
     bool navigation_cancelled;
-    lv_image_dsc_t images[OUSE_APP_CAPACITY],flight_source;
-    ouse_app_info_t items[OUSE_APP_CAPACITY];
+    lv_image_dsc_t images[OUSE_RECENTS_CAPACITY],flight_source;
+    ouse_app_info_t items[OUSE_RECENTS_CAPACITY];
     lv_timer_t *gesture_timer;
     unsigned count;
     int width,height,quick_height,card_height;
@@ -218,8 +221,8 @@ static void resume_card(lv_event_t *event)
 }
 static void close_all(lv_event_t *event)
 {
-    (void)event;ouse_app_info_t entries[OUSE_APP_CAPACITY];unsigned count=0;
-    while(count<OUSE_APP_CAPACITY && ouse_app_get_recent(count,&entries[count])==ESP_OK)++count;
+    (void)event;ouse_app_info_t entries[OUSE_RECENTS_CAPACITY];unsigned count=0;
+    while(count<OUSE_RECENTS_CAPACITY && ouse_app_get_recent(count,&entries[count])==ESP_OK)++count;
     dismiss_recent(NULL);
     for(unsigned i=0;i<count;++i)(void)ouse_app_close_id(entries[i].id);
     (void)ouse_app_background();
@@ -235,7 +238,7 @@ static void show_recents(void)
     flight_clear();clear_cards();(void)ouse_app_background();settle_pill(true);
     shell.recent_generation=ouse_ui_generation();
     hide(shell.quick_layer);show(shell.recents);lv_obj_move_foreground(shell.recents);overlay_status(true);
-    for(unsigned i=0;i<OUSE_APP_CAPACITY;++i) {
+    for(unsigned i=0;i<OUSE_RECENTS_CAPACITY;++i) {
         if(ouse_app_get_recent(i,&shell.items[i])!=ESP_OK)break;
         ++shell.count;
         lv_obj_t *card=ouse_widget_box(shell.strip,OUSE_STYLE_PANEL,24);
@@ -341,6 +344,7 @@ static void sound_clicked(lv_event_t *event)
 }
 static void notification_clicked(lv_event_t *event)
 {
+    hide(shell.banner);
     uint32_t serial=(uint32_t)(uintptr_t)lv_event_get_user_data(event),token=0;
     char app_id[OUSE_NOTIFICATION_APP_ID_SIZE];
     esp_err_t error=ouse_notifications_activate(serial,app_id,sizeof(app_id),&token);
@@ -357,6 +361,38 @@ static void notification_clicked(lv_event_t *event)
         ouse_notifications_discard_open(app_id,token);
         ouse_dialog_show(ouse_ui_locale() ? "Unable to open app" : "无法打开应用",NULL,NULL);
     }
+}
+static void banner_close(lv_event_t *event){(void)event;hide(shell.banner);}
+static void wifi_draw(lv_event_t *event)
+{
+    lv_layer_t *layer=lv_event_get_layer(event);lv_area_t bounds;lv_obj_get_coords(shell.wifi_icon,&bounds);
+    lv_color_t color=lv_color_hex(ouse_theme_colors().text);
+    for(unsigned index=0;index<3;++index){
+        lv_draw_arc_dsc_t arc;lv_draw_arc_dsc_init(&arc);arc.color=color;arc.width=D(2);arc.rounded=1;
+        arc.center=(lv_point_t){bounds.x1+D(10),bounds.y1+D(17)};arc.radius=D(3+index*4);arc.start_angle=225;arc.end_angle=315;
+        arc.opa=shell.wifi_level>(int)index ? LV_OPA_COVER : LV_OPA_30;lv_draw_arc(layer,&arc);
+    }
+    if(!shell.wifi_level){lv_draw_line_dsc_t line;lv_draw_line_dsc_init(&line);line.color=color;line.width=D(2);line.opa=LV_OPA_COVER;line.p1=(lv_point_precise_t){bounds.x1+D(3),bounds.y1+D(4)};line.p2=(lv_point_precise_t){bounds.x1+D(17),bounds.y1+D(18)};lv_draw_line(layer,&line);}
+}
+static void refresh_notification_banner(bool asleep)
+{
+    ouse_notification_t latest={0};bool found=ouse_notifications_latest(&latest);
+    ouse_app_stats_t active={0};
+    bool suppress=found && ((latest.ongoing && !strcmp(latest.id,"ouse.media")) || (ouse_app_get_stats(&active)==ESP_OK && !strcmp(active.active_id,latest.app_id)));
+    if(suppress){shell.banner_seen=latest.serial;hide(shell.banner);}
+    if(visible(shell.quick_layer) && shell.notifications_selected && found){shell.notification_read=latest.serial;shell.banner_seen=latest.serial;}
+    if(found && latest.serial>shell.notification_read)show(shell.notification_dot);else hide(shell.notification_dot);
+    if(asleep || visible(shell.quick_layer) || visible(shell.recents) || ouse_dialog_active())hide(shell.banner);
+    else if(found && !suppress && latest.serial>shell.banner_seen){
+        shell.banner_seen=latest.serial;shell.banner_serial=latest.serial;shell.banner_until=lv_tick_get()+4500;
+        if(!latest.ongoing)(void)ouse_audio_test_tone();
+        lv_label_set_text(shell.banner_title,latest.title);lv_label_set_text(shell.banner_body,latest.body);
+        lv_obj_remove_event_cb(shell.banner,notification_clicked);lv_obj_add_event_cb(shell.banner,notification_clicked,LV_EVENT_CLICKED,(void *)(uintptr_t)latest.serial);
+        lv_obj_set_y(shell.banner,D(42));show(shell.banner);
+        lv_anim_t animation;lv_anim_init(&animation);lv_anim_set_var(&animation,shell.banner);lv_anim_set_values(&animation,-D(90),D(42));lv_anim_set_duration(&animation,180);lv_anim_set_exec_cb(&animation,(lv_anim_exec_xcb_t)lv_obj_set_y);lv_anim_set_path_cb(&animation,lv_anim_path_ease_out);lv_anim_start(&animation);
+    }
+    if(visible(shell.banner) && ((!found || latest.serial!=shell.banner_serial) || (int32_t)(lv_tick_get()-shell.banner_until)>=0))hide(shell.banner);
+    if(visible(shell.banner))lv_obj_move_foreground(shell.banner);
 }
 static void notification_dismissed(lv_event_t *event)
 {
@@ -383,7 +419,7 @@ static const lv_image_dsc_t *notification_icon_copy(const ouse_app_info_t *info)
        info->icon_image->data_size>96u*96u*4u)return NULL;
     for(unsigned i=0;i<shell.notification_icon_count;++i)
         if(!strcmp(shell.notification_icons[i].app_id,info->id))return &shell.notification_icons[i].image;
-    if(shell.notification_icon_count==OUSE_APP_CAPACITY)return NULL;
+    if(shell.notification_icon_count==OUSE_NOTIFICATION_CAPACITY)return NULL;
     uint8_t *pixels=lv_malloc(info->icon_image->data_size);if(!pixels)return NULL;
     memcpy(pixels,info->icon_image->data,info->icon_image->data_size);
     unsigned index=shell.notification_icon_count++;
@@ -565,6 +601,10 @@ static void refresh(lv_timer_t *timer)
     const char *symbol=power.charging ? LV_SYMBOL_CHARGE : power.percent>80 ? LV_SYMBOL_BATTERY_FULL : power.percent>40 ? LV_SYMBOL_BATTERY_2 : power.percent>15 ? LV_SYMBOL_BATTERY_1 : LV_SYMBOL_BATTERY_EMPTY;
     if(power.valid && power.percent>=0)lv_label_set_text_fmt(shell.battery,"%s %d%%",symbol,power.percent);
     else lv_label_set_text(shell.battery,LV_SYMBOL_BATTERY_EMPTY " --");
+    ouse_wifi_state_t wifi={0};ouse_wifi_get(&wifi);int level=!wifi.connected ? 0 : wifi.rssi>=-60 ? 3 : wifi.rssi>=-75 ? 2 : 1;
+    if(level!=shell.wifi_level){shell.wifi_level=level;lv_obj_invalidate(shell.wifi_icon);}
+    lv_obj_invalidate(shell.wifi_icon);
+    refresh_notification_banner(power.asleep);
     // Quick settings can change text size while overview stays open beneath
     // it. Text bindings update the font; resize its explicit line box too.
     if(visible(shell.recents) && shell.recent_generation!=ouse_ui_generation()) {
@@ -732,7 +772,7 @@ static void gesture_step(lv_timer_t *timer)
             follow_home(dy);
             // Show overview while still pressed after a brief pause. The
             // movement tolerance above accommodates normal finger jitter.
-            if(-dy>=D(32) && lv_tick_elaps(shell.g.last_move)>=120) {
+            if(-dy>=D(32) && lv_tick_elaps(shell.g.last_move)>=90) {
                 show_recents();shell.g.kind=G_LOCKED;show(shell.shield);lv_obj_move_foreground(shell.shield);
             }
         }
@@ -834,6 +874,12 @@ void ouse_shell_init(const ouse_shell_config_t *config)
     lv_obj_set_style_text_font(battery,&lv_font_montserrat_16,0);lv_obj_set_pos(battery,shell.width-D(66),D(8));
     lv_obj_set_style_transform_scale_x(battery,D(256),0);lv_obj_set_style_transform_scale_y(battery,D(256),0);
     ouse_theme_apply(battery,OUSE_STYLE_MUTED,0);
+    shell.wifi_level=-1;shell.wifi_icon=ouse_widget_box(status,OUSE_STYLE_DESKTOP,0);rect(shell.wifi_icon,shell.width-D(92),D(7),D(20),D(20));lv_obj_set_style_bg_opa(shell.wifi_icon,LV_OPA_TRANSP,0);lv_obj_add_event_cb(shell.wifi_icon,wifi_draw,LV_EVENT_DRAW_MAIN,NULL);
+    shell.notification_dot=ouse_widget_box(status,OUSE_STYLE_PILL,4);rect(shell.notification_dot,D(68),D(14),D(6),D(6));lv_obj_set_style_bg_color(shell.notification_dot,lv_color_hex(0x3988ff),0);hide(shell.notification_dot);
+    shell.banner=ouse_widget_box(config->screen,OUSE_STYLE_PANEL,18);rect(shell.banner,D(8),D(42),shell.width-D(16),D(84));lv_obj_add_flag(shell.banner,LV_OBJ_FLAG_CLICKABLE);
+    shell.banner_title=ouse_widget_text(shell.banner,"",18);rect(shell.banner_title,D(12),D(10),shell.width-D(80),D(26));lv_label_set_long_mode(shell.banner_title,LV_LABEL_LONG_MODE_DOTS);
+    shell.banner_body=ouse_widget_text(shell.banner,"",16);rect(shell.banner_body,D(12),D(42),shell.width-D(48),D(26));lv_label_set_long_mode(shell.banner_body,LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_t *banner_dismiss=ouse_widget_button(shell.banner,LV_SYMBOL_CLOSE,banner_close,NULL);rect(banner_dismiss,shell.width-D(60),D(6),D(34),D(32));hide(shell.banner);
     shell.recents=ouse_widget_box(config->screen,OUSE_STYLE_DESKTOP,0);rect(shell.recents,0,0,shell.width,shell.height-D(24));
     lv_obj_add_flag(shell.recents,LV_OBJ_FLAG_CLICKABLE);lv_obj_add_event_cb(shell.recents,recent_blank,LV_EVENT_CLICKED,NULL);
     shell.strip=ouse_widget_box(shell.recents,OUSE_STYLE_DESKTOP,0);rect(shell.strip,0,0,shell.width,shell.height-D(108));

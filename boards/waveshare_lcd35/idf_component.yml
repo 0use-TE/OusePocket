@@ -1,4 +1,4 @@
-version: "0.13.1"
+version: "0.23.0"
 description: Ouse Core display/touch port for Waveshare P4 LCD 3.5
 dependencies:
   idf: "==6.1.0"

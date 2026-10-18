@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include "ouse_net.h"
+#include "ouse_channels.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -47,6 +48,7 @@ static void worker(void *unused)
 }
 esp_err_t ouse_net_init(void)
 {
+    esp_err_t channel_error=ouse_channels_init();if(channel_error!=ESP_OK)return channel_error;
     if(requests)return ESP_ERR_INVALID_STATE;
     requests=xQueueCreate(OUSE_NET_PENDING_MAX,sizeof(job_t *));if(!requests)return ESP_ERR_NO_MEM;
     if(xTaskCreate(worker,"ouse_net",12288,NULL,2,NULL)!=pdPASS){vQueueDelete(requests);requests=NULL;return ESP_ERR_NO_MEM;}

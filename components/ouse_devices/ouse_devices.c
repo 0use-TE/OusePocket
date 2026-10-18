@@ -15,6 +15,8 @@ static struct {
     uint32_t save_id,save_task;
     uint32_t wifi_task;
     uint32_t suspended_media;
+    bool overlay_pending;
+    ouse_audio_request_t overlay_request;
 } devices;
 static void lock(void) { if(devices.port.lock)devices.port.lock(); }
 static void unlock(void) { if(devices.port.unlock)devices.port.unlock(); }
@@ -34,7 +36,14 @@ esp_err_t ouse_devices_init(const ouse_device_port_t *port,const ouse_device_con
 void ouse_devices_get_config(ouse_device_config_t *config) {lock();*config=devices.config;unlock();}
 #define GET(name,field,type) esp_err_t name(type *out) {if(!out)return ESP_ERR_INVALID_ARG;lock();*out=devices.field;bool ready=devices.initialized;unlock();return ready ? ESP_OK : ESP_ERR_INVALID_STATE;}
 GET(ouse_power_get,power,ouse_power_state_t)
-GET(ouse_audio_get,audio,ouse_audio_state_t)
+esp_err_t ouse_audio_get(ouse_audio_state_t *out)
+{
+    if(!out)return ESP_ERR_INVALID_ARG;
+    lock();*out=devices.audio;ouse_task_snapshot_t task;
+    out->alert_task_id=devices.overlay_request.id;
+    out->alert_active=out->alert_task_id && ouse_task_get(NULL,out->alert_task_id,&task) && task.state<OUSE_TASK_SUCCEEDED;
+    bool ready=devices.initialized;unlock();return ready ? ESP_OK : ESP_ERR_INVALID_STATE;
+}
 GET(ouse_wifi_get,wifi,ouse_wifi_state_t)
 GET(ouse_sd_get,sd,ouse_sd_state_t)
 void ouse_devices_publish_sd(const ouse_sd_state_t *state)
@@ -84,9 +93,45 @@ static const ouse_task_owner_t system_owner={.app_id="ouse.system"};
 void ouse_devices_wake_workers(void){notify(0);notify(1);notify(2);}
 esp_err_t ouse_audio_submit(const ouse_task_owner_t *owner,ouse_audio_action_t action,unsigned seconds,uint32_t *id)
 {
-    if(!id || (unsigned)action>OUSE_AUDIO_RING || (action==OUSE_AUDIO_CAPTURE && (seconds<1 || seconds>3)) ||
+    if(!id || ((unsigned)action>OUSE_AUDIO_RING && action!=OUSE_AUDIO_DISK_CAPTURE && action!=OUSE_AUDIO_ALERT) || (action==OUSE_AUDIO_CAPTURE && (seconds<1 || seconds>3)) ||
        (action==OUSE_AUDIO_RING && (!owner || owner->instance || strcmp(owner->app_id,"ouse.alarm") || seconds<1 || seconds>60)))return ESP_ERR_INVALID_ARG;
     lock();if(!devices.audio.available){unlock();return ESP_ERR_NOT_SUPPORTED;}
+    if(owner && action==OUSE_AUDIO_STOP){
+        ouse_task_snapshot_t task;uint32_t after=0;
+        while(ouse_task_next(owner,after,&task,false)){
+            after=task.id;
+            if(task.kind==OUSE_TASK_AUDIO && task.state<OUSE_TASK_SUCCEEDED)(void)ouse_task_cancel(owner,task.id,"application_stop");
+        }
+        esp_err_t error=ouse_task_create(owner,OUSE_TASK_AUDIO,"stop",OUSE_TASK_STOP_ON_CLOSE,true,id);
+        if(error==ESP_OK){(void)ouse_task_start(*id,true);ouse_task_finish(*id,ESP_OK,false);}
+        unlock();notify(1);return error;
+    }
+    ouse_task_snapshot_t focus,overlay;
+    bool base_active=devices.audio.request_id && ouse_task_get(NULL,devices.audio.request_id,&focus) && focus.state<OUSE_TASK_SUCCEEDED;
+    bool overlay_active=devices.overlay_request.id && ouse_task_get(NULL,devices.overlay_request.id,&overlay) && overlay.state<OUSE_TASK_SUCCEEDED;
+    bool recording=base_active && (devices.audio_request.action==OUSE_AUDIO_CAPTURE || devices.audio_request.action==OUSE_AUDIO_DISK_CAPTURE);
+    bool usb=base_active && devices.audio_request.action==OUSE_AUDIO_USB;
+    if(action==OUSE_AUDIO_TEST || action==OUSE_AUDIO_ALERT || (action==OUSE_AUDIO_RING && !usb)){
+        if(action!=OUSE_AUDIO_RING && (recording || usb)){unlock();return ESP_ERR_INVALID_STATE;}
+        unsigned priority=action==OUSE_AUDIO_RING ? 3 : action==OUSE_AUDIO_ALERT ? 2 : 1;
+        unsigned existing=devices.overlay_request.action==OUSE_AUDIO_RING ? 3 : devices.overlay_request.action==OUSE_AUDIO_ALERT ? 2 : 1;
+        if(overlay_active && (priority<existing || (priority==existing && owner &&
+           (overlay.owner.instance!=owner->instance || strcmp(overlay.owner.app_id,owner->app_id))))){unlock();return ESP_ERR_INVALID_STATE;}
+        esp_err_t error=ouse_task_create(owner ? owner : &system_owner,OUSE_TASK_AUDIO,
+            action==OUSE_AUDIO_TEST ? "testTone" : action==OUSE_AUDIO_ALERT ? "alert" : "alarmRing",OUSE_TASK_STOP_ON_CLOSE,true,id);
+        if(error!=ESP_OK){unlock();return error;}
+        if(overlay_active){
+            (void)ouse_task_cancel(NULL,devices.overlay_request.id,"alert_focus");
+            if(devices.overlay_pending)ouse_task_finish(devices.overlay_request.id,ESP_OK,true);
+        }
+        devices.overlay_request=(ouse_audio_request_t){.id=*id,.action=action,.seconds=seconds};
+        devices.overlay_pending=true;++devices.audio.revision;unlock();notify(1);return ESP_OK;
+    }
+    if((action==OUSE_AUDIO_CAPTURE || action==OUSE_AUDIO_DISK_CAPTURE) && overlay_active && devices.overlay_request.action!=OUSE_AUDIO_TEST){unlock();return ESP_ERR_INVALID_STATE;}
+    if((action==OUSE_AUDIO_STOP || action==OUSE_AUDIO_CAPTURE || action==OUSE_AUDIO_DISK_CAPTURE) && overlay_active){
+        (void)ouse_task_cancel(NULL,devices.overlay_request.id,"audio_focus");
+        if(devices.overlay_pending){ouse_task_finish(devices.overlay_request.id,ESP_OK,true);devices.overlay_pending=false;}
+    }
     // A queued media consumer owns a separate producer rendezvous. Do not lose
     // it by coalescing a short test request; an alarm preserves it explicitly.
     if(action!=OUSE_AUDIO_RING && devices.audio_pending && devices.audio_request.action==OUSE_AUDIO_MEDIA){unlock();return ESP_ERR_INVALID_STATE;}
@@ -96,7 +141,8 @@ esp_err_t ouse_audio_submit(const ouse_task_owner_t *owner,ouse_audio_action_t a
     if(action!=OUSE_AUDIO_RING && (devices.suspended_media || (devices.audio_request.action==OUSE_AUDIO_RING &&
        ouse_task_get(NULL,devices.audio.request_id,&active) && active.state<OUSE_TASK_SUCCEEDED))){unlock();return ESP_ERR_INVALID_STATE;}
     if(action==OUSE_AUDIO_REPLAY && !devices.audio.recorded_ms){unlock();return ESP_ERR_INVALID_STATE;}
-    static const char *names[]={"stop","testTone","record","playRecording","alarmRing"};
+    if(action==OUSE_AUDIO_DISK_CAPTURE && devices.audio.request_id && ouse_task_get(NULL,devices.audio.request_id,&active) && active.state<OUSE_TASK_SUCCEEDED){unlock();return ESP_ERR_INVALID_STATE;}
+    static const char *names[]={"stop","testTone","record","playRecording","alarmRing","media","usb","recordToSD","alert"};
     esp_err_t error=ouse_task_create(owner ? owner : &system_owner,OUSE_TASK_AUDIO,names[action],OUSE_TASK_STOP_ON_CLOSE,true,id);
     if(error!=ESP_OK){unlock();return error;}
     // Queued work can be retired now. Running work is retired by the board only
@@ -118,6 +164,18 @@ esp_err_t ouse_audio_record(unsigned seconds) {uint32_t id;return ouse_audio_sub
 esp_err_t ouse_audio_play_recording(void) {uint32_t id;return ouse_audio_submit(NULL,OUSE_AUDIO_REPLAY,0,&id);}
 esp_err_t ouse_audio_stop(void) {uint32_t id;return ouse_audio_submit(NULL,OUSE_AUDIO_STOP,0,&id);}
 bool ouse_devices_take_audio(ouse_audio_request_t *out) {lock();bool pending=devices.audio_pending;if(pending){*out=devices.audio_request;devices.audio_pending=false;}unlock();return pending;}
+bool ouse_devices_audio_waiting(void) {lock();bool pending=devices.audio_pending;unlock();return pending;}
+bool ouse_devices_take_overlay(ouse_audio_request_t *out)
+{
+    lock();bool pending=devices.overlay_pending;
+    if(pending){*out=devices.overlay_request;devices.overlay_pending=false;}
+    unlock();return pending;
+}
+bool ouse_devices_overlay_current(uint32_t id)
+{
+    lock();bool current=devices.overlay_request.id==id;unlock();
+    return current && !ouse_task_cancel_requested(id);
+}
 esp_err_t ouse_devices_queue_media(uint32_t id)
 {
     if(!id)return ESP_ERR_INVALID_ARG;
@@ -140,6 +198,12 @@ esp_err_t ouse_devices_queue_usb(uint32_t *id)
     if(!id)return ESP_ERR_INVALID_ARG;
     lock();ouse_task_snapshot_t active;
     if(!devices.audio.available){unlock();return ESP_ERR_NOT_SUPPORTED;}
+    ouse_task_snapshot_t alert;
+    if(devices.overlay_request.id && ouse_task_get(NULL,devices.overlay_request.id,&alert) && alert.state<OUSE_TASK_SUCCEEDED){
+        if(devices.overlay_request.action!=OUSE_AUDIO_TEST){unlock();return ESP_ERR_INVALID_STATE;}
+        (void)ouse_task_cancel(NULL,devices.overlay_request.id,"usb_focus");
+        if(devices.overlay_pending){ouse_task_finish(devices.overlay_request.id,ESP_OK,true);devices.overlay_pending=false;}
+    }
     if(devices.suspended_media || (devices.audio.request_id &&
        ouse_task_get(NULL,devices.audio.request_id,&active) && active.state<OUSE_TASK_SUCCEEDED &&
        devices.audio_request.action!=OUSE_AUDIO_MEDIA)){unlock();return ESP_ERR_INVALID_STATE;}

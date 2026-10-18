@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 // One owner for ES8311 BOTH mode and the shared duplex I2S channels.
 #include "ouse_device_driver.h"
+#include "ouse_audio_mix.h"
 #include "ouse_media.h"
+#include "ouse_recorder.h"
 #include "ouse_usb.h"
 #include "bsp/esp-bsp.h"
 #include "driver/i2s_std.h"
@@ -23,6 +25,36 @@ static esp_codec_dev_handle_t codec;
 static int16_t *recording;
 static unsigned recorded_samples;
 static int data_error;
+static ouse_audio_request_t overlay_request;
+static uint64_t overlay_offset,overlay_total;
+static ouse_audio_mixer_t mixer={.gain=32768};
+static void overlay_finish(esp_err_t error,bool cancelled)
+{
+    if(overlay_request.id){
+        ouse_task_result_t result={.present=true,.value.audio={.position_ms=(uint32_t)(overlay_offset/16)}};
+        ouse_task_finish_result(overlay_request.id,error,cancelled,&result);
+    }
+    overlay_request.id=0;
+}
+static bool overlay_update(void)
+{
+    if(overlay_request.id && !ouse_devices_overlay_current(overlay_request.id))overlay_finish(ESP_OK,true);
+    ouse_audio_request_t next;
+    if(ouse_devices_take_overlay(&next)){
+        overlay_finish(ESP_OK,true);
+        if(ouse_task_start(next.id,true)){
+            overlay_request=next;overlay_offset=0;
+            overlay_total=next.action==OUSE_AUDIO_TEST ? 8000 : next.action==OUSE_AUDIO_RING ? (uint64_t)next.seconds*16000 : UINT64_MAX;
+        }else ouse_task_finish(next.id,ESP_OK,true);
+    }
+    return overlay_request.id!=0;
+}
+static void mix_output(int16_t *samples,unsigned count)
+{
+    bool active=overlay_update();
+    ouse_audio_mix(&mixer,samples,count,active,overlay_request.action,overlay_offset,overlay_total);
+    if(active){overlay_offset+=count;if(overlay_offset>=overlay_total)overlay_finish(ESP_OK,false);}
+}
 static esp_err_t channel_enabled(i2s_chan_handle_t channel,bool enabled)
 {
     i2s_chan_info_t info;
@@ -187,7 +219,8 @@ static esp_err_t run(ouse_audio_request_t request,ouse_audio_state_t *state)
     unsigned total=capture || request.action==OUSE_AUDIO_RING ? request.seconds*16000 : request.action==OUSE_AUDIO_TEST ? 8000 : recorded_samples;
     int64_t started_us=esp_timer_get_time();
     int16_t samples[256];state->position_ms=0;state->peak=0;
-    for(unsigned offset=0;error==ESP_OK && offset<total && ouse_devices_audio_current(request.id);) {
+    for(unsigned offset=0;error==ESP_OK && offset<total && (ouse_devices_audio_current(request.id) ||
+        ((request.action==OUSE_AUDIO_TEST || request.action==OUSE_AUDIO_RING) && ouse_devices_overlay_current(request.id)));) {
         unsigned length=total-offset;if(length>256)length=256;
         error=volume(capture);if(error!=ESP_OK)break;
         if(capture) {
@@ -203,6 +236,7 @@ static esp_err_t run(ouse_audio_request_t request,ouse_audio_state_t *state)
                 bool audible=request.action!=OUSE_AUDIO_RING || ((offset+i)/8000)%2==0;
                 samples[i]=audible ? (int16_t)(4000*envelope*sinf(6.2831853f*frequency*position/16000)) : 0;
             }
+            mix_output(samples,length);
             if(esp_codec_dev_write(codec,samples,length*2)!=ESP_CODEC_DEV_OK){error=ESP_FAIL;break;}
         }
         offset+=length;state->position_ms=offset/16;
@@ -212,6 +246,7 @@ static esp_err_t run(ouse_audio_request_t request,ouse_audio_state_t *state)
         ESP_LOGI("OuseAudio","%s: samples=%u, pcm_ms=%u, elapsed_ms=%lld, rate=16000, RX=left",
             capture ? "capture" : "replay",capture ? recorded_samples : total,state->position_ms,
             (long long)((esp_timer_get_time()-started_us)/1000));
+    if(error!=ESP_OK)overlay_finish(error,false);
     return close_audio(error);
 }
 static void short_request(ouse_audio_request_t request)
@@ -261,6 +296,12 @@ static void media_request(ouse_audio_request_t request)
         if(!own || !media.active || media.task_id!=request.id){error=ESP_ERR_INVALID_STATE;break;}
         if(media.error!=ESP_OK){error=media.error;break;}
         if(media.paused){
+            if(overlay_update()){
+                int16_t silence[256]={0};error=volume(false);mix_output(silence,256);
+                if(error==ESP_OK && esp_codec_dev_write(codec,silence,sizeof(silence))!=ESP_CODEC_DEV_OK)error=ESP_FAIL;
+                if(error!=ESP_OK)break;
+                continue;
+            }
             if(esp_codec_dev_set_out_mute(codec,true)!=ESP_CODEC_DEV_OK){error=ESP_FAIL;break;}
             vTaskDelay(pdMS_TO_TICKS(20));continue;
         }
@@ -269,12 +310,17 @@ static void media_request(ouse_audio_request_t request)
         unsigned count=ouse_media_read(request.id,samples,256,&done,&error);
         if(error!=ESP_OK)break;
         if(count){
+            mix_output(samples,count);
             if(esp_codec_dev_write(codec,samples,count*2)!=ESP_CODEC_DEV_OK){error=ESP_FAIL;break;}
             ouse_media_consumed(request.id,count);played_samples+=count;state.position_ms=played_samples/16;state.mode=OUSE_AUDIO_PLAYBACK;
             if(state.position_ms%64<16)ouse_devices_publish_audio(&state,request.id);
+        }else if(overlay_update()){
+            memset(samples,0,sizeof(samples));mix_output(samples,256);
+            if(esp_codec_dev_write(codec,samples,sizeof(samples))!=ESP_CODEC_DEV_OK){error=ESP_FAIL;break;}
         }else vTaskDelay(1);
         if(done)break;
     }
+    if(error!=ESP_OK)overlay_finish(error,false);
     if(opened)error=close_audio(error);
     bool cancelled=ouse_task_cancel_requested(request.id);
     ouse_media_consumer_done(request.id,error,cancelled);
@@ -319,6 +365,25 @@ static void usb_request(ouse_audio_request_t request)
     ouse_task_finish(request.id,error,cancelled);
     ouse_usb_audio_running(request.id,false,error);
 }
+static void recorder_request(ouse_audio_request_t request)
+{
+    bool claimed=ouse_task_start(request.id,true);esp_err_t error=claimed ? prepare_codec() : ESP_ERR_INVALID_STATE;bool opened=false;
+    if(error==ESP_OK){esp_codec_dev_sample_info_t format={.sample_rate=16000,.channel=1,.bits_per_sample=16};data_error=ESP_CODEC_DEV_OK;
+        opened=esp_codec_dev_open(codec,&format)==ESP_CODEC_DEV_OK && data_error==ESP_CODEC_DEV_OK;if(!opened){release_codec();error=ESP_FAIL;}}
+    if(error==ESP_OK)error=volume(true);
+    if(error==ESP_OK && esp_codec_dev_set_in_gain(codec,24.0f)!=ESP_CODEC_DEV_OK)error=ESP_FAIL;
+    ouse_audio_state_t state;ouse_audio_get(&state);state.mode=OUSE_AUDIO_RECORDING;state.position_ms=0;state.peak=0;
+    int16_t samples[256];unsigned captured=0;
+    while(error==ESP_OK && ouse_recorder_current(request.id) && ouse_devices_audio_current(request.id)){
+        if(esp_codec_dev_read(codec,samples,sizeof(samples))!=ESP_CODEC_DEV_OK){error=ESP_FAIL;break;}
+        if(!ouse_recorder_write(request.id,samples,256))break;
+        captured+=256;state.position_ms=captured/16;
+        if(captured%1024==0)ouse_devices_publish_audio(&state,request.id);
+    }
+    if(opened)error=close_audio(error);
+    state.mode=error==ESP_OK ? OUSE_AUDIO_IDLE : OUSE_AUDIO_ERROR;state.error=error;state.completed_id=request.id;state.peak=0;ouse_devices_publish_audio(&state,request.id);
+    ouse_recorder_producer_done(request.id,error);
+}
 void ouse_board_audio_worker(void *argument)
 {
     (void)argument;
@@ -331,8 +396,27 @@ void ouse_board_audio_worker(void *argument)
         (unsigned)heap_caps_get_free_size(MALLOC_CAP_DMA));
     for(;;){
         ouse_audio_request_t request;
-        if(!ouse_devices_take_audio(&request)){ulTaskNotifyTake(pdTRUE,portMAX_DELAY);continue;}
-        if(request.action==OUSE_AUDIO_USB)usb_request(request);
+        if(!ouse_devices_take_audio(&request)){
+            if(overlay_update()){
+                esp_err_t error=prepare_codec();bool opened=false;
+                if(error==ESP_OK){
+                    esp_codec_dev_sample_info_t format={.sample_rate=16000,.channel=1,.bits_per_sample=16};data_error=ESP_CODEC_DEV_OK;
+                    opened=esp_codec_dev_open(codec,&format)==ESP_CODEC_DEV_OK && data_error==ESP_CODEC_DEV_OK;
+                    if(!opened){release_codec();error=ESP_FAIL;}
+                }
+                while(error==ESP_OK && !ouse_devices_audio_waiting() && overlay_update()){
+                    int16_t samples[256]={0};error=volume(false);mix_output(samples,256);
+                    if(error==ESP_OK && esp_codec_dev_write(codec,samples,sizeof(samples))!=ESP_CODEC_DEV_OK)error=ESP_FAIL;
+                }
+                if(opened)error=close_audio(error);
+                if(error!=ESP_OK)overlay_finish(error,false);
+                continue;
+            }
+            ulTaskNotifyTake(pdTRUE,portMAX_DELAY);continue;
+        }
+        if(overlay_request.id && !ouse_devices_overlay_current(overlay_request.id))overlay_finish(ESP_OK,true);
+        if(request.action==OUSE_AUDIO_DISK_CAPTURE)recorder_request(request);
+        else if(request.action==OUSE_AUDIO_USB)usb_request(request);
         else if(request.action==OUSE_AUDIO_MEDIA)media_request(request);
         else{
             short_request(request);

@@ -38,7 +38,7 @@
   let timerSeq = 1;
   const timers = [];
   let power = { available: true, valid: true, present: true, external: false, charging: false, full: false, asleep: false, percent: 72, millivolts: 3900, sleepSeconds: 0, error: 0 };
-  let audio = { available: true, volume: 40, muted: false, state: 'idle', peak: 0, recordedMs: 0, positionMs: 0, error: 0, requestId: 0, completedId: 0 };
+  let audio = { available: true, volume: 40, muted: false, state: 'idle', peak: 0, recordedMs: 0, positionMs: 0, error: 0, requestId: 0, completedId: 0, alertActive: false, alertTaskId: 0 };
   let wifi = { available: true, enabled: false, ready: true, scanning: false, connecting: false, connected: false, ssid: '', ip: '', rssi: 0, reason: 0, error: 0, requestId: 0, completedId: 0, networks: [] };
   const started = Date.now();
   let pageDoc = null;
@@ -509,6 +509,7 @@
       img.alt = node.id || 'image';
       img.hidden = true;
       el.append(img);
+      el.addEventListener('click', () => dispatch(node.id, 'click'));
     } else if (type === 'divider') {
       el = document.createElement('div');
       el.className = 'w divider';
@@ -573,6 +574,10 @@
         el.style.position = 'relative';
         if (node.padding !== undefined) el.style.padding = (node.padding || 0) + 'px';
       }
+      if (type === 'container') el.addEventListener('click', (event) => {
+        if (event.target !== el && event.target.closest('[data-id]') !== el) return;
+        dispatch(node.id, 'click');
+      });
     }
     if (node.style && typeof node.style.flexGrow === 'number') el.style.flexGrow = String(node.style.flexGrow);
     const item = {
@@ -1137,6 +1142,13 @@
       },
       setMuted(muted) { audio.muted = Boolean(muted); notify('audio', Ouse.audio.get()); return true; },
       testTone() { audio.state = 'idle'; audio.requestId += 1; audio.completedId = audio.requestId; notify('audio', Ouse.audio.get()); return true; },
+      alert() {
+        if (!notificationsAllowed) return false;
+        audio.alertActive = true;
+        audio.state = 'idle';
+        notify('audio', Ouse.audio.get());
+        return true;
+      },
       record(seconds) {
         if (seconds < 1 || seconds > 3) throw new Error('录音时长须为 1～3 秒');
         audio.recordedMs = seconds * 1000;
@@ -1154,7 +1166,13 @@
         notify('audio', Ouse.audio.get());
         return true;
       },
-      stop() { audio.state = 'idle'; notify('audio', Ouse.audio.get()); return true; },
+      stop() {
+        audio.state = 'idle';
+        audio.alertActive = false;
+        audio.alertTaskId = 0;
+        notify('audio', Ouse.audio.get());
+        return true;
+      },
       onChange(fn) { listeners.audio = fn || null; },
     },
     wifi: {
@@ -1265,6 +1283,11 @@
     cancel(id) {
       const record = previewTasks.find(item => item.snapshot.id === id);
       if (!record) return false;
+      if (audio.alertTaskId === id) {
+        audio.alertActive = false;
+        audio.alertTaskId = 0;
+        notify('audio', Ouse.audio.get());
+      }
       if (record.snapshot.state !== 'queued') return record.snapshot.state !== 'running';
       record.snapshot.cancelRequested = true;record.snapshot.cancelReason = 'application';return true;
     },
@@ -1352,7 +1375,7 @@
       return [...previewAlarms.values()].map(a => ({...a, simulated: true}));
     },
   };
-  for (const [kind, methods] of [['audio', ['testTone','record','playRecording','stop']], ['wifi', ['setEnabled','scan','connect','disconnect','forget']]]) {
+  for (const [kind, methods] of [['audio', ['testTone','record','playRecording','stop','alert']], ['wifi', ['setEnabled','scan','connect','disconnect','forget']]]) {
     for (const operation of methods) {
       const original = Ouse[kind][operation];
       Ouse[kind][operation] = (...args) => {
@@ -1361,7 +1384,16 @@
           const result = original(...args);
           if (!result) throw new Error('Preview operation rejected');
           const state = kind === 'audio' ? audio : wifi;
-          state.requestId = id;state.completedId = id;notify(kind, Ouse[kind].get());
+          state.requestId = id;state.completedId = id;
+          if (kind === 'audio' && operation === 'alert') {
+            state.alertActive = true;
+            state.alertTaskId = id;
+          }
+          if (kind === 'audio' && operation === 'stop') {
+            state.alertActive = false;
+            state.alertTaskId = 0;
+          }
+          notify(kind, Ouse[kind].get());
         });
       };
     }

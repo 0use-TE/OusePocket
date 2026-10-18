@@ -1,0 +1,21 @@
+{
+  "runtime": "ouse-core",
+  "api": 1,
+  "id": "user.network",
+  "name": "Network Tools",
+  "names": {
+    "zh_CN": "网络工具",
+    "en": "Network Tools"
+  },
+  "icon": "icon.bin",
+  "capabilities": {
+    "network": true
+  },
+  "assets": [
+    {
+      "id": "mode",
+      "type": "image",
+      "path": "assets/mode.bin"
+    }
+  ]
+}

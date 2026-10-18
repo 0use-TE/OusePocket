@@ -55,6 +55,13 @@
           { "type": "button", "id": "resume", "text": "继续", "width": "fill", "height": 44 },
           { "type": "button", "id": "cancel", "text": "取消", "width": "fill", "height": 44 }
         ]
+      },
+      {
+        "type": "dialog", "id": "doneDialog", "text": "时间到",
+        "width": 264, "height": "content", "padding": 18, "gap": 12,
+        "children": [
+          { "type": "button", "id": "confirmDone", "text": "确认", "width": "fill", "height": 48 }
+        ]
       }
     ]
   }

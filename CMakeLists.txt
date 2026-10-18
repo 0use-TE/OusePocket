@@ -1,4 +1,11 @@
 cmake_minimum_required(VERSION 3.24)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "version.txt" "components/ouse_core/include/ouse_core.h")
+file(READ "${CMAKE_CURRENT_LIST_DIR}/version.txt" _ouse_version)
+string(STRIP "${_ouse_version}" _ouse_version)
+file(STRINGS "${CMAKE_CURRENT_LIST_DIR}/components/ouse_core/include/ouse_core.h" _ouse_core_version REGEX "^#define OUSE_CORE_VERSION ")
+if(NOT _ouse_core_version STREQUAL "#define OUSE_CORE_VERSION \"${_ouse_version}\"")
+    message(FATAL_ERROR "version.txt and OUSE_CORE_VERSION must match")
+endif()
 set(EXTRA_COMPONENT_DIRS "${CMAKE_CURRENT_LIST_DIR}/components/ouse_core"
     "${CMAKE_CURRENT_LIST_DIR}/boards/waveshare_lcd35")
 # Keep component discovery independent from the old Brookesia example.

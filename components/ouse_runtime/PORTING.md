@@ -1,5 +1,46 @@
 # 来源与执行边界
 
+## Core 0.28.0 接口
+
+- 原生 API 31，JS API 1。`Ouse.bluetooth` 提供单实例独占的 BLE 客户端与 HID，需 manifest 的 `bluetooth`、系统蓝牙授权；HID 额外需要 `hid` 能力、输入控制授权和前台状态。不向应用开放电源、忘记全局绑定或代替用户确认配对的接口。
+- 同时只有一个连接。HID 提供键盘、Consumer Control 与相对鼠标，不是经典蓝牙，也不开放任意自定义 GATT 服务端。暂停、关闭、脚本故障、权限撤销和任务取消均清理资源；HID 未主动松键时两秒保护释放。
+- 旧的三项权限记录兼容读取并保留，新蓝牙权限默认询问，不要求重装旧应用。完整方法、事件、限制及实机记录见 `docs/0.28.0-app-bluetooth-hid.md`。
+
+## Core 0.27.0 接口
+
+- 原生 API 30，JS API 1。设置提供系统 BLE 管理，不提供 JS 蓝牙、HID 或经典蓝牙；C6 固件保持不变。接口与验证边界见 `docs/0.27.0-bluetooth-runtime-errors.md`。
+- 定时器以 `Ouse.timers.clear(id)` 为标准取消入口，兼容 `clearInterval(id)`、`clearTimeout(id)`。录音机和相册授权轮询已改用标准入口，无需重置用户权限或清除数据。
+- JS 运行出错时系统页展示有界异常及调用栈，不再只有泛化错误。原生 `ouse_runtime_get_error()` 获取最近一次故障快照；开启设备调试后可用 `DBG_ERROR` 获取长度与 CRC，再用 `DBG_READ` 分块读取、`DBG_FREE` 释放。快照仅在 RAM，重启清除，不是全部系统日志。
+
+## Core 0.26.0 接口
+
+- 原生 API 29，JS API 1。系统输入法统一管理原生与应用输入框的聚焦状态及光标，聚焦时显示闪烁插入线，切换、隐藏、关闭时清理。原有 BPK 不需要修改。
+- 桌面排序不改变应用注册表和最近应用顺序；按 ID 保存到内部 LittleFS 的原生元数据文件。长按拖拽插入，边缘停留跨页，松手异步保存，失败可重试。安装追加、更新保位、卸载补位；刷写应用分区保留，全片擦除不保留。
+- `ouse_core_launcher_restored()` 是原生安装协调器在启动恢复完成后调用的 UI 入口，用来解除排序整理的启动栅栏；不向 JS 暴露。持久化走既有存储工作线程，不在 UI 线程读写 Flash。
+- BLE 当前只有设备调试命令 `DBG_BLE`，不提供 JS 蓝牙或 HID API。诊断读取现有控制器 HCI 版本与 LE 能力并短时被动扫描，结束关闭扫描，不升级 C6；结果和限制见 `docs/0.26.0-launcher-ime-ble.md`。
+
+## Core 0.25.0 接口
+
+- 原生 API 28，JS API 1。`Ouse.system.info().memoryPressure` 为 `normal/warning/critical`，同时保留实际内部空闲量和最大连续块。临界压力时拒绝新应用、HTTP、摄像头及录音的启动，不影响停止和取消。回收仅针对可重建预览缓存，不自动关闭后台应用或丢弃未保存数据。
+- `Ouse.files.get().recovering` 表示恢复进行中。`Ouse.files.recover()` 返回是否成功排队，不代表已挂载；需要 `files` 或 `sdcard` 包能力，随后轮询 `ready/recovering/error`。存在文件租约、下载、录音或其他存储操作时拒绝重挂载。安全卸载后由用户显式重新检测，不自动挂回。
+- 现有应用无需重新打包。新增恢复入口位于设置的设备信息页；不进行自动格式化。具体限制见 `docs/0.25.0-memory-sd-regression.md`。
+
+## Core 0.24.0 接口
+
+- 原生 API 27，JS API 1。`Ouse.audio.alert()` 返回持续提示音任务，需要 notifications 能力；用 tasks.cancel 停止。testTone 与系统闹钟和唯一媒体流混合，带平滑 ducking。audio.get 新增 alertActive/alertTaskId。脚本 audio.stop 限制为自己的音频任务。录音不混入提示音，USB 保持独占；详见 `docs/0.24.0-audio-mixing.md`。
+
+## Core 0.23.0 接口
+
+- 安装目录和应用管理快照动态扩容。运行实例仍受任务所有者配额约束。BPK 安装时校验，注册后释放源码和资源，启动时在脚本线程按文件 CRC 校验版本并加载；更新或卸载不能把新包资源交给旧实例。
+- `Ouse.permissions.get/request(name)` 返回 `ask/granted/denied`，名字为 `microphone/camera/sharedDelete`。`request` 只允许前台实例排队系统授权框，应用轮询 `get` 后重试操作。包能力仍是前置条件；授权按应用持久保存，设置的应用管理可询问、允许、拒绝，清数据或卸载会重置。摄像头、录音和共享删除入口由原生桥校验，撤销会停止摄像头与录音。旧应用仍可安装，仅敏感功能需要授权及重试。
+- `Ouse.media.setInfo({title,artist})` 更新唯一播放通知；换歌不弹横幅。前台应用自己的通知不弹横幅，仍可在通知中心查看。
+- `Ouse.clock.get()` 增加 `online/syncing/failed/attempts`。Wi-Fi 断线有限退避重连，失败后有限自动重试；SNTP 30 秒失败、60 秒重试。网络详情显示同步状态。TLS 仍要求正确时间并验证证书和主机名。
+- 设置 → 系统信息可安全卸载 SD：存在读写租约或下载上传时拒绝，成功后卸载 FAT/VFS 并保留 Wi-Fi 使用的 SDIO 主机；本版重新挂载需要重启。`Ouse.files.get()` 增加 `ejecting/ejected`。
+- `Ouse.websocket.connect({url})`、`Ouse.mqtt.connect({url,username?,password?,clientId?})` 返回连接 ID 或 `false`。仅支持 `ws/wss` 和 `mqtt/mqtts` 客户端，禁止 URI 中嵌入凭据。`Ouse.net.ping(host)` 为 IPv4 诊断，3 次、单次超时 1 秒。
+- 三者共享 `get(id)/poll(id)/close(id)`（Ping 使用 `Ouse.net`）。`get` 返回 `connected/closed/error/dropped`；`poll` 返回事件或 `null`。事件 `type` 包括 `connected/disconnected/data/error/published/subscribed/reply/timeout/complete`，含 `data/topic/binary/value`，Ping 的 `reply.value` 为毫秒、`complete.value` 为应答数。MQTT 数据为 ArrayBuffer；WebSocket 文本为字符串、二进制为 ArrayBuffer。
+- `Ouse.websocket.send(id,stringOrArrayBuffer)`；`Ouse.mqtt.subscribe(id,topic,qos)`；`Ouse.mqtt.publish(id,topic,stringOrArrayBuffer,qos,retain)`，QoS 0/1。布尔返回值仅表示已接收命令，订阅和 QoS 1 发布完成看事件。最多全局 2 个会话、每消息 2048 字节、每会话 8 条事件，事件满时递增 `dropped`。应用关闭/故障会关闭其连接；事件不持有 JS 或 UI 指针。MQTTS/WSS 使用固件 CA，WebSocket 重定向全部拒绝，避免降级。网络故障不会自动无限重连，由应用决定重新建立连接。DNS 受 SDK 解析器超时约束。
+- 不包括 OTA、协议服务器和长期运行验收。
+
 当前 0.9.0 新增任务 ID/终态事件、后台原因与应用/系统诊断；异步音频和 Wi-Fi 接受请求返回任务 ID（拒绝 false），存储 Promise 增加 taskId。执行预算口径已改为任务获调度时间，以下历史说明中的 12/4 ms 不应解释为纯 JS CPU 时间。接口、取消/关闭策略和计时限制统一见 [0.9.0 系统机制](../../docs/0.9.0-kernel.md)。
 
 归档 `legacy/.reference/esp-brookesia/runtime/brookesia_runtime_js/src/backend.cpp` 使用 QuickJS Runtime/Context、内存/栈限制、事件绑定、任务队列和暂停/销毁生命周期。本组件采用相同的 `espressif/quickjs-ng ==0.14.0`，保留每应用独立环境，但没有引入归档的服务、HAL、GUI 文档或线程管理架构。页面和 API 是当前轻量核心自己的契约；探索阶段只维护一种 BPK。
@@ -88,3 +129,12 @@ set 使用标准 JSON.stringify：编码后不含终止 NUL 的 JSON 限 1～819
 - 通知 ID 最多 47 字节、title 127 字节、body 383 字节、payload 255 字节，均为 UTF-8 字符串；ID 和 title 必须非空。
 
 上述是源码契约与边界，不替代对应版本的构建和真机验证记录。详细 JSON/JS 用法见 `docs/bpk.md`。
+# 摄像头与相册扩展（Core 0.20.0）
+
+`capabilities.camera` 授权前台摄像头独占取景，`files` 另外授权拍照和无声录像保存到 SD 卡；`photos` 授权 SD 图片与系统录制视频浏览。接口为 `Ouse.camera.get/start/stop/capture/record/recordStop` 和 `Ouse.photos.get/list/open/stop`，原生图片控件 ID 为 `@camera`、`@photo`、`@thumb0` 至 `@thumb11`。退后台停止摄像头与视频播放，正常退出会收尾录像文件；普通脚本不能取得 DMA 地址或访问其他实例的图像。`Ouse.openApp(id)` 将已安装应用的打开请求投递到 UI 线程。
+
+完整参数、分辨率、任务与内存归属、SD 门禁和恢复边界见仓库 `docs/0.20.0-camera-gallery.md`。真实取景与拍照仍需要硬件验收，不应把编译或模拟测试当作传感器测试。
+
+Core 0.21.0 的录像格式、限制与手机式界面变更见 `docs/0.21.0-mobile-camera-video.md`。
+
+Core 0.22.0 新增 `Ouse.photos.remove(path)` 和相册条目的 `modified` 字段；删除仅限 SD 的 Pictures 媒体并返回任务 ID。新增需同时授权 `media`、`files` 的 `Ouse.recorder.get/start/stop/list/rename/remove`，录音保存到 SD 的 Recordings 目录，结束及关闭应用时由原生层收尾。媒体在 Home 后继续，显式关闭应用时按实例停止，旧实例延迟清理不会影响新实例。边界及验证见 `docs/0.22.0-media-system.md`。

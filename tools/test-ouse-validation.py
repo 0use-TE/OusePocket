@@ -11,6 +11,7 @@ for line in subprocess.check_output(["cmd.exe","/d","/c",str(OUT/"environment.cm
         key,value=line.split("=",1);env[key]=value
 compiler=Path(env["VCToolsInstallDir"])/"bin/Hostx64/x64/cl.exe"
 installer=(ROOT/"components/ouse_installer/ouse_installer.c").read_text(encoding="utf-8")
+assert 'if(error==ESP_OK && recovery_error==ESP_OK)(void)on_ui(6,NULL,NULL);' in installer
 runtime=(ROOT/"components/ouse_runtime/ouse_runtime.c").read_text(encoding="utf-8")
 handoff=installer[installer.index("static void ui_call("):installer.index("static int find_package(")]
 validation=runtime[runtime.index("esp_err_t ouse_script_validate_begin("):runtime.index("void ouse_runtime_get_diagnostics(")]
@@ -20,6 +21,7 @@ fixture=r'''
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 typedef struct {int unused;} ouse_script_package_t;
 typedef struct {int unused;} ouse_script_app_t;
 typedef struct {int unused;} ouse_app_definition_t;
@@ -29,6 +31,8 @@ typedef struct {unsigned refs;bool validation_only;int *validated;esp_err_t vali
 static instance_t *job;
 static unsigned live,waits,prepared;
 static bool inside_ui,timeout,enqueue_failure;
+static char pending_reset[48];
+static unsigned restored;
 static int ui_signal;
 static int *ui_done=&ui_signal;
 static struct {int action;ouse_bpk_t *package;const char *id;esp_err_t error;ouse_script_validation_t *validation;} ui;
@@ -53,12 +57,15 @@ static esp_err_t ouse_script_prepare(ouse_script_app_t *state,const ouse_script_
 static esp_err_t ouse_core_user_check(const char *id){assert(id&&inside_ui);return ESP_OK;}
 static esp_err_t ouse_core_user_apply(const ouse_app_definition_t *definition){assert(definition&&inside_ui);return ESP_OK;}
 static esp_err_t ouse_core_user_remove(const char *id){assert(id&&inside_ui);return ESP_OK;}
+static esp_err_t ouse_core_user_maintenance(const char *id,bool enabled){assert(id&&inside_ui);(void)enabled;return ESP_OK;}
+static void ouse_core_launcher_restored(void){assert(inside_ui);++restored;}
 static esp_err_t ouse_app_open(const char *id){assert(id&&inside_ui);return ESP_OK;}
 static esp_err_t ouse_core_post_ui(void (*callback)(void *),void *context){assert(!inside_ui);inside_ui=true;callback(context);inside_ui=false;++prepared;return ESP_OK;}
 /* VALIDATION_FUNCTIONS */
 /* HANDOFF_FUNCTIONS */
 int main(void){
     ouse_bpk_t package={.id="user.validation"};
+    assert(on_ui(6,NULL,NULL)==ESP_OK && restored==1);prepared=0;
     assert(on_ui(0,&package,NULL)==ESP_OK && waits==1 && prepared==1 && !live && !job);
     timeout=true;assert(on_ui(0,&package,NULL)==ESP_ERR_TIMEOUT && live==1 && job && job->refs==1);
     complete();assert(!live && !job); // late worker result owns only its own lifetime

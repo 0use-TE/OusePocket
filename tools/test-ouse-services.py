@@ -16,6 +16,14 @@ for line in subprocess.check_output(['cmd.exe', '/d', '/c', str(setup)], encodin
         env[key] = value
 compiler = Path(env['VCToolsInstallDir']) / 'bin/Hostx64/x64/cl.exe'
 headers = {
+    'ouse_files.h': '''#pragma once
+#include <stdio.h>
+#include <stdbool.h>
+#include <stddef.h>
+bool ouse_files_path(const char *,char *,size_t);
+FILE *ouse_files_open(const char *);
+int ouse_files_close(FILE *);
+''',
     'esp_err.h': '''#pragma once
 typedef int esp_err_t;
 #define ESP_OK 0

@@ -35,6 +35,7 @@ function play(index){
  if(media&&media.active){pending=index;endLease();if(!Ouse.media.stop())pending=-1;return;}
  pending=-1;selected=index;handled=0;
  try{taskId=Ouse.media.play(tracks[index].path?{path:tracks[index].path}:{url:tracks[index].url});}catch(error){lastResult=error.message;return;}
+ if(taskId&&Ouse.media.setInfo)Ouse.media.setInfo({title:tracks[index].name||"音乐",artist:tracks[index].artist||""});
  if(!taskId){endLease();lastResult="无法播放，请检查 SD 卡和 WAV 格式";return;}
  lease();persist();refresh();
 }
@@ -159,7 +160,7 @@ Ouse.navigation.onChange(event=>{page=event.page;if(page==="library"){listStart=
 Ouse.tasks.onComplete(event=>{if(event.id===downloadId){downloadId=0;lastResult=event.state==="succeeded"?"下载完成":("下载未完成："+(event.error||event.state));}refresh();});
 Ouse.notifications.onOpen(()=>{if(page!=="player")Ouse.navigation.back();refresh();});
 Ouse.timers.setInterval(()=>{pollScroll();refresh();},200);
-globalThis.app={onResume(){libraryRevision=-1;refresh();},onClose(){pending=-1;endLease();}};
+globalThis.app={onResume(){libraryRevision=-1;refresh();},onClose(){pending=-1;endLease();Ouse.media.stop();}};
 bindPage();
 Ouse.storage.get("library").then(value=>{
  if(value&&(value.version===1||value.version===2)&&Array.isArray(value.tracks)){

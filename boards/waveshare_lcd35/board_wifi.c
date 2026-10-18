@@ -10,6 +10,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -24,11 +25,29 @@ enum { EVENT_SCAN=1,EVENT_IP=2,EVENT_DISCONNECT=4,EVENT_DOWN=8,EVENT_STOP=16 };
 static unsigned awaiting_stop;
 static esp_err_t stop_result;
 static bool hosted,wifi_created,initialized,started,sntp_started;
+static StaticSemaphore_t radio_storage;
+static SemaphoreHandle_t radio_mutex;
+static bool hosted_handler;
 static void time_synchronized(struct timeval *tv){(void)tv;ouse_clock_note_sync();}
 static ouse_wifi_state_t state;
 static ouse_wifi_request_t session;
 static int64_t deadline;
 static unsigned retries;
+static int64_t retry_at,sync_deadline,sync_retry_at,auto_retry_at;
+static unsigned auto_rounds;
+static bool reconnect_wanted,automatic_request;
+static void synchronize_time(void)
+{
+    ouse_clock_note_network(true);ouse_clock_note_attempt();
+    esp_err_t error;
+    if(!sntp_started){
+        setenv("TZ","CST-8",1);tzset();
+        esp_sntp_config_t config=ESP_NETIF_SNTP_DEFAULT_CONFIG("ntp.aliyun.com");config.sync_cb=time_synchronized;
+        error=esp_netif_sntp_init(&config);if(error==ESP_OK)sntp_started=true;
+    }else error=esp_netif_sntp_start();
+    sync_deadline=esp_timer_get_time()+30000000;sync_retry_at=0;
+    if(error!=ESP_OK){ouse_clock_note_failure();sync_deadline=0;sync_retry_at=esp_timer_get_time()+60000000;}
+}
 static int64_t stop_since;
 static bool recovery_tried,drain_requested;
 static void event(void *argument,esp_event_base_t base,int32_t id,void *data)
@@ -60,21 +79,27 @@ static void event(void *argument,esp_event_base_t base,int32_t id,void *data)
     event_bits|=bits;portEXIT_CRITICAL(&event_lock);
     if(worker)xTaskNotifyGive(worker);
 }
+esp_err_t ouse_board_radio_prepare(void)
+{
+    portENTER_CRITICAL(&event_lock);if(!radio_mutex)radio_mutex=xSemaphoreCreateMutexStatic(&radio_storage);portEXIT_CRITICAL(&event_lock);
+    if(!radio_mutex)return ESP_ERR_NO_MEM;
+    xSemaphoreTake(radio_mutex,portMAX_DELAY);
+    esp_err_t error=esp_netif_init();
+    if(error==ESP_OK){error=esp_event_loop_create_default();if(error==ESP_ERR_INVALID_STATE)error=ESP_OK;}
+    if(error==ESP_OK && !hosted_handler){error=esp_event_handler_register(ESP_HOSTED_EVENT,ESP_EVENT_ANY_ID,event,NULL);if(error==ESP_OK)hosted_handler=true;}
+    if(error==ESP_OK && !hosted){error=esp_hosted_init();if(error==ESP_OK)hosted=true;}
+    if(error==ESP_OK)error=esp_hosted_connect_to_slave();
+    xSemaphoreGive(radio_mutex);return error;
+}
 static esp_err_t init(void)
 {
-    if(initialized) {
+    if(initialized){
         if(state.ready)return ESP_OK;
-        return esp_hosted_connect_to_slave();
-    }
-    esp_err_t e=esp_netif_init();if(e!=ESP_OK)return e;
-    e=esp_event_loop_create_default();if(e!=ESP_OK && e!=ESP_ERR_INVALID_STATE)return e;
-    if(!hosted) {
-        e=esp_event_handler_register(ESP_HOSTED_EVENT,ESP_EVENT_ANY_ID,event,NULL);if(e!=ESP_OK)return e;
-        e=esp_hosted_init();if(e!=ESP_OK)return e;hosted=true;
+        return ouse_board_radio_prepare();
     }
     // No UI lock is held. The transport has a bounded handshake and restart
     // on loss of C6 is disabled in product Kconfig.
-    e=esp_hosted_connect_to_slave();if(e!=ESP_OK)return e;
+    esp_err_t e=ouse_board_radio_prepare();if(e!=ESP_OK)return e;
     // Follow archived Waveshare 04_wifistation: the mandatory readiness RPC is
     // esp_wifi_init, not GetCoprocessorFwVersion. Older C6 firmware can omit the
     // version extension while still implementing the Station API. Keep upstream
@@ -124,6 +149,12 @@ static esp_err_t begin_connection(void)
 static esp_err_t request(ouse_wifi_request_t command)
 {
     session=command;state.request_id=command.id;state.error=ESP_OK;state.reason=0;
+    retry_at=auto_retry_at=0;
+    if(command.action!=OUSE_WIFI_SCAN){
+        reconnect_wanted=command.enabled && command.ssid[0] && command.action!=OUSE_WIFI_DISCONNECT && command.action!=OUSE_WIFI_FORGET;
+        if(!automatic_request)auto_rounds=0;
+    }
+    automatic_request=false;
     portENTER_CRITICAL(&event_lock);
     const char *expected=(command.action==OUSE_WIFI_DISCONNECT || command.action==OUSE_WIFI_FORGET) ? state.ssid : command.ssid;
     snprintf(expected_ssid,sizeof(expected_ssid),"%s",expected);
@@ -195,19 +226,17 @@ static void handle_events(unsigned bits,int reason,esp_ip4_addr_t ip)
             state.connected=true;state.connecting=false;state.error=ESP_OK;state.rssi=ap.rssi;state.reason=0;
             snprintf(state.ip,sizeof(state.ip),IPSTR,IP2STR(&ip));state.completed_id=session.id;
             ouse_devices_remember_wifi(&session);
-            if(!sntp_started) {
-                setenv("TZ","CST-8",1);tzset();
-                esp_sntp_config_t cfg=ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
-                cfg.sync_cb=time_synchronized;
-                if(esp_netif_sntp_init(&cfg)==ESP_OK)sntp_started=true;
-            }
+            retry_at=auto_retry_at=0;auto_rounds=0;retries=0;synchronize_time();
         }
     }
     if((bits&EVENT_DISCONNECT) && reason!=WIFI_REASON_ASSOC_LEAVE && (state.connected||state.connecting)) {
+        bool lost_link=state.connected;
         state.connected=false;state.ip[0]=0;state.reason=reason;
-        if(retries++<2 && reason!=WIFI_REASON_AUTH_FAIL && reason!=WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT && reason!=WIFI_REASON_HANDSHAKE_TIMEOUT){
-            state.error=begin_connection();
-            if(state.error!=ESP_OK)state.completed_id=session.id;
+        ouse_clock_note_network(false);
+        if(lost_link){state.connecting=false;state.error=ESP_FAIL;state.completed_id=session.id;auto_retry_at=esp_timer_get_time()+1000000;}
+        else if(retries<3){
+            retry_at=esp_timer_get_time()+(500000LL<<retries++);state.connecting=true;state.error=ESP_OK;
+            ESP_LOGW("OuseWiFi","Connection retry %u/3; disconnect reason=%d",retries,reason);
         }
         else {state.connecting=false;state.error=ESP_FAIL;state.completed_id=session.id;}
     }
@@ -273,7 +302,10 @@ void ouse_board_wifi_worker(void *argument)
                 state.recovering=false;state.recovery_failed=true;state.ready=false;state.error=ESP_ERR_TIMEOUT;changed=true;
             }
         }
-        if(!awaiting_stop && (state.scanning||state.connecting) && esp_timer_get_time()>deadline) {
+        if(retry_at && esp_timer_get_time()>=retry_at && !awaiting_stop && !draining){
+            retry_at=0;state.error=begin_connection();if(state.error!=ESP_OK)state.completed_id=session.id;changed=true;
+        }
+        if(!retry_at && !awaiting_stop && (state.scanning||state.connecting) && esp_timer_get_time()>deadline) {
             unsigned expected=state.scanning ? EVENT_SCAN : EVENT_DISCONNECT;
             esp_err_t stopped=state.scanning ? esp_wifi_scan_stop() : esp_wifi_disconnect();
             stop_result=ESP_ERR_TIMEOUT;state.error=ESP_ERR_TIMEOUT;
@@ -292,9 +324,23 @@ void ouse_board_wifi_worker(void *argument)
             if(esp_wifi_sta_get_ap_info(&ap)==ESP_OK && state.rssi!=ap.rssi){state.rssi=ap.rssi;changed=true;}
         }
         state.stopped=!started && !awaiting_stop;
+        if(!state.connected)ouse_clock_note_network(false);
+        if(state.connected){
+            ouse_clock_state_t clock;ouse_clock_get(&clock);
+            if(sync_deadline && !clock.syncing)sync_deadline=0;
+            if(sync_deadline && esp_timer_get_time()>=sync_deadline){ouse_clock_note_failure();sync_deadline=0;sync_retry_at=esp_timer_get_time()+60000000;}
+            if(sync_retry_at && esp_timer_get_time()>=sync_retry_at)synchronize_time();
+        }
         if(changed || draining){
             ouse_devices_publish_wifi(&state,session.id);
             finish_session();
+        }
+        if(!draining && reconnect_wanted && !state.connected && !state.connecting && !state.scanning && !awaiting_stop && state.completed_id==session.id && auto_rounds<3){
+            if(!auto_retry_at)auto_retry_at=esp_timer_get_time()+30000000;
+            if(esp_timer_get_time()>=auto_retry_at){
+                if(ouse_wifi_set_enabled(true)==ESP_OK){++auto_rounds;automatic_request=true;auto_retry_at=0;}
+                else auto_retry_at=esp_timer_get_time()+5000000;
+            }
         }
         ouse_wifi_request_t command;
         if(!awaiting_stop && ouse_devices_take_wifi(&command)) {
@@ -312,7 +358,7 @@ void ouse_board_wifi_worker(void *argument)
             ouse_devices_publish_wifi(&state,session.id);
             finish_session();
         }
-        uint32_t wait=(awaiting_stop||state.scanning||state.connecting) ? pdMS_TO_TICKS(250) : state.connected ? pdMS_TO_TICKS(5000) : portMAX_DELAY;
+        uint32_t wait=(awaiting_stop||state.scanning||state.connecting) ? pdMS_TO_TICKS(250) : state.connected || auto_retry_at ? pdMS_TO_TICKS(5000) : portMAX_DELAY;
         ulTaskNotifyTake(pdTRUE,wait);
     }
 }

@@ -55,9 +55,9 @@ description: >-
 
 ## JS / 服务坑
 
-- 音频：`Ouse.audio.record(1..3)` **最长 3 秒、仅 RAM**；无多段命名落盘 API → 不要做安卓式录音机 unless 改固件。
-- 媒体播放：`Ouse.media` + `capabilities.media`；SD 路径需 `sdcard`。
-- 网络：真机 **HTTPS 常超时**；优先 HTTP（如天气用的 ip-api / open-meteo）。
+- 音频：旧 `Ouse.audio.record(1..3)` 最长 3 秒、仅 RAM；Core 0.22.0 的 `Ouse.recorder` 提供 SD WAV 录音、结束收尾、列表、重命名与删除，需 `media` + `files`，见 `docs/0.22.0-media-system.md`。
+- 媒体播放：`Ouse.media` + `capabilities.media`；受限 SD 媒体路径需 `files`。Home 可继续播放，显式关闭或脚本故障时内核按实例停止。
+- 网络：HTTPS 需联网、正确时间及 CA 验证。Core 0.22.0 开启交叉签名证书链支持，百度 HTTPS 已实测；不要为绕过证书问题关闭验证或降级明文。
 - 存储：`Ouse.storage` 每应用 ≤32 key，单值 ≤8192，合计 ≤65536；适合偏好/短列表，不适合音频。
 - 异步：audio/wifi/net/files 任务用 `tasks` / Promise；离开页或 `onClose` 停音频、取消任务。
 - `setStyle` 可增量改颜色；主题 token 随明暗更新。

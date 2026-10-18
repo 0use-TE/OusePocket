@@ -10,7 +10,7 @@
 
 typedef struct input_binding {
     struct input_binding *next;
-    lv_obj_t *textarea, *viewport;
+    lv_obj_t *textarea, *viewport, *reveal;
     ouse_ime_avoid_t mode;
     ouse_ime_type_t type;
     bool scroll_on_focus;
@@ -31,6 +31,7 @@ static struct {
     bool local[VIEW_PROPS], changed[VIEW_PROPS], updating;
     int original_height, original_translate;
     uint32_t ui_generation;
+    int bottom_inset;
 } ime;
 
 static const lv_style_prop_t viewport_props[VIEW_PROPS] = {
@@ -64,6 +65,18 @@ static input_binding_t *find(lv_obj_t *textarea)
         if (entry->textarea==textarea) return entry;
     return NULL;
 }
+static void cursor_style(lv_obj_t *textarea)
+{
+    lv_obj_set_style_bg_opa(textarea,LV_OPA_TRANSP,LV_PART_CURSOR);
+    lv_obj_set_style_border_width(textarea,0,LV_PART_CURSOR);
+    lv_obj_set_style_border_side(textarea,LV_BORDER_SIDE_LEFT,LV_PART_CURSOR);
+    lv_obj_set_style_pad_left(textarea,-ouse_ui_dp(2),LV_PART_CURSOR);
+    lv_obj_set_style_border_opa(textarea,LV_OPA_COVER,LV_PART_CURSOR);
+    lv_obj_set_style_border_color(textarea,lv_color_hex(ouse_theme_colors().accent),LV_PART_CURSOR);
+    lv_obj_set_style_border_color(textarea,lv_color_hex(ouse_theme_colors().accent),LV_PART_CURSOR|LV_STATE_FOCUSED);
+    lv_obj_set_style_border_width(textarea,ouse_ui_dp(2),LV_PART_CURSOR|LV_STATE_FOCUSED);
+    lv_obj_set_style_anim_duration(textarea,500,LV_PART_CURSOR);
+}
 
 static void hide_session(lv_obj_t *deleting_root)
 {
@@ -71,6 +84,11 @@ static void hide_session(lv_obj_t *deleting_root)
     if (!entry) return;
     // Clear ownership before LVGL changes focus/style; callbacks may re-enter.
     ime.active=NULL;
+    lv_obj_remove_state(entry->textarea,LV_STATE_FOCUSED);
+    if (entry->type==OUSE_IME_PASSWORD) {
+        lv_textarea_set_password_mode(entry->textarea,true);
+        if (entry->reveal) lv_label_set_text(lv_obj_get_child(entry->reveal,0),LV_SYMBOL_EYE_OPEN);
+    }
     if (ime.timer) lv_timer_pause(ime.timer);
     if (ime.keyboard) {
         lv_keyboard_set_textarea(ime.keyboard,NULL);
@@ -120,6 +138,7 @@ static void unlink_binding(input_binding_t *entry, bool textarea_deleting, bool 
     while (*link && *link!=entry) link=&(*link)->next;
     if (*link) *link=entry->next;
     if (!textarea_deleting) {
+        if (entry->reveal) lv_obj_delete(entry->reveal);
         lv_obj_remove_event_cb_with_user_data(entry->textarea,input_event,entry);
         if (entry->scroll_on_focus) lv_obj_add_flag(entry->textarea,LV_OBJ_FLAG_SCROLL_ON_FOCUS);
     }
@@ -166,7 +185,15 @@ static void measure_keyboard(void)
     int keyboard_height=ouse_ui_dp(192), limit=height*45/100;
     if (keyboard_height>limit) keyboard_height=limit;
     lv_obj_set_size(ime.keyboard,LV_PCT(100),keyboard_height);
-    lv_obj_align(ime.keyboard,LV_ALIGN_BOTTOM_MID,0,-ouse_ui_dp(24));
+    lv_obj_align(ime.keyboard,LV_ALIGN_BOTTOM_MID,0,-ime.bottom_inset);
+}
+
+void ouse_ime_set_bottom_inset(int pixels)
+{
+    if (pixels<0 || ime.bottom_inset==pixels) return;
+    ime.bottom_inset=pixels;
+    measure_keyboard();
+    if (ime.active) fit_input();
 }
 
 static void refresh(lv_timer_t *timer)
@@ -179,6 +206,8 @@ static void refresh(lv_timer_t *timer)
         measure_keyboard();
         fit_input();
     }
+    if(lv_color_to_u32(lv_obj_get_style_border_color(ime.active->textarea,LV_PART_CURSOR))!=lv_color_to_u32(lv_color_hex(ouse_theme_colors().accent)))
+        cursor_style(ime.active->textarea);
 }
 
 static bool ensure_keyboard(lv_obj_t *screen)
@@ -255,7 +284,7 @@ void ouse_ime_focus(lv_obj_t *textarea)
 {
     input_binding_t *entry=find(textarea);
     if (!entry || !input_available(textarea)) return;
-    if (ime.active==entry) { fit_input(); return; }
+    if (ime.active==entry) { lv_obj_add_state(textarea,LV_STATE_FOCUSED);fit_input(); return; }
     ouse_ime_hide();
     if (!ensure_keyboard(lv_obj_get_screen(textarea))) return;
     lv_obj_update_layout(entry->viewport);
@@ -273,6 +302,8 @@ void ouse_ime_focus(lv_obj_t *textarea)
         lv_obj_add_event_cb(parent,scroll_deleted,LV_EVENT_DELETE,saved);
     }
     ime.active=entry;
+    cursor_style(textarea);
+    lv_obj_add_state(textarea,LV_STATE_FOCUSED);
     ime.ui_generation=ouse_ui_generation();
     lv_keyboard_set_mode(ime.keyboard,entry->type==OUSE_IME_NUMBER ? LV_KEYBOARD_MODE_NUMBER : LV_KEYBOARD_MODE_TEXT_LOWER);
     lv_keyboard_set_textarea(ime.keyboard,textarea);
@@ -308,6 +339,15 @@ static void input_event(lv_event_t *event)
     }
 }
 
+static void reveal_password(lv_event_t *event)
+{
+    input_binding_t *entry=lv_event_get_user_data(event);
+    ouse_ime_focus(entry->textarea);
+    bool hidden=lv_textarea_get_password_mode(entry->textarea);
+    lv_textarea_set_password_mode(entry->textarea,!hidden);
+    lv_label_set_text(lv_obj_get_child(entry->reveal,0),hidden ? LV_SYMBOL_EYE_CLOSE : LV_SYMBOL_EYE_OPEN);
+}
+
 esp_err_t ouse_ime_attach(lv_obj_t *textarea, lv_obj_t *viewport,
                         ouse_ime_avoid_t mode, ouse_ime_type_t type)
 {
@@ -326,7 +366,22 @@ esp_err_t ouse_ime_attach(lv_obj_t *textarea, lv_obj_t *viewport,
     // The system snapshots before doing its own avoidance. LVGL's earlier
     // class-level animated focus scroll would otherwise race that snapshot.
     lv_obj_remove_flag(textarea,LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+    cursor_style(textarea);
     lv_textarea_set_password_mode(textarea,type==OUSE_IME_PASSWORD);
+    if (type==OUSE_IME_PASSWORD) {
+        entry->reveal=lv_button_create(textarea);
+        lv_obj_remove_style_all(entry->reveal);
+        lv_obj_set_size(entry->reveal,ouse_ui_dp(36),LV_PCT(100));
+        lv_obj_add_flag(entry->reveal,LV_OBJ_FLAG_FLOATING|LV_OBJ_FLAG_IGNORE_LAYOUT);
+        lv_obj_remove_flag(entry->reveal,LV_OBJ_FLAG_CLICK_FOCUSABLE|LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_align(entry->reveal,LV_ALIGN_RIGHT_MID,0,0);
+        lv_obj_set_style_pad_right(textarea,ouse_ui_dp(40),0);
+        lv_obj_t *icon=lv_label_create(entry->reveal);
+        lv_obj_set_style_text_font(icon,&lv_font_montserrat_16,0);
+        lv_label_set_text(icon,LV_SYMBOL_EYE_OPEN);
+        lv_obj_center(icon);
+        lv_obj_add_event_cb(entry->reveal,reveal_password,LV_EVENT_CLICKED,entry);
+    }
     lv_obj_add_event_cb(textarea,input_event,LV_EVENT_ALL,entry);
     lv_obj_add_event_cb(viewport,viewport_deleted,LV_EVENT_DELETE,entry);
     return ESP_OK;

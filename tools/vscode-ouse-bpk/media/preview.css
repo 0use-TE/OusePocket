@@ -398,7 +398,10 @@ button {
   pointer-events: none;
 }
 
-/* Match native main-axis fill: split remaining space after fixed siblings. */
+/* Match native main-axis fill: split remaining space after fixed siblings.
+   Do not use the flex shorthand on .fill-h alone — it resets flex-grow and
+   collapses .fill-w siblings (e.g. square buttons with width+height fill). */
 .row > .fill-w { width: 0; flex-grow: 1; flex-shrink: 1; min-width: 0; }
-.row > .fill-h { flex: 0 0 auto; height: 100%; }
+.row > .fill-h { height: 100%; align-self: stretch; }
+.row > .fill-h:not(.fill-w) { flex-grow: 0; flex-shrink: 0; flex-basis: auto; }
 .column > .fill-h { height: 0; flex-grow: 1; flex-basis: 0; }

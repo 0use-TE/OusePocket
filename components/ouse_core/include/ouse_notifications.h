@@ -41,6 +41,7 @@ esp_err_t ouse_notifications_cancel(const char *app_id,const char *id);
 unsigned ouse_notifications_list(const char *app_id,ouse_notification_t *out,unsigned capacity);
 unsigned ouse_notifications_count(const char *app_id);
 uint32_t ouse_notifications_generation(void);
+bool ouse_notifications_latest(ouse_notification_t *out);
 // User dismissal never removes ongoing records; application cancel may do so.
 esp_err_t ouse_notifications_dismiss(uint32_t serial);
 unsigned ouse_notifications_clear_all(void);

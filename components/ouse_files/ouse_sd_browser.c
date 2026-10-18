@@ -86,7 +86,9 @@ static void worker(void *unused)
     for(;;){
         if(xQueueReceive(queue,&job,portMAX_DELAY)!=pdTRUE)continue;
         bool started=ouse_task_start(job->result.id,true);
-        if(started)enumerate(job);
+        bool leased=started && ouse_files_lease_begin();
+        if(leased){enumerate(job);ouse_files_lease_end();}
+        else if(started)job->result.error=ESP_ERR_INVALID_STATE;
         bool cancelled=ouse_task_cancel_requested(job->result.id);
         xSemaphoreTake(guard,portMAX_DELAY);
         cache_t *slot=find(&job->owner);

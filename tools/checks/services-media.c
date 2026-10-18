@@ -7,6 +7,9 @@
 #include <assert.h>
 #include <stdio.h>
 static bool notice_active;
+bool ouse_files_path(const char *path,char *absolute,size_t capacity){(void)path;(void)absolute;(void)capacity;return false;}
+FILE *ouse_files_open(const char *path){(void)path;return NULL;}
+int ouse_files_close(FILE *file){return fclose(file);}
 esp_err_t ouse_notifications_publish(const char *app,const ouse_notification_request_t *r)
 {assert(app&&r&&r->ongoing&&!strcmp(r->id,"ouse.media"));notice_active=true;return ESP_OK;}
 esp_err_t ouse_notifications_cancel(const char *app,const char *id)
@@ -44,7 +47,13 @@ int main(void)
     ouse_media_interrupted(id,true);assert(!ouse_media_read(id,samples,256,&done,&error)&&!done);ouse_media_interrupted(id,false);
     ouse_task_owner_close(&owner);assert(ouse_media_get("user.media",&state)&&state.active);drain(id);
     assert(ouse_task_get(NULL,id,&task)&&task.state==OUSE_TASK_SUCCEEDED&&task.detached);assert(ouse_media_get("user.media",&state)&&!state.active&&state.position_ms==62);
+    ouse_task_owner_t previous_owner=owner;
     assert(ouse_task_owner_open("user.media",&owner)==ESP_OK);
+    assert(ouse_media_play(&owner,NULL,data,size,&id)==ESP_OK);claim(id);pump();
+    assert(ouse_media_stop_owner(&previous_owner)==ESP_ERR_NOT_FOUND);
+    assert(ouse_task_get(&owner,id,&task)&&task.state==OUSE_TASK_RUNNING);
+    assert(ouse_media_stop_owner(&owner)==ESP_OK);ouse_media_consumer_done(id,ESP_OK,true);
+    assert(ouse_task_get(&owner,id,&task)&&task.state==OUSE_TASK_CANCELLED);
     assert(ouse_media_play(&owner,"https://example.test/stream.wav",NULL,0,&id)==ESP_OK);claim(id);pump();
     assert(native_cleaned&&transport_calls==1&&ouse_task_get(&owner,id,&task)&&task.state==OUSE_TASK_CANCELLED);
     transport_mode=2;native_cleaned=false;assert(ouse_media_play(&owner,"https://example.test/stream.wav",NULL,0,&id)==ESP_OK);claim(id);pump();

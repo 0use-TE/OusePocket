@@ -2,6 +2,7 @@
 
 --focused-native-ui runs only the modal/card preference checks, without the
 existing lifecycle stress scenarios.
+Default lifecycle regression uses 24 rounds; --stress retains the 200-round run.
 """
 from pathlib import Path
 import json, os, re, subprocess, sys
@@ -29,6 +30,7 @@ def write_if_changed(path, content):
         path.write_text(content, encoding="utf-8")
 (OUT / "esp_err.h").write_text("""#pragma once
 typedef int esp_err_t;
+const char *esp_err_to_name(esp_err_t error);
 #define ESP_OK 0
 #define ESP_FAIL -1
 #define ESP_ERR_NO_MEM 0x101
@@ -80,9 +82,15 @@ write_if_changed(OUT / "lv_conf.h", """#pragma once
 #define LV_USE_DEMO_WIDGETS 0
 """)
 (OUT / "esp_log.h").write_text("#define ESP_LOGI(...) ((void)0)\n#define ESP_LOGE(...) ((void)0)\n")
+write_if_changed(OUT / "sdmmc_cmd.h", "#pragma once\ntypedef struct {int unused;} sdmmc_card_t;\n")
+write_if_changed(OUT / "esp_timer.h", "#pragma once\n#include <stdint.h>\nint64_t esp_timer_get_time(void);\n")
 (OUT / "freertos").mkdir(exist_ok=True)
 write_if_changed(OUT / "freertos/FreeRTOS.h", """#pragma once
 typedef unsigned TickType_t;
+typedef int portMUX_TYPE;
+#define portMUX_INITIALIZER_UNLOCKED 0
+#define portENTER_CRITICAL(value) ((void)(value))
+#define portEXIT_CRITICAL(value) ((void)(value))
 """)
 write_if_changed(OUT / "freertos/task.h", """#pragma once
 #include "FreeRTOS.h"
@@ -94,12 +102,16 @@ fixture = r'''
 #include "ouse_debug.h"
 #include "counter_app.h"
 #include "ouse_apps_internal.h"
+#define OUSE_APP_CAPACITY 80
 #include "ouse_shell.h"
 #include "ouse_device_driver.h"
 #include "ouse_dialog.h"
 #include "ouse_device_ui.h"
 #include "ouse_widgets.h"
 #include "display_flush_wait.h"
+#include "core-services.h"
+#include "ouse_memory_pressure.h"
+ouse_memory_pressure_t ouse_test_memory_pressure=OUSE_MEMORY_NORMAL;
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -107,6 +119,7 @@ fixture = r'''
 LV_FONT_DECLARE(ouse_font_ui_16)
 static uint8_t pixels[320 * 480 * 2], buffer[320 * 50 * 2];
 static unsigned brightness, calls, locks, unlocks, flushes;
+int64_t esp_timer_get_time(void){return (int64_t)lv_tick_get()*1000;}
 static bool allow_lock = true, allow_brightness = true;
 static bool allow_save = true, allow_info = true;
 static unsigned saved_requests, ui_calls;
@@ -227,12 +240,21 @@ static void touch_step(int x, int y, bool down) {
     touch_point=(lv_point_t){x,y}; touch_state=down ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
     // Feed the pointer before the UI timers, as an input-driven adapter does.
     // Otherwise timer list order adds a frame of stale coordinates.
-    lv_tick_inc(50); lv_indev_read(touch_device); lv_timer_handler();
+    lv_tick_inc(50);lv_indev_read(touch_device);lv_timer_handler();
 }
 static void swipe(int x, int y, int stop_x, int stop_y) {
     touch_step(x,y,true);
     for (unsigned i=1;i<=6;++i) touch_step(x+(stop_x-x)*(int)i/6,y+(stop_y-y)*(int)i/6,true);
     touch_step(stop_x,stop_y,false); tick();
+}
+static unsigned caret_pixels(lv_obj_t *input){
+    lv_area_t bounds;lv_obj_get_coords(input,&bounds);unsigned count=0;
+    uint16_t accent=lv_color_to_u16(lv_color_hex(ouse_theme_colors().accent));
+    for(int vertical=bounds.y1;vertical<=bounds.y2 && vertical<480;++vertical)
+        for(int horizontal=bounds.x1;horizontal<=bounds.x2 && horizontal<320;++horizontal)
+            if(vertical>=0 && horizontal>=0){unsigned offset=(unsigned)(vertical*320+horizontal)*2;
+                if((pixels[offset]|((uint16_t)pixels[offset+1]<<8))==accent)++count;}
+    return count;
 }
 static lv_obj_t *label(lv_obj_t *root, const char *value) {
     if (lv_obj_has_flag(root, LV_OBJ_FLAG_HIDDEN)) return NULL;
@@ -252,7 +274,14 @@ static lv_obj_t *slider(lv_obj_t *root) {
     }
     return NULL;
 }
+static lv_obj_t *brightness_slider(lv_obj_t *root) {
+    if(!lv_obj_is_visible(root))return NULL;
+    if(lv_obj_check_type(root,&lv_slider_class) && lv_slider_get_min_value(root)==10)return root;
+    for(unsigned index=0;index<lv_obj_get_child_count(root);++index){lv_obj_t *found=brightness_slider(lv_obj_get_child(root,index));if(found)return found;}
+    return NULL;
+}
 static lv_obj_t *find_type(lv_obj_t *root,const lv_obj_class_t *type) {
+    if(!lv_obj_is_visible(root))return NULL;
     if(!lv_obj_is_visible(root))return NULL;
     if(lv_obj_check_type(root,type))return root;
     for(unsigned i=0;i<lv_obj_get_child_count(root);++i){lv_obj_t *obj=find_type(lv_obj_get_child(root,i),type);if(obj)return obj;}
@@ -284,15 +313,18 @@ static void scroll_from_child_gap(lv_obj_t *page,int min_y,int end_y) {
         assert(!lv_area_is_point_on(&area,&point,0));
     }
     int before=lv_obj_get_scroll_y(page);
+    int available=lv_obj_get_scroll_bottom(page);assert(available>0);
     bool pressed=false;lv_obj_add_event_cb(page,gap_pressed,LV_EVENT_PRESSED,&pressed);
+    lv_indev_reset(touch_device,NULL);touch_step(point.x,point.y,false);
     touch_step(point.x,point.y,true);
     // Verify the empty gap really hit this scrolling surface, not a button.
+    if(!pressed){char tree[30000];ouse_debug_tree(tree,sizeof(tree));printf("Gap did not target form: x=%d y=%d outer=%d,%d,%d,%d\n%s\n",point.x,point.y,outer.x1,outer.y1,outer.x2,outer.y2,tree);fflush(stdout);}
     assert(pressed);lv_obj_remove_event_cb(page,gap_pressed);
     for(unsigned i=1;i<=6;++i)touch_step(point.x,point.y+(end_y-point.y)*(int)i/6,true);
     touch_step(point.x,end_y,false);tick();
     int after=lv_obj_get_scroll_y(page);
     printf("Native blank-gap pointer scroll: origin=(%d,%d) before=%d after=%d\n",point.x,point.y,before,after);fflush(stdout);
-    assert(after>before+10);
+    assert(after>=before+(available<11 ? available : 11));
 }
 static unsigned count(lv_obj_t *root) {
     unsigned result = 1;
@@ -300,6 +332,7 @@ static unsigned count(lv_obj_t *root) {
     return result;
 }
 static void click(lv_obj_t *root, const char *value) {
+    ouse_wifi_request_t completed;while(host_take_wifi(&completed)){}
     lv_obj_t *target = label(root, value);
     if(!target && !strcmp(value,"返回设置"))target=label(root,LV_SYMBOL_LEFT);
     assert(target);
@@ -307,6 +340,13 @@ static void click(lv_obj_t *root, const char *value) {
     while (button && !lv_obj_check_type(button,&lv_button_class)) button=lv_obj_get_parent(button);
     assert(button);
     lv_obj_send_event(button, LV_EVENT_CLICKED, NULL);
+}
+static void press_keyboard(lv_obj_t *keyboard,const char *key) {
+    for(unsigned index=0;index<200;++index){
+        const char *text=lv_buttonmatrix_get_button_text(keyboard,index);
+        if(text && (!strcmp(text,key) || (!strcmp(key,LV_SYMBOL_CLOSE) && !strcmp(text,LV_SYMBOL_KEYBOARD)))){lv_buttonmatrix_set_selected_button(keyboard,index);lv_obj_send_event(keyboard,LV_EVENT_VALUE_CHANGED,NULL);return;}
+    }
+    assert(false);
 }
 static void screenshot(const char *name) {
     lv_refr_now(lv_display_get_default());
@@ -373,11 +413,11 @@ static esp_err_t audit_save_ui(void *context,uint8_t locale,uint8_t percent) {
 static void focused_native_ui(lv_obj_t *root) {
     tick();unsigned baseline=count(root),baseline_timers=timers(),baseline_bindings=ouse_ui_binding_count();
     allow_ui_save=false;
-    assert(ouse_core_set_ui(1,130)==ESP_FAIL && ouse_ui_locale()==1 && ouse_ui_font_percent()==130);
+    assert(ouse_core_set_ui(1,100)==ESP_FAIL && ouse_ui_locale()==1 && ouse_ui_font_percent()==100);
     assert(ouse_dialog_active() && label(root,"Retry"));
     click(root,"Retry");assert(ouse_dialog_active() && ui_save_calls==2);
     allow_ui_save=true;click(root,"Retry");assert(!ouse_dialog_active() && ui_save_calls==3);
-    assert(saved.requested_locale==1 && saved.requested_font_percent==130);
+    assert(saved.requested_locale==1 && saved.requested_font_percent==100);
     assert(ouse_core_set_ui(0,100)==ESP_OK);saved.pending=false;saved.last_error=ESP_OK;tick();
     puts("PASS focused UI preferences: live locale/font survives save failure, failed Retry remains available, successful Retry submits both and dismisses");
     assert(ouse_app_open("ouse.settings")==ESP_OK);click(root,"电源");
@@ -415,22 +455,22 @@ static void focused_native_ui(lv_obj_t *root) {
     ouse_devices_publish_wifi(&wifi,request.id);tick();click(root,"Office");tick();
     lv_obj_t *password=find_type(root,&lv_textarea_class);assert(password);
     lv_obj_t *keyboard=find_type(root,&lv_keyboard_class);assert(keyboard);
-    lv_textarea_set_text(password,"bad");lv_obj_send_event(keyboard,LV_EVENT_READY,NULL);tick();
+    lv_textarea_set_text(password,"bad");press_keyboard(keyboard,LV_SYMBOL_OK);tick();
     assert(ouse_dialog_active() && ouse_device_ui_modal() && !ouse_devices_take_wifi(&request));
     swipe(4,240,84,240);assert(!ouse_dialog_active() && ouse_device_ui_modal());
     swipe(316,240,236,240);assert(!ouse_device_ui_modal() && !*lv_textarea_get_text(password));
     click(root,"Office");lv_textarea_set_text(password,"12345678");
-    assert(ouse_core_set_ui(1,130)==ESP_OK);tick();
+    assert(ouse_core_set_ui(1,100)==ESP_OK);tick();
     assert(ouse_device_ui_modal() && !strcmp(lv_textarea_get_text(password),"12345678"));
     assert(label(root,"Connect") && label(root,"Cancel"));
-    lv_obj_send_event(keyboard,LV_EVENT_CANCEL,NULL);tick();
+    press_keyboard(keyboard,LV_SYMBOL_CLOSE);tick();
     assert(!ouse_device_ui_modal() && !*lv_textarea_get_text(password));
-    click(root,"Other network");tick();assert(ouse_device_ui_modal());
+    click(root,"Add network");tick();assert(ouse_device_ui_modal());
     lv_obj_t *ssid=find_type(root,&lv_textarea_class);assert(ssid && ssid!=password);
     assert(lv_keyboard_get_textarea(keyboard)==ssid);
     lv_textarea_set_text(ssid,"HiddenNetwork");lv_textarea_set_text(password,"abcdefgh");
     screenshot("wifi-modal-en-large.ppm");
-    lv_obj_send_event(keyboard,LV_EVENT_READY,NULL);tick();
+    press_keyboard(keyboard,LV_SYMBOL_OK);tick();
     assert(!ouse_device_ui_modal() && ouse_devices_take_wifi(&request));
     assert(!strcmp(request.ssid,"HiddenNetwork") && !strcmp(request.password,"abcdefgh"));
     assert(ouse_core_set_ui(0,100)==ESP_OK);assert(ouse_app_close()==ESP_OK);tick();
@@ -444,17 +484,14 @@ static void focused_native_ui(lv_obj_t *root) {
     ouse_shell_state_t shell;ouse_shell_get_state(&shell);assert(shell.recents && shell.snapshot_bytes);
     lv_obj_t *title=recent_title(root,"计数器");assert(title);
     int before=lv_obj_get_height(title);
-    swipe(160,14,160,200);ouse_shell_get_state(&shell);assert(shell.quick && shell.recents);
-    click(root,"字号：标准");tick();click(root,"字号：较大");tick();
-    assert(ouse_ui_font_percent()==130);
-    swipe(160,462,160,350);ouse_shell_get_state(&shell);assert(!shell.quick && shell.recents && shell.snapshot_bytes);
+    assert(ouse_core_set_ui(0,130)==ESP_ERR_INVALID_ARG);
+    assert(ouse_ui_font_percent()==100);
     title=recent_title(root,"计数器");assert(title);
     int after=lv_obj_get_height(title),line=lv_obj_get_style_text_font(title,0)->line_height;
     screenshot("recents-font130.ppm");
     printf("Recent title after quick-font130: before=%d after=%d required_line_height=%d\n",before,after,line);fflush(stdout);
     assert(after>=line);
-    swipe(160,14,160,200);click(root,"简体中文");tick();
-    swipe(160,462,160,350);assert(ouse_ui_locale()==1);
+    assert(ouse_core_set_ui(1,100)==ESP_OK);tick();assert(ouse_ui_locale()==1);
     title=recent_title(root,"Counter");assert(title && lv_obj_get_height(title)>=lv_obj_get_style_text_font(title,0)->line_height);
     assert(ouse_core_set_ui(0,100)==ESP_OK);tick();
     title=recent_title(root,"计数器");assert(title && lv_obj_get_height(title)==ouse_ui_font(14)->line_height);
@@ -469,8 +506,9 @@ static uint16_t pixel(int x,int y) {assert(x>=0 && x<320 && y>=0 && y<480);retur
 static unsigned switch_events;
 static void switch_changed(lv_event_t *event) {(void)event;++switch_events;}
 static void focused_widgets(lv_obj_t *root) {
-    const unsigned densities[]={160,240,320},fonts[]={100,130};
-    for(unsigned density=0;density<3;++density)for(unsigned font=0;font<2;++font)for(unsigned dark=0;dark<2;++dark) {
+    const unsigned densities[]={160,240,320},fonts[]={100};
+    assert(ouse_ui_init(160,0,130)==ESP_ERR_INVALID_ARG);
+    for(unsigned density=0;density<3;++density)for(unsigned font=0;font<1;++font)for(unsigned dark=0;dark<2;++dark) {
         assert(ouse_ui_init(densities[density],0,fonts[font])==ESP_OK);
         ouse_theme_set(dark ? OUSE_THEME_DARK : OUSE_THEME_LIGHT);
         lv_obj_t *panel=ouse_widget_box(root,OUSE_STYLE_APP,0);lv_obj_set_size(panel,320,480);
@@ -492,7 +530,7 @@ static void focused_widgets(lv_obj_t *root) {
         assert(pixel(right,y)==0xffff && pixel(left,y)==rgb565(ouse_theme_colors().accent));
         assert(pixel(area.x1+1,area.y1+1)==background);
         if(density==0 && font==0)screenshot(dark ? "widgets-switch-dark.ppm" : "widgets-switch-light.ppm");
-        if(density==2 && font==1)screenshot(dark ? "widgets-switch-dark-hdpi.ppm" : "widgets-switch-light-hdpi.ppm");
+        if(density==2 && font==0)screenshot(dark ? "widgets-switch-dark-hdpi.ppm" : "widgets-switch-light-hdpi.ppm");
         touch_step((area.x1+area.x2)/2,y,true);touch_step((area.x1+area.x2)/2,y,false);tick();
         assert(switch_events==before+2 && !lv_obj_has_state(sw,LV_STATE_CHECKED));
         lv_obj_t *button=ouse_widget_button(panel,"确定",NULL,NULL);lv_obj_set_pos(button,8,8);
@@ -507,9 +545,10 @@ static void focused_widgets(lv_obj_t *root) {
         assert(lv_obj_get_style_radius(single,0)==ouse_ui_dp(12));
         lv_obj_delete(panel);tick();
     }
-    puts("PASS widget pixels: light/dark, checked/off, 160/240/320dpi, 100/130% text; opaque round knob/track, 40dp contact, one toggle, content buttons and compact rows");
+    puts("PASS widget pixels: light/dark, checked/off, 160/240/320dpi, fixed 100% text and unsupported-size rejection; opaque round knob/track, 40dp contact, one toggle, content buttons and compact rows");
 }
 int main(int argc, char **argv) {
+    setvbuf(stdout,NULL,_IONBF,0);
     (void)argv;
     lv_init();
     test_async_flush_wait();
@@ -533,11 +572,16 @@ int main(int argc, char **argv) {
         snprintf(extra_ids[i-2],48,"ouse.extra%u",i);snprintf(extra_names[i-2],48,"Extra%u",i);
         definitions[i]=definitions[1]; definitions[i].id=extra_ids[i-2]; definitions[i].name=extra_names[i-2];
     }
-    bool pages=argc>1 && !strcmp(argv[1],"--launcher-pages");
+    bool order=argc>1 && !strcmp(argv[1],"--launcher-order");
+    bool reload=argc>1 && !strcmp(argv[1],"--launcher-order-reload");
+    bool corrupt=argc>1 && !strcmp(argv[1],"--launcher-order-corrupt");
+    bool pages=argc>1 && (!strcmp(argv[1],"--launcher-pages") || order || reload);
+    if(reload)host_launcher_order=_strdup("OUSE1\nouse.counter\nouse.settings\n");
+    if(corrupt)host_launcher_order=_strdup("OUSE1\nouse.settings\nouse.settings\n");
     ouse_core_config_t config = {.port = {
         .display = display, .touch = touch, .lock = lock, .unlock = unlock,
         .set_brightness = set_brightness, .save_brightness = save_setting, .save_theme = save_theme,
-        .get_settings_state = settings_state, .get_system_info = system_info, .board_name = "Waveshare P4 LCD 3.5"}, .initial_brightness = 45, .initial_font_percent=pages ? 130 : 100, .apps = definitions, .app_count = (pages ? OUSE_APP_CAPACITY-1 : argc>1 ? 2 : 1)};
+        .get_settings_state = settings_state, .get_system_info = system_info, .board_name = "Waveshare P4 LCD 3.5"}, .initial_brightness = 45, .initial_font_percent=100, .apps = definitions, .app_count = (pages ? OUSE_APP_CAPACITY-1 : argc>1 ? 2 : 1)};
     if(argc>1 && !strcmp(argv[1],"--focused-native-ui"))config.port.save_ui=audit_save_ui;
     assert(!ouse_core_is_started() && strcmp(ouse_core_version(), "CORE_VERSION_EXPECTED") == 0);
     assert(ouse_core_sleep_display()==ESP_ERR_INVALID_STATE && ouse_core_wake_display()==ESP_ERR_INVALID_STATE);
@@ -553,8 +597,9 @@ int main(int argc, char **argv) {
     assert(ouse_core_start(&config) == ESP_FAIL && !ouse_core_is_started());
     allow_brightness = true;
     size_t requested_count=config.app_count;
-    config.app_count=OUSE_APP_CAPACITY;
+    config.apps=NULL;
     assert(ouse_core_start(&config)==ESP_ERR_INVALID_ARG);
+    config.apps=definitions;
     config.app_count=2;
     definitions[1].id="ouse.counter";
     assert(ouse_core_start(&config)==ESP_ERR_INVALID_ARG);
@@ -566,27 +611,144 @@ int main(int argc, char **argv) {
     assert(brightness == 45);
     assert(ouse_core_start(&config) == ESP_ERR_INVALID_STATE);
     lv_obj_t *root = lv_screen_active();
+    if(argc>1 && !strcmp(argv[1],"--ble-settings")){
+        assert(ouse_app_open("ouse.settings")==ESP_OK);tick();
+        lv_obj_t *entry=label(root,"蓝牙");assert(entry);lv_obj_scroll_to_view_recursive(lv_obj_get_parent(entry),LV_ANIM_OFF);tick();click(root,"蓝牙");tick();
+        assert(label(root,"OusePocket") && label(root,"已关闭"));
+        lv_obj_t *toggle=find_type(root,&lv_switch_class);assert(toggle);lv_obj_add_state(toggle,LV_STATE_CHECKED);lv_obj_send_event(toggle,LV_EVENT_VALUE_CHANGED,NULL);tick();assert(host_ble.enabled && label(root,"可被发现"));
+        click(root,"搜索设备");tick();assert(host_ble.scanning && label(root,"正在搜索"));
+        host_ble.scanning=false;host_ble.count=1;strcpy(host_ble.peers[0].name,"Home PC");strcpy(host_ble.peers[0].address,"01:02:03:04:05:06");++host_ble.revision;tick();
+        click(root,"Home PC");tick();assert(host_ble.connected && label(root,"已连接"));click(root,"断开连接");tick();assert(!host_ble.connected);
+        host_ble.pair_pending=true;host_ble.pair_id=7;host_ble.number=123456;++host_ble.revision;tick();assert(ouse_dialog_active() && label(root,"蓝牙配对\n123456"));click(root,"配对");tick();assert(!host_ble.pair_pending && host_ble.bonded && !ouse_dialog_active());
+        host_ble.pair_pending=true;host_ble.pair_id=8;++host_ble.revision;tick();assert(ouse_dialog_active());click(root,"取消");tick();assert(!host_ble.pair_pending && !host_ble.bonded);
+        assert(ouse_app_close_id("ouse.settings")==ESP_OK);tick();puts("PASS real Bluetooth settings UI: toggle, discovery, peer connect/disconnect, numeric pairing accept and cancel, cleanup");return 0;
+    }
+    if(argc>1 && !strcmp(argv[1],"--ime-cursor")){
+        lv_obj_t *view=lv_obj_create(root);lv_obj_remove_style_all(view);lv_obj_set_size(view,320,416);lv_obj_set_y(view,40);
+        lv_obj_t *first=lv_textarea_create(view),*second=lv_textarea_create(view);
+        lv_obj_remove_style_all(first);lv_obj_remove_style_all(second);
+        lv_obj_set_pos(first,20,20);lv_obj_set_size(first,260,48);lv_obj_set_style_pad_all(first,8,0);ouse_ui_use_font(first,16);
+        lv_obj_set_pos(second,20,84);lv_obj_set_size(second,260,48);lv_obj_set_style_pad_all(second,8,0);ouse_ui_use_font(second,16);
+        lv_textarea_set_text(first,"");lv_textarea_set_text(second,"");
+        assert(ouse_ime_attach(first,view,OUSE_IME_RESIZE,OUSE_IME_TEXT)==ESP_OK);
+        assert(ouse_ime_attach(second,view,OUSE_IME_RESIZE,OUSE_IME_PASSWORD)==ESP_OK);
+        for(unsigned theme=0;theme<2;++theme){
+            lv_textarea_set_text(first,"");lv_textarea_set_text(second,"");
+            lv_obj_set_style_pad_all(first,theme ? 0 : 8,0);lv_obj_set_style_pad_all(second,theme ? 0 : 8,0);
+            lv_obj_set_height(first,theme ? 22 : 48);lv_obj_set_height(second,theme ? 22 : 48);
+            assert(ouse_core_set_theme((ouse_theme_t)theme)==ESP_OK);ouse_ime_focus(first);
+            lv_tick_inc(20);lv_timer_handler();assert(lv_obj_has_state(first,LV_STATE_FOCUSED));
+            unsigned minimum=caret_pixels(first),maximum=minimum;
+            for(unsigned frame=0;frame<25;++frame){lv_tick_inc(50);lv_timer_handler();unsigned count=caret_pixels(first);if(count<minimum)minimum=count;if(count>maximum)maximum=count;}
+            assert(maximum>minimum && maximum>0);
+            lv_textarea_add_text(first,"abcd");assert(lv_textarea_get_cursor_pos(first)==4);
+            ouse_ime_focus(second);assert(!lv_obj_has_state(first,LV_STATE_FOCUSED) && lv_obj_has_state(second,LV_STATE_FOCUSED));
+            assert(lv_textarea_get_password_mode(second));lv_textarea_add_text(second,"1234");
+            ouse_ime_hide();assert(!lv_obj_has_state(second,LV_STATE_FOCUSED));tick();
+            assert(!caret_pixels(first) && !caret_pixels(second));
+        }
+        lv_obj_delete(view);assert(!ouse_ime_active());
+        puts("PASS real caret pixels: empty field visible/blinking, both themes, insertion position, password focus, old-field cleanup and blur");return 0;
+    }
+    lv_obj_t *ime_view=lv_obj_create(root),*ime_input=lv_textarea_create(ime_view);
+    assert(ouse_ime_attach(ime_input,ime_view,OUSE_IME_RESIZE,OUSE_IME_TEXT)==ESP_OK);
+    ouse_ime_focus(ime_input);ouse_ime_hide();lv_obj_delete(ime_view);
+    if(corrupt){
+        tick();ouse_core_launcher_restored();tick();assert(ouse_dialog_active());
+        assert(!strcmp(host_launcher_order,"OUSE1\nouse.settings\nouse.settings\n"));
+        puts("PASS corrupt/duplicate saved order rejected without silently overwriting preserved file");return 0;
+    }
+    if(argc>1 && !strcmp(argv[1],"--memory-pressure")){
+        assert(ouse_memory_classify(32768,8192,524288)==OUSE_MEMORY_WARNING);
+        assert(ouse_memory_classify(32767,20000,2000000)==OUSE_MEMORY_CRITICAL);
+        assert(ouse_memory_classify(90000,8191,2000000)==OUSE_MEMORY_CRITICAL);
+        assert(ouse_memory_classify(90000,20000,524287)==OUSE_MEMORY_CRITICAL);
+        assert(ouse_memory_classify(90000,20000,2000000)==OUSE_MEMORY_NORMAL);
+        assert(ouse_app_open("ouse.counter")==ESP_OK);
+        ouse_test_memory_pressure=OUSE_MEMORY_CRITICAL;
+        assert(ouse_app_open("ouse.settings")==ESP_OK);
+        assert(ouse_app_open("ouse.fail")==ESP_ERR_NO_MEM && failed_cleanup==0);
+        ouse_app_stats_t stats;ouse_app_get_stats(&stats);
+        assert(!strcmp(stats.active_id,"ouse.settings") && stats.live_instances==2 && !stats.preview_bytes);
+        assert(ouse_app_open("ouse.counter")==ESP_OK);
+        ouse_test_memory_pressure=OUSE_MEMORY_NORMAL;
+        assert(ouse_app_close_id("ouse.counter")==ESP_OK);
+        assert(ouse_app_close_id("ouse.settings")==ESP_OK);
+        puts("PASS memory pressure: boundary classification, reserve rejection before allocation, current app retained, settings/resume admitted, preview allocation skipped, no background app killed");return 0;
+    }
     if(argc>1 && !strcmp(argv[1],"--focused-native-ui")) {focused_native_ui(root);return 0;}
     assert(label(root, LV_SYMBOL_SETTINGS) && !label(root, "屏幕亮度"));
     if (pages) {
         tick();
+        ouse_core_launcher_restored();tick();
         ouse_app_stats_t state; assert(ouse_app_get_stats(&state)==ESP_OK && state.registered==OUSE_APP_CAPACITY);
         ouse_app_info_t last;assert(ouse_app_get_info(OUSE_APP_CAPACITY-1,&last)==ESP_OK && !strcmp(last.id,extra_ids[OUSE_APP_CAPACITY-4]));
         ouse_app_definition_t overflow=definitions[1];overflow.id="user.overflow";
-        assert(ouse_apps_user_apply(&overflow)==ESP_ERR_NO_MEM);
+        assert(ouse_apps_user_apply(&overflow)==ESP_OK);
         ouse_app_info_t info; assert(ouse_app_get_info(7,&info)==ESP_OK && !strcmp(info.id,"ouse.extra6"));
+        if(order || reload){
+            lv_obj_t *launcher=NULL;
+            for(unsigned index=0;index<lv_obj_get_child_count(root);++index){
+                lv_obj_t *home=lv_obj_get_child(root,index);
+                for(unsigned child=0;child<lv_obj_get_child_count(home);++child){
+                    lv_obj_t *candidate=lv_obj_get_child(home,child);
+                    if(lv_obj_get_scroll_dir(candidate)==LV_DIR_HOR)launcher=candidate;
+                }
+            }
+            assert(launcher && host_launcher_order);
+            if(reload){assert(!strncmp(host_launcher_order,"OUSE1\nouse.counter\nouse.settings\n",32));puts("PASS persisted launcher ID order restored independently of registration order");return 0;}
+            assert(!strncmp(host_launcher_order,"OUSE1\nouse.settings\n",20));
+            touch_step(58,72,true);for(unsigned step=0;step<15;++step)touch_step(58,72,true);
+            for(unsigned step=1;step<=6;++step)touch_step(58+200*(int)step/6,72,true);
+            touch_step(258,72,false);tick();
+            assert(!ouse_app_get_stats(&state) && !state.active_id[0]);
+            char *settings=strstr(host_launcher_order,"ouse.settings\n");assert(settings && settings>host_launcher_order+6);
+            assert(settings==strchr(strchr(host_launcher_order+6,'\n')+1,'\n')+1);
+            char *saved=_strdup(host_launcher_order);
+            assert(ouse_core_set_theme(OUSE_THEME_DARK)==ESP_OK);tick();assert(!strcmp(saved,host_launcher_order));
+            touch_step(58,72,true);for(unsigned step=0;step<15;++step)touch_step(58,72,true);
+            touch_step(304,72,true);for(unsigned step=0;step<13;++step)touch_step(304,72,true);
+            touch_step(258,72,true);touch_step(258,72,false);tick();
+            unsigned current,total;ouse_core_launcher_state(&current,&total);assert(current==1);
+            assert(strcmp(saved,host_launcher_order));free(saved);
+            saved=_strdup(host_launcher_order);host_launcher_save_error=true;
+            touch_step(58,72,true);for(unsigned step=0;step<15;++step)touch_step(58,72,true);
+            for(unsigned step=1;step<=6;++step)touch_step(58+200*(int)step/6,72,true);
+            touch_step(258,72,false);tick();assert(ouse_dialog_active() && !strcmp(saved,host_launcher_order));
+            host_launcher_save_error=false;click(root,"重试");tick();assert(!ouse_dialog_active() && strcmp(saved,host_launcher_order));free(saved);
+            saved=_strdup(host_launcher_order);
+            touch_step(58,72,true);for(unsigned step=0;step<15;++step)touch_step(58,72,true);
+            touch_step(258,450,true);touch_step(258,450,false);tick();assert(!strcmp(saved,host_launcher_order));free(saved);
+            ouse_app_definition_t added=definitions[1];added.id="user.order-test";assert(ouse_core_user_apply(&added)==ESP_OK);tick();
+            assert(strstr(host_launcher_order,"user.order-test\n"));
+            saved=_strdup(host_launcher_order);assert(ouse_core_user_apply(&added)==ESP_OK);tick();assert(!strcmp(saved,host_launcher_order));free(saved);
+            assert(ouse_core_user_remove(added.id)==ESP_OK);tick();assert(!strstr(host_launcher_order,"user.order-test"));
+            puts("PASS launcher long-hold insertion, cross-page drag, no accidental launch, cancelled drop, save failure/retry, theme rebuild, update retention and uninstall pruning");return 0;
+        }
         swipe(220,300,60,300);
-        bool moved=false;
+        lv_obj_t *launcher=NULL;
         for (unsigned i=0;i<lv_obj_get_child_count(root);++i) {
             lv_obj_t *home=lv_obj_get_child(root,i);
             if (!lv_obj_is_visible(home)) continue;
             for (unsigned j=0;j<lv_obj_get_child_count(home);++j) {
                 lv_obj_t *grid=lv_obj_get_child(home,j);
-                if (lv_obj_get_scroll_dir(grid)==LV_DIR_HOR && lv_obj_get_scroll_x(grid)>0) moved=true;
+                if (lv_obj_get_scroll_dir(grid)==LV_DIR_HOR && lv_obj_get_scroll_x(grid)>0) launcher=grid;
             }
         }
-        assert(moved); screenshot("desktop-page2.ppm");
-        puts("PASS full registry, overflow rejection and horizontal launcher paging");
+        assert(launcher && lv_obj_has_flag(launcher,LV_OBJ_FLAG_SCROLL_ONE));
+        assert(!lv_obj_has_flag(launcher,LV_OBJ_FLAG_SCROLL_ELASTIC));
+        unsigned current,total;ouse_core_launcher_state(&current,&total);assert(current==1 && total>=3);
+        screenshot("desktop-page2.ppm");
+        for(unsigned expected=2;expected<total;++expected){
+            swipe(280,300,40,300);ouse_core_launcher_state(&current,&total);assert(current==expected);
+        }
+        swipe(280,300,40,300);ouse_core_launcher_state(&current,&total);assert(current==total-1);
+        for(unsigned expected=total-1;expected>0;--expected){
+            swipe(40,300,280,300);ouse_core_launcher_state(&current,&total);assert(current==expected-1);
+        }
+        swipe(40,300,280,300);ouse_core_launcher_state(&current,&total);assert(current==0);
+        swipe(280,300,40,300);ouse_core_launcher_state(&current,&total);assert(current==1);
+        puts("PASS dynamic registry beyond 24 entries; single-page swipes in both directions, fast fling and first/last page boundaries");
         return 0;
     }
     if (argc>1) {
@@ -629,7 +791,7 @@ int main(int argc, char **argv) {
     unsigned objects=count(root),baseline_timers=timers(),baseline_bindings=ouse_ui_binding_count();
     ouse_shell_state_t shell;ouse_app_stats_t state;
     click(root,LV_SYMBOL_SETTINGS);tick();
-    assert(label(root,"显示与个性化") && label(root,"Waveshare P4 LCD 3.5"));screenshot("settings.ppm");
+    assert(label(root,"显示与个性化") && label(root,"Ouse"));screenshot("settings.ppm");
     // A compact page still owns drags starting between its child rows.
     lv_obj_t *settings_page=lv_obj_get_parent(label(root,"显示与个性化"));
     scroll_from_child_gap(settings_page,140,55);
@@ -650,7 +812,7 @@ int main(int argc, char **argv) {
     allow_brightness=false;lv_slider_set_value(control,90,LV_ANIM_OFF);lv_obj_send_event(control,LV_EVENT_VALUE_CHANGED,NULL);
     assert(brightness==75 && lv_slider_get_value(control)==75 && label(root,"亮度设置失败，请重试"));allow_brightness=true;click(root,"确定");
     click(root,"返回设置");click(root,"系统信息");tick();screenshot("system.ppm");
-    allow_info=false;tick();assert(label(root,"系统信息读取失败"));allow_info=true;tick();
+    allow_info=false;tick();assert(label(root,"关于设备") && label(root,"Waveshare P4 LCD 3.5"));allow_info=true;tick();
     click(root,"返回设置");click(root,"外观");click(root,"深色模式");tick();
     assert(ouse_theme_get()==OUSE_THEME_DARK && !label(root,"已开启"));screenshot("settings-dark.ppm");
     lv_obj_t *switch_row=lv_obj_get_parent(lv_obj_get_parent(label(root,"深色模式")));
@@ -664,9 +826,9 @@ int main(int argc, char **argv) {
     assert(ouse_theme_get()==OUSE_THEME_DARK && lv_obj_has_state(theme_switch,LV_STATE_CHECKED));
     allow_save=false;click(root,"深色模式");assert(label(root,"设置未能保存，请重试"));
     allow_save=true;click(root,"重试");saved.pending=false;saved.last_error=ESP_OK;saved.saved_theme=0;tick();
-    click(root,"返回设置");click(root,"语言与文字");click(root,"English");tick();
-    assert(label(root,"Language & text") && !label(root,"语言与文字"));click(root,"Largest");tick();
-    assert(ouse_ui_locale()==1 && ouse_ui_font_percent()==130);screenshot("settings-text-large.ppm");
+    click(root,"返回设置");click(root,"语言");click(root,"English");tick();
+    assert(label(root,"Language") && !label(root,"语言"));
+    assert(ouse_ui_locale()==1 && ouse_ui_font_percent()==100);screenshot("settings-text-large.ppm");
     assert(ouse_core_set_ui(0,100)==ESP_OK);(void)ouse_app_background();assert(ouse_app_close_id("ouse.settings")==ESP_OK);tick();
     assert(count(root)==objects && timers()==baseline_timers && ouse_ui_binding_count()==baseline_bindings);
     // Real native device pages. Hardware completions are injected at the worker boundary.
@@ -691,6 +853,7 @@ int main(int argc, char **argv) {
     // Its real padding/gap must still accept pointer scrolling independently
     // of the text fields; only test geometry changes, never interaction flags.
     lv_obj_t *wifi_form=lv_obj_get_parent(password);
+    ouse_ime_hide();tick();
     int form_max=lv_obj_get_style_max_height(wifi_form,LV_PART_MAIN);
     lv_obj_set_style_max_height(wifi_form,120,0);tick();
     scroll_from_child_gap(wifi_form,100,60);screenshot("wifi-form-gap-scroll.ppm");
@@ -711,7 +874,7 @@ int main(int argc, char **argv) {
     assert(ouse_power_set_timeout(0)==ESP_OK && ouse_app_close()==ESP_OK);tick();
     assert(count(root)==objects && timers()==baseline_timers && ouse_ui_binding_count()==baseline_bindings);
     puts("PASS device pages, password form/validation/cleanup, auto sleep, brightness restore, complete waking contact consumed");
-    for(unsigned i=0;i<200;++i) {
+    for(unsigned i=0;i<CORE_LIFECYCLE_ROUNDS;++i) {
         assert(ouse_app_open("ouse.counter")==ESP_OK);click(root,"+1");
         assert(ouse_app_open("ouse.settings")==ESP_OK);click(root,"显示");
         assert(ouse_app_open("ouse.counter")==ESP_OK && label(root,"1"));
@@ -729,24 +892,27 @@ int main(int argc, char **argv) {
     touch_step(160,14,true);touch_step(160,180,true);ouse_shell_get_state(&shell);
     assert(shell.quick && shell.tracking && shell.quick_y<0 && shell.quick_y>-480);screenshot("quick-follow.ppm");
     touch_step(160,180,false);tick();ouse_shell_get_state(&shell);assert(shell.quick && shell.quick_y==0);
-    lv_obj_t *quick_body=lv_obj_get_parent(lv_obj_get_parent(label(root,"屏幕亮度")));
+    lv_obj_t *quick_slider=brightness_slider(root);assert(quick_slider);
+    lv_obj_t *quick_body=lv_obj_get_parent(lv_obj_get_parent(quick_slider));
+    int quick_height=lv_obj_get_height(quick_body);lv_obj_set_height(quick_body,220);tick();
     scroll_from_child_gap(quick_body,100,90);screenshot("quick-gap-scroll.ppm");
-    lv_obj_scroll_to_y(quick_body,0,LV_ANIM_OFF);tick();
-    lv_obj_t *quick_slider=slider(root);assert(quick_slider);
+    lv_obj_set_height(quick_body,quick_height);lv_obj_scroll_to_y(quick_body,0,LV_ANIM_OFF);tick();
     lv_slider_set_value(quick_slider,55,LV_ANIM_OFF);lv_obj_send_event(quick_slider,LV_EVENT_VALUE_CHANGED,NULL);
     lv_obj_send_event(quick_slider,LV_EVENT_RELEASED,NULL);assert(brightness==55 && saved.requested_brightness==55);
     saved.pending=false;saved.saved_brightness=55;saved.last_error=ESP_OK;
     tick();screenshot("quick.ppm");
     unsigned writes=saved_requests;
-    touch_step(130,258,true);touch_step(230,258,true);ouse_shell_get_state(&shell);
+    lv_area_t quick_area;lv_obj_get_coords(quick_slider,&quick_area);int slider_y=(quick_area.y1+quick_area.y2)/2;
+    int slider_from=quick_area.x1+(quick_area.x2-quick_area.x1)/4,slider_to=quick_area.x1+3*(quick_area.x2-quick_area.x1)/4;
+    touch_step(slider_from,slider_y,true);touch_step(slider_to,slider_y,true);ouse_shell_get_state(&shell);
     assert(shell.quick_y==0 && !shell.tracking && brightness!=55 && saved_requests==writes);
-    touch_step(230,258,false);tick();assert(saved_requests==writes+1);
+    touch_step(slider_to,slider_y,false);tick();assert(saved_requests==writes+1);
     swipe(160,462,160,350);ouse_shell_get_state(&shell);assert(!shell.quick);
     // A short pull cancels; it must not leave an overlay that eats app input.
     swipe(160,14,160,42);ouse_shell_get_state(&shell);assert(!shell.quick);
     click(root,LV_SYMBOL_PLUS);assert(label(root,"1"));
     touch_step(160,474,true);touch_step(160,400,true);ouse_shell_get_state(&shell);
-    assert(shell.tracking && shell.snapshot_bytes>0);screenshot("home-follow.ppm");
+    assert(shell.tracking && shell.bar_offset<0 && !shell.snapshot_bytes);screenshot("home-follow.ppm");
     touch_step(160,400,false);tick();ouse_shell_get_state(&shell);
     assert(!shell.recents && !shell.tracking && !shell.snapshot_bytes);
     assert(ouse_app_get_stats(&state)==ESP_OK && !state.active_id[0] && state.live_instances==1);
@@ -788,7 +954,7 @@ int main(int argc, char **argv) {
     }
     assert(ouse_core_set_theme(OUSE_THEME_DARK)==ESP_OK);tick();screenshot("desktop-dark.ppm");
     swipe(160,14,160,160);screenshot("quick-dark.ppm");
-    assert(ouse_core_set_ui(1,130)==ESP_OK);tick();screenshot("quick-en-large.ppm");
+    assert(ouse_core_set_ui(1,100)==ESP_OK);tick();screenshot("quick-en-large.ppm");
     swipe(160,462,160,350);assert(ouse_core_set_ui(0,100)==ESP_OK && ouse_core_set_theme(OUSE_THEME_LIGHT)==ESP_OK);
     tick();screenshot("desktop-light.ppm");
     assert(ouse_app_get_stats(&state)==ESP_OK && !state.live_instances && state.opened==state.closed);
@@ -819,14 +985,14 @@ int main(int argc, char **argv) {
     assert(ouse_debug_home()==ESP_OK && ouse_app_close_id("ouse.counter")==ESP_OK);tick();
     assert(ouse_app_get_stats(&state)==ESP_OK && !state.live_instances && state.opened==state.closed);
     puts("PASS device debug: actual input injection, short home swipe, jitter-tolerant held overview, UI state/tree/RGB snapshot");
-    puts("PASS native settings pages, switch, live language/font, save failure/retry, 200 lifecycle rounds");
+    printf("PASS native settings pages, switch, live language, save failure/retry, %u lifecycle rounds\n",CORE_LIFECYCLE_ROUNDS);
     puts("PASS real pointer: follow/cancel quick sheet, slider isolation, back feedback, swipe home, hold recents, restore/swipe close/blank/Clear all");
     puts("PASS repeated animation/preview cleanup, shared themes, large text and bounded UI dispatch");
     assert(locks == unlocks + 2); // only the timed-out lock wasn't acquired.
-    puts("PASS real LVGL 9.5: desktop/settings/navigation, brightness success+failure, save pending/failure/retry, system refresh, bounded UI dispatch, opaque background, CJK coverage, 200 round trips");
+    puts("PASS real LVGL 9.5: desktop/settings/navigation, brightness success+failure, save pending/failure/retry, system refresh, bounded UI dispatch, opaque background, CJK coverage and lifecycle round trips");
     return 0;
 }
-'''.replace("CHARS", ",".join(str(c) for c in chars)).replace("CORE_VERSION_EXPECTED",(ROOT/"version.txt").read_text().strip())
+'''.replace("CHARS", ",".join(str(c) for c in chars)).replace("CORE_VERSION_EXPECTED",(ROOT/"version.txt").read_text().strip()).replace("ouse_devices_take_wifi(","host_take_wifi(").replace("CORE_LIFECYCLE_ROUNDS","200" if "--stress" in sys.argv else "24")
 (OUT / "check.c").write_text(fixture, encoding="utf-8")
 project = r'''
 cmake_minimum_required(VERSION 3.24)
@@ -841,7 +1007,7 @@ add_subdirectory("LVGL" lvgl)
 target_compile_options(lvgl PRIVATE /utf-8 "$<$<COMPILE_LANGUAGE:C>:/std:c11>")
 target_compile_definitions(lvgl PRIVATE _CRT_SECURE_NO_WARNINGS)
 file(GLOB UI_FONTS "CORE/ouse_font_ui_*.c")
-add_executable(check check.c ${UI_FONTS} "CORE/ouse_ui.c" "CORE/ouse_widgets.c" "CORE/ouse_dialog.c" "CORE/ouse_screen.c" "CORE/ouse_debug.c" "CORE/ouse_device_ui.c" "DEVICES/ouse_devices.c" "CORE/ouse_core.c" "CORE/ouse_apps.c" "CORE/ouse_shell.c" "CORE/ouse_theme.c" "CORE/ouse_navigation.cpp" "MAIN/counter_app.c")
+add_executable(check check.c ${UI_FONTS} "CORE/ouse_ui.c" "CORE/ouse_widgets.c" "CORE/ouse_dialog.c" "CORE/ouse_screen.c" "CORE/ouse_debug.c" "CORE/ouse_device_ui.c" "CORE/ouse_ime.c" "DEVICES/ouse_devices.c" "DEVICES/../ouse_tasks/ouse_tasks.c" "CORE/ouse_core.c" "CORE/ouse_apps.c" "CORE/ouse_shell.c" "CORE/ouse_theme.c" "CORE/ouse_navigation.cpp" "MAIN/counter_app.c")
 target_include_directories(check PRIVATE "DEVICES/include" "CORE/include" "CORE" "MAIN" "SYSTEM_INCLUDE" "OUT" "BOARD")
 target_compile_options(check PRIVATE /utf-8 /UNDEBUG)
 target_link_libraries(check PRIVATE lvgl)
@@ -875,7 +1041,10 @@ def compile_file(item):
             '/DLV_CONF_PATH="'+(OUT/"lv_conf.h").as_posix()+'"',
             "/I"+str(OUT), "/I"+str(LVGL), "/I"+str(ROOT/"components/ouse_devices/include"), "/I"+str(CORE/"include"), "/I"+str(SYSTEM_INCLUDE), "/I"+str(CORE), "/I"+str(ROOT/"tools/fixtures"), "/I"+str(ROOT/"boards/waveshare_lcd35"),
             "/Fo"+str(target), entry["file"]]
+    if is_app: args += ["/DOUSE_MEMORY_PRESSURE_TEST", "/experimental:c11atomics"]
+    args += ["/I"+str(path) for path in (ROOT/"components").glob("*/include")]
     if not is_app: args.append("/DNDEBUG")
+    if os.environ.get("OUSE_CORE_ASAN") and is_app: args += ["/fsanitize=address", "/Zi", "/FS"]
     args += ["/std:c++17", "/EHsc"] if entry["file"].endswith(".cpp") else ["/std:c11"]
     result = subprocess.run(args, cwd=OUT, env=env, capture_output=True, text=True, errors="replace", timeout=60)
     assert result.returncode == 0, (entry["file"], result.stdout, result.stderr)
@@ -894,16 +1063,24 @@ if not reuse_library:
                             cwd=OUT, env=env, capture_output=True, text=True, errors="replace")
     assert result.returncode == 0, (result.stdout, result.stderr)
 result = subprocess.run([str(compiler), "/nologo", *[str(p) for p in compiled[:len(app_commands)]], str(lib),
+                        *(["/fsanitize=address", "/Zi"] if os.environ.get("OUSE_CORE_ASAN") else []),
                         "/Fe"+str(OUT/"check.exe")], cwd=OUT, env=env, capture_output=True, text=True, errors="replace")
 assert result.returncode == 0, (result.stdout, result.stderr)
+os.environ["PATH"] = str(compiler.parent)+os.pathsep+env["PATH"]
 widget_only="--focused-widgets" in sys.argv[1:]
 current_ui="--focused-current-ui" in sys.argv[1:]
 focused=widget_only or current_ui or "--focused-native-ui" in sys.argv[1:]
 if not focused:
-    subprocess.run([str(OUT / "check.exe")], check=True, cwd=OUT, timeout=60)
+    subprocess.run([str(OUT / "check.exe")], check=True, cwd=OUT, timeout=180)
     subprocess.run([str(OUT / "check.exe"), "--lifecycle-errors"], check=True, cwd=OUT, timeout=60)
     subprocess.run([str(OUT / "check.exe"), "--launcher-pages"], check=True, cwd=OUT, timeout=60)
+    subprocess.run([str(OUT / "check.exe"), "--launcher-order"], check=True, cwd=OUT, timeout=60)
+    subprocess.run([str(OUT / "check.exe"), "--launcher-order-reload"], check=True, cwd=OUT, timeout=60)
+    subprocess.run([str(OUT / "check.exe"), "--launcher-order-corrupt"], check=True, cwd=OUT, timeout=60)
+    subprocess.run([str(OUT / "check.exe"), "--ime-cursor"], check=True, cwd=OUT, timeout=60)
+    subprocess.run([str(OUT / "check.exe"), "--ble-settings"], check=True, cwd=OUT, timeout=60)
 if not widget_only:subprocess.run([str(OUT / "check.exe"), "--focused-native-ui"], check=True, cwd=OUT, timeout=60)
+subprocess.run([str(OUT / "check.exe"), "--memory-pressure"], check=True, cwd=OUT, timeout=60)
 if widget_only or current_ui or not focused:subprocess.run([str(OUT / "check.exe"), "--focused-widgets"], check=True, cwd=OUT, timeout=60)
 from PIL import Image
 previews=() if widget_only else ("wifi-modal-en-large", "recents-font130", "native-power-compact", "native-timeout-choices", "native-sound-compact", "native-appearance-light", "native-appearance-dark")

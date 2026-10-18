@@ -1,0 +1,1 @@
+{"runtime":"ouse-core","api":1,"id":"user.point24","name":"Point24","names":{"zh_CN":"24点","en":"24 Point"},"icon":"icon.bin","capabilities":{"media":true},"assets":[{"id":"click","type":"binary","path":"assets/click.wav"},{"id":"win","type":"binary","path":"assets/win.wav"}]}

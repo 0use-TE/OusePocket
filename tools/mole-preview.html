@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>??? ??</title>
+<link rel="stylesheet" href="/tools/vscode-ouse-bpk/media/preview.css?v=7">
+<style>
+  body { background: #1e1e1e; color: #ddd; }
+  select, button { background: #2d2d2d; color: #ddd; }
+  .w.image { display: flex; align-items: center; justify-content: center; overflow: hidden; cursor: pointer; }
+  .w.image img { max-width: 100%; max-height: 100%; object-fit: contain; }
+</style>
+</head>
+<body>
+<div class="frame">
+<div class="toolbar">
+  <strong id="title">??</strong>
+  <div class="toolbar-row">
+    <label class="field">??
+      <select id="theme">
+        <option value="light">??</option>
+        <option value="dark">??</option>
+      </select>
+    </label>
+    <label class="field">??
+      <select id="locale"></select>
+    </label>
+    <button id="restart" type="button">??</button>
+  </div>
+  <div class="toolbar-row">
+    <label class="field">??
+      <select id="scaleMode">
+        <option value="fit">????</option>
+        <option value="native">?????</option>
+      </select>
+    </label>
+  </div>
+</div>
+<div class="stage">
+  <div class="phone" id="phone">
+    <div class="screen" id="screen"></div>
+    <div class="cover" id="home" hidden>
+      <p>????</p>
+      <button id="resume" type="button">??</button>
+    </div>
+    <div class="fault" id="fault" hidden></div>
+  </div>
+</div>
+<pre class="log" id="log"></pre>
+</div>
+<script>
+async function oic1ToDataUrl(url) {
+  const buf = await fetch(url).then(r => r.arrayBuffer());
+  const bytes = new Uint8Array(buf);
+  const ascii = String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]);
+  if (ascii !== 'OIC1') throw new Error('bad oic1');
+  const width = bytes[4] | (bytes[5] << 8);
+  const height = bytes[6] | (bytes[7] << 8);
+  const canvas = document.createElement('canvas');
+  canvas.width = width; canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  const image = ctx.createImageData(width, height);
+  let o = 8;
+  for (let i = 0; i < width * height; i++) {
+    const b = bytes[o++], g = bytes[o++], r = bytes[o++], a = bytes[o++];
+    const p = i * 4;
+    image.data[p] = r; image.data[p + 1] = g; image.data[p + 2] = b; image.data[p + 3] = a;
+  }
+  ctx.putImageData(image, 0, 0);
+  return canvas.toDataURL('image/png');
+}
+function acquireVsCodeApi() {
+  return {
+    async postMessage(message) {
+      if (message && message.type === "restart") location.reload();
+      if (!message || message.type !== "ready") return;
+      const [page, script, themeColors, mole, hole, hammer] = await Promise.all([
+        fetch("/apps/mole/page.json").then(r => r.text()),
+        fetch("/apps/mole/app.js").then(r => r.text()),
+        fetch("/components/ouse_core/theme/colors.json").then(r => r.json()),
+        oic1ToDataUrl("/apps/mole/assets/mole.bin"),
+        oic1ToDataUrl("/apps/mole/assets/hole.bin"),
+        oic1ToDataUrl("/apps/mole/assets/hammer.bin")
+      ]);
+      window.postMessage({
+        type: "app",
+        title: "???",
+        page,
+        script,
+        themeColors,
+        capabilities: { media: true },
+        assets: [
+          { id: "mole", type: "image", bytes: 0, width: 72, height: 72 },
+          { id: "hole", type: "image", bytes: 0, width: 72, height: 72 },
+          { id: "hammer", type: "image", bytes: 0, width: 72, height: 72 }
+        ],
+        assetData: { mole, hole, hammer }
+      }, "*");
+    },
+    getState() { return {}; },
+    setState() {}
+  };
+}
+</script>
+<script src="/tools/vscode-ouse-bpk/media/preview.js?v=7"></script>
+</body>
+</html>

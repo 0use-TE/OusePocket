@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>反应力 预览</title>
+<link rel="stylesheet" href="/tools/vscode-ouse-bpk/media/preview.css?v=7">
+<style>
+  body { background: #1e1e1e; color: #ddd; }
+  select, button { background: #2d2d2d; color: #ddd; }
+</style>
+</head>
+<body>
+<div class="frame">
+<div class="toolbar">
+  <strong id="title">预览</strong>
+  <div class="toolbar-row">
+    <label class="field">外观
+      <select id="theme">
+        <option value="light">浅色</option>
+        <option value="dark">深色</option>
+      </select>
+    </label>
+    <label class="field">语言
+      <select id="locale"></select>
+    </label>
+    <button id="restart" type="button">重启</button>
+  </div>
+  <div class="toolbar-row">
+    <label class="field">显示
+      <select id="scaleMode">
+        <option value="fit">适应窗口</option>
+        <option value="native">原始分辨率</option>
+      </select>
+    </label>
+  </div>
+</div>
+<div class="stage">
+  <div class="phone" id="phone">
+    <div class="screen" id="screen"></div>
+    <div class="cover" id="home" hidden>
+      <p>已回桌面</p>
+      <button id="resume" type="button">恢复</button>
+    </div>
+    <div class="fault" id="fault" hidden></div>
+  </div>
+</div>
+<pre class="log" id="log"></pre>
+</div>
+<script>
+function acquireVsCodeApi() {
+  return {
+    async postMessage(message) {
+      if (message && message.type === "restart") location.reload();
+      if (!message || message.type !== "ready") return;
+      const [page, script, themeColors] = await Promise.all([
+        fetch("/apps/reaction/page.json").then(r => r.text()),
+        fetch("/apps/reaction/app.js").then(r => r.text()),
+        fetch("/components/ouse_core/theme/colors.json").then(r => r.json())
+      ]);
+      window.postMessage({
+        type: "app",
+        title: "反应力",
+        page,
+        script,
+        themeColors,
+        capabilities: { notifications: true }
+      }, "*");
+    },
+    getState() { return {}; },
+    setState() {}
+  };
+}
+</script>
+<script src="/tools/vscode-ouse-bpk/media/preview.js?v=7"></script>
+</body>
+</html>

@@ -1,0 +1,409 @@
+{
+  "api": 1,
+  "units": "dp",
+  "root": {
+    "type": "container",
+    "id": "root",
+    "width": "fill",
+    "height": "fill",
+    "layout": "column",
+    "padding": 12,
+    "gap": 8,
+    "style": {
+      "backgroundColor": "$background"
+    },
+    "children": [
+      {
+        "type": "label",
+        "id": "heading",
+        "text": "录音机",
+        "width": "fill",
+        "height": 36,
+        "fontSize": 24
+      },
+      {
+        "type": "container",
+        "id": "controls",
+        "width": "fill",
+        "height": 64,
+        "layout": "row",
+        "gap": 12,
+        "children": [
+          {
+            "type": "label",
+            "id": "elapsed",
+            "text": "00:00",
+            "width": "fill",
+            "height": 56,
+            "fontSize": 32
+          },
+          {
+            "type": "button",
+            "id": "record",
+            "text": "录音",
+            "width": 96,
+            "height": 56,
+            "fontSize": 18,
+            "style": {
+              "backgroundColor": "#db4358",
+              "textColor": "#ffffff",
+              "radius": 28
+            }
+          }
+        ]
+      },
+      {
+        "type": "container",
+        "id": "recordings",
+        "width": "fill",
+        "height": "fill",
+        "layout": "column",
+        "scroll": true,
+        "gap": 6,
+        "children": [
+          {
+            "type": "label",
+            "id": "empty",
+            "text": "暂无录音",
+            "width": "fill",
+            "height": 64,
+            "fontSize": 20,
+            "style": {
+              "hidden": true
+            }
+          },
+          {
+            "type": "button",
+            "id": "entry0",
+            "text": "",
+            "width": "fill",
+            "height": 68,
+            "fontSize": 16,
+            "style": {
+              "hidden": true,
+              "textAlign": "left",
+              "radius": 12
+            }
+          },
+          {
+            "type": "button",
+            "id": "entry1",
+            "text": "",
+            "width": "fill",
+            "height": 68,
+            "fontSize": 16,
+            "style": {
+              "hidden": true,
+              "textAlign": "left",
+              "radius": 12
+            }
+          },
+          {
+            "type": "button",
+            "id": "entry2",
+            "text": "",
+            "width": "fill",
+            "height": 68,
+            "fontSize": 16,
+            "style": {
+              "hidden": true,
+              "textAlign": "left",
+              "radius": 12
+            }
+          },
+          {
+            "type": "button",
+            "id": "entry3",
+            "text": "",
+            "width": "fill",
+            "height": 68,
+            "fontSize": 16,
+            "style": {
+              "hidden": true,
+              "textAlign": "left",
+              "radius": 12
+            }
+          },
+          {
+            "type": "button",
+            "id": "entry4",
+            "text": "",
+            "width": "fill",
+            "height": 68,
+            "fontSize": 16,
+            "style": {
+              "hidden": true,
+              "textAlign": "left",
+              "radius": 12
+            }
+          },
+          {
+            "type": "button",
+            "id": "entry5",
+            "text": "",
+            "width": "fill",
+            "height": 68,
+            "fontSize": 16,
+            "style": {
+              "hidden": true,
+              "textAlign": "left",
+              "radius": 12
+            }
+          },
+          {
+            "type": "button",
+            "id": "entry6",
+            "text": "",
+            "width": "fill",
+            "height": 68,
+            "fontSize": 16,
+            "style": {
+              "hidden": true,
+              "textAlign": "left",
+              "radius": 12
+            }
+          },
+          {
+            "type": "button",
+            "id": "entry7",
+            "text": "",
+            "width": "fill",
+            "height": 68,
+            "fontSize": 16,
+            "style": {
+              "hidden": true,
+              "textAlign": "left",
+              "radius": 12
+            }
+          },
+          {
+            "type": "button",
+            "id": "entry8",
+            "text": "",
+            "width": "fill",
+            "height": 68,
+            "fontSize": 16,
+            "style": {
+              "hidden": true,
+              "textAlign": "left",
+              "radius": 12
+            }
+          },
+          {
+            "type": "button",
+            "id": "entry9",
+            "text": "",
+            "width": "fill",
+            "height": 68,
+            "fontSize": 16,
+            "style": {
+              "hidden": true,
+              "textAlign": "left",
+              "radius": 12
+            }
+          },
+          {
+            "type": "button",
+            "id": "entry10",
+            "text": "",
+            "width": "fill",
+            "height": 68,
+            "fontSize": 16,
+            "style": {
+              "hidden": true,
+              "textAlign": "left",
+              "radius": 12
+            }
+          },
+          {
+            "type": "button",
+            "id": "entry11",
+            "text": "",
+            "width": "fill",
+            "height": 68,
+            "fontSize": 16,
+            "style": {
+              "hidden": true,
+              "textAlign": "left",
+              "radius": 12
+            }
+          }
+        ]
+      },
+      {
+        "type": "container",
+        "id": "paging",
+        "width": "fill",
+        "height": 44,
+        "layout": "row",
+        "gap": 8,
+        "children": [
+          {
+            "type": "button",
+            "id": "previous",
+            "text": "<",
+            "width": "fill",
+            "height": 44,
+            "fontSize": 18
+          },
+          {
+            "type": "button",
+            "id": "next",
+            "text": ">",
+            "width": "fill",
+            "height": 44,
+            "fontSize": 18
+          }
+        ]
+      },
+      {
+        "type": "dialog",
+        "id": "dialog",
+        "text": "提示",
+        "width": 276,
+        "height": "content",
+        "children": [
+          {
+            "type": "label",
+            "id": "detail",
+            "text": "",
+            "width": "fill",
+            "height": 80,
+            "fontSize": 16
+          },
+          {
+            "type": "button",
+            "id": "dismiss",
+            "text": "知道了",
+            "width": "fill",
+            "height": 44,
+            "fontSize": 18
+          }
+        ],
+        "padding": 12,
+        "gap": 8
+      },
+      {
+        "type": "dialog",
+        "id": "nameDialog",
+        "text": "录音名称",
+        "width": 276,
+        "height": "content",
+        "children": [
+          {
+            "type": "textInput",
+            "id": "name",
+            "placeholder": "名称",
+            "width": "fill",
+            "height": 44,
+            "maxLength": 24
+          },
+          {
+            "type": "button",
+            "id": "saveName",
+            "text": "保存",
+            "width": "fill",
+            "height": 44,
+            "fontSize": 18
+          },
+          {
+            "type": "button",
+            "id": "keepName",
+            "text": "保留原名",
+            "width": "fill",
+            "height": 44,
+            "fontSize": 18
+          }
+        ],
+        "padding": 12,
+        "gap": 8
+      },
+      {
+        "type": "dialog",
+        "id": "actions",
+        "text": "录音",
+        "width": 276,
+        "height": "content",
+        "children": [
+          {
+            "type": "label",
+            "id": "selectedName",
+            "text": "",
+            "width": "fill",
+            "height": 40,
+            "fontSize": 20
+          },
+          {
+            "type": "label",
+            "id": "selectedDate",
+            "text": "",
+            "width": "fill",
+            "height": 32,
+            "fontSize": 16
+          },
+          {
+            "type": "button",
+            "id": "play",
+            "text": "播放",
+            "width": "fill",
+            "height": 44,
+            "fontSize": 18
+          },
+          {
+            "type": "button",
+            "id": "rename",
+            "text": "重命名",
+            "width": "fill",
+            "height": 44,
+            "fontSize": 18
+          },
+          {
+            "type": "button",
+            "id": "remove",
+            "text": "删除",
+            "width": "fill",
+            "height": 44,
+            "fontSize": 18
+          },
+          {
+            "type": "button",
+            "id": "closeActions",
+            "text": "返回",
+            "width": "fill",
+            "height": 44,
+            "fontSize": 18
+          }
+        ],
+        "padding": 12,
+        "gap": 8
+      },
+      {
+        "type": "dialog",
+        "id": "deleteDialog",
+        "text": "删除此录音？",
+        "width": 276,
+        "height": "content",
+        "children": [
+          {
+            "type": "button",
+            "id": "confirmDelete",
+            "text": "删除",
+            "width": "fill",
+            "height": 44,
+            "fontSize": 18
+          },
+          {
+            "type": "button",
+            "id": "cancelDelete",
+            "text": "取消",
+            "width": "fill",
+            "height": 44,
+            "fontSize": 18
+          }
+        ],
+        "padding": 12,
+        "gap": 8
+      }
+    ]
+  }
+}
