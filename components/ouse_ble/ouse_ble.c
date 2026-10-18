@@ -52,7 +52,7 @@ static void address_text(const ble_addr_t *address,char *out)
 static bool address_parse(const char *text,uint8_t type,ble_addr_t *out)
 {
     unsigned values[6];int consumed=0;
-    if(!text || strlen(text)!=17 || type>1 || sscanf(text,"%2x:%2x:%2x:%2x:%2x:%2x%n",&values[0],&values[1],&values[2],&values[3],&values[4],&values[5],&consumed)!=6 || consumed!=17)return false;
+    if(!text || strlen(text)!=17 || type>3 || sscanf(text,"%2x:%2x:%2x:%2x:%2x:%2x%n",&values[0],&values[1],&values[2],&values[3],&values[4],&values[5],&consumed)!=6 || consumed!=17)return false;
     out->type=type;for(unsigned index=0;index<6;++index)out->val[5-index]=(uint8_t)values[index];return true;
 }
 static void error_set(int error)

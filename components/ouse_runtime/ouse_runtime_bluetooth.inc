@@ -37,7 +37,7 @@ static JSValue bluetooth_api(JSContext *context,JSValueConst self,int argc,JSVal
     if(operation>=13 && operation<=16 && (!app->hid_allowed || !app->worker_visible || ouse_permissions_get(app->id,OUSE_PERMISSION_HID)!=OUSE_PERMISSION_ALLOW))return JS_FALSE;
     ouse_ble_app_operation_t command=operation==4 ? OUSE_BLE_APP_SCAN : operation==5 ? OUSE_BLE_APP_CONNECT : operation==6 ? OUSE_BLE_APP_DISCONNECT : operation==7 ? OUSE_BLE_APP_SERVICES : operation==8 ? OUSE_BLE_APP_CHARACTERISTICS : operation==9 ? OUSE_BLE_APP_DESCRIPTORS : operation==10 ? OUSE_BLE_APP_READ : operation==11 ? OUSE_BLE_APP_WRITE : operation==12 ? OUSE_BLE_APP_SUBSCRIBE : operation==13 ? OUSE_BLE_APP_KEYBOARD : operation==14 ? OUSE_BLE_APP_CONSUMER : operation==15 ? OUSE_BLE_APP_MOUSE : operation==17 ? OUSE_BLE_APP_PAIR : OUSE_BLE_APP_RELEASE;
     char address[18]="";unsigned address_type=0,handle=0,end=0;uint8_t bytes[8]={0};const void *data=bytes;size_t size=0;
-    if(operation==5){if(argc!=2 || !copy_string(context,argv[0],address,sizeof(address)) || !bluetooth_number(context,argv[1],1,&address_type))return JS_ThrowTypeError(context,"connect expects address, addressType");}
+    if(operation==5){if(argc!=2 || !copy_string(context,argv[0],address,sizeof(address)) || !bluetooth_number(context,argv[1],3,&address_type))return JS_ThrowTypeError(context,"connect expects address, addressType");}
     else if(operation>=8 && operation<=12){
         if(argc<1 || !bluetooth_number(context,argv[0],65535,&handle) || !handle)return JS_ThrowTypeError(context,"Expected nonzero attribute handle");
         if(operation==8 || operation==9){if(argc!=2 || !bluetooth_number(context,argv[1],65535,&end) || end<handle)return JS_ThrowTypeError(context,"Expected handle range");}

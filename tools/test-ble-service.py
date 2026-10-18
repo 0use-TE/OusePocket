@@ -52,13 +52,14 @@ static bool ble_gap_disc_active(void){return discovering;}
 static int gap_event(void *event,void *argument){(void)event;(void)argument;return 0;}
 static int ble_gap_disc(uint8_t type,int timeout,const struct ble_gap_disc_params *parameters,void *callback,void *context){(void)type;(void)callback;(void)context;assert(timeout==10000&&parameters->filter_duplicates==1&&!parameters->passive);discovering=true;++scans;return 0;}
 static int ble_gap_connect(uint8_t type,const ble_addr_t *address,int timeout,void *parameters,void *callback,void *context){(void)type;(void)address;(void)parameters;(void)callback;(void)context;assert(timeout==10000);return 0;}
-static int ble_gap_unpair(const ble_addr_t *address){assert(address->type<=1&&!advertising&&!discovering);++unpairs;return 0;}
+static int ble_gap_unpair(const ble_addr_t *address){assert(address->type<=3&&!advertising&&!discovering);++unpairs;return 0;}
 static int ble_sm_inject_io(uint16_t handle,const struct ble_sm_io *input){assert(handle!=65535&&input->action==5);accepted=input->numcmp_accept!=0;++confirmations;return 0;}
 '''
 tests=r'''
 int main(void){
     ble_addr_t address;assert(address_parse("01:23:45:67:89:AB",0,&address)&&address.val[0]==0xab&&address.val[5]==1);
-    assert(!address_parse("bad",0,&address)&&!address_parse("01:23:45:67:89:AB",8,&address));
+    assert(address_parse("01:23:45:67:89:AB",2,&address)&&address.type==2);
+    assert(!address_parse("bad",0,&address)&&!address_parse("01:23:45:67:89:AB",4,&address));
     test_clock=0xfffffff0;assert(before(20));test_clock=21;assert(!before(20));test_clock=100;
     command_t command={.operation=SCAN};process(&command);assert(state.error==BLE_HS_ENOTSYNCED&&!scans);
     command=(command_t){.operation=ENABLE,.enabled=true};process(&command);assert(enabled&&state.enabled&&state.ready&&saved&&saves==1&&advertisements==1&&before(pair_until));
