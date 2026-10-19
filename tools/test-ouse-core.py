@@ -178,6 +178,10 @@ void vTaskDelay(TickType_t ticks) {
         lv_display_flush_ready(dma.display);
     }
 }
+void ouse_display_wait_event(lv_display_t *display) {
+    assert(display==dma.display);
+    vTaskDelay(1); // Simulate completion delivery, retaining source-buffer checks.
+}
 static void async_flush(lv_display_t *display,const lv_area_t *area,uint8_t *data) {
     assert(display==dma.display && display->flushing);
     assert(!dma.pending && dma.submitted==dma.completed);

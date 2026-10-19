@@ -135,6 +135,7 @@ esp_err_t ouse_board_init(ouse_core_port_t *port)
     // Input reads are independent of rendering. The FT6336 IRQ gates I2C
     // access, so an 8 ms read timer consumes only pending touch samples.
     lv_timer_set_period(lv_indev_get_read_timer(bsp_display_get_input_dev()), 8);
+    (void)ouse_display_flush_wake_init(display);
 #if CONFIG_OUSE_DEVICE_DEBUG
     debug_display = display;
     lv_display_set_flush_wait_cb(display, debug_flush_wait);
