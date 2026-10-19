@@ -26,7 +26,7 @@
 #define STORAGE_TASK_STACK (10 * 1024)
 static const char *TAG="OuseStorage";
 
-enum { JOB_PURGE=OUSE_STORAGE_INFO+1, JOB_REFRESH, JOB_MEASURE, JOB_LAUNCHER_GET, JOB_LAUNCHER_SET };
+enum { JOB_PURGE=OUSE_STORAGE_INFO+1, JOB_REFRESH, JOB_MEASURE, JOB_LAUNCHER_GET, JOB_LAUNCHER_SET,JOB_DEFAULTS_GET,JOB_DEFAULTS_SET };
 typedef struct {
     int operation;
     char app_id[48],key[OUSE_STORAGE_KEY_MAX+1];
@@ -277,7 +277,8 @@ static esp_err_t clear_values(const char *app_id,unsigned *removed,bool purge)
 static esp_err_t launcher_value(storage_job_t *job,char **result)
 {
     const char *path=OUSE_STORAGE_BASE "/launcher-order.v1",*temporary=OUSE_STORAGE_BASE "/launcher-order.tmp";
-    if(job->operation==JOB_LAUNCHER_GET){
+    if(job->operation==JOB_DEFAULTS_GET || job->operation==JOB_DEFAULTS_SET){path=OUSE_STORAGE_BASE "/file-defaults.v1";temporary=OUSE_STORAGE_BASE "/file-defaults.tmp";}
+    if(job->operation==JOB_LAUNCHER_GET || job->operation==JOB_DEFAULTS_GET){
         struct stat info;
         if(stat(path,&info)){if(errno!=ENOENT)return ESP_FAIL;*result=json_copy("");return *result ? ESP_OK : ESP_ERR_NO_MEM;}
         if(!S_ISREG(info.st_mode) || info.st_size<0 || info.st_size>1024*1024)return ESP_ERR_INVALID_SIZE;
@@ -298,7 +299,7 @@ static esp_err_t launcher_value(storage_job_t *job,char **result)
 static esp_err_t execute(storage_job_t *job,char **result)
 {
     switch(job->operation) {
-    case JOB_LAUNCHER_GET:case JOB_LAUNCHER_SET:return launcher_value(job,result);
+    case JOB_LAUNCHER_GET:case JOB_LAUNCHER_SET:case JOB_DEFAULTS_GET:case JOB_DEFAULTS_SET:return launcher_value(job,result);
     case OUSE_STORAGE_GET:return read_value(job,result);
     case OUSE_STORAGE_SET:return write_value(job,result);
     case OUSE_STORAGE_REMOVE:return remove_value(job,result);
@@ -428,20 +429,24 @@ esp_err_t ouse_storage_submit(ouse_storage_operation_t operation,const ouse_task
     if(!enqueue(job,0)){ouse_task_hold_result(job->token,false);ouse_task_finish(job->token,ESP_ERR_NO_MEM,false);free(job->value);free(job);return ESP_ERR_NO_MEM;}
     return ESP_OK;
 }
-esp_err_t ouse_storage_launcher(bool write,const char *value,ouse_storage_complete_t complete,void *context)
+static esp_err_t native_preferences(bool defaults,bool write,const char *value,ouse_storage_complete_t complete,void *context)
 {
     if(!complete || (write && !value))return ESP_ERR_INVALID_ARG;
     size_t size=write ? strnlen(value,1024*1024+1) : 0;
     if(size>1024*1024)return ESP_ERR_INVALID_SIZE;
     ouse_storage_stats_t snapshot;ouse_storage_get_stats(&snapshot);if(!snapshot.ready)return ESP_ERR_INVALID_STATE;
     storage_job_t *job=calloc(1,sizeof(*job));if(!job)return ESP_ERR_NO_MEM;
-    job->operation=write ? JOB_LAUNCHER_SET : JOB_LAUNCHER_GET;job->complete=complete;job->context=context;
+    job->operation=defaults ? (write ? JOB_DEFAULTS_SET : JOB_DEFAULTS_GET) : (write ? JOB_LAUNCHER_SET : JOB_LAUNCHER_GET);job->complete=complete;job->context=context;
     if(write){job->value=allocate(size+1);if(!job->value){free(job);return ESP_ERR_NO_MEM;}memcpy(job->value,value,size+1);job->value_size=size;}
     if(!ouse_tasks_submission_begin()){free(job->value);free(job);return ESP_ERR_INVALID_STATE;}
     bool accepted=enqueue(job,0);ouse_tasks_submission_end();
     if(!accepted){free(job->value);free(job);return ESP_ERR_NO_MEM;}
     return ESP_OK;
 }
+esp_err_t ouse_storage_launcher(bool write,const char *value,ouse_storage_complete_t complete,void *context)
+{return native_preferences(false,write,value,complete,context);}
+esp_err_t ouse_storage_file_defaults(bool write,const char *value,ouse_storage_complete_t complete,void *context)
+{return native_preferences(true,write,value,complete,context);}
 esp_err_t ouse_storage_purge(const char *app_id)
 {
     if(!valid_app(app_id))return ESP_ERR_INVALID_ARG;

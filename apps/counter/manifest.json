@@ -1,0 +1,17 @@
+{
+  "runtime": "ouse-core",
+  "api": 1,
+  "id": "user.counter",
+  "name": "Counter",
+  "names": {
+    "zh_CN": "计数器",
+    "en": "Counter"
+  },
+  "icon": "icon.bin",
+  "versionCode": 1,
+  "versionName": "1.0.0",
+  "minNativeApi": 1,
+  "description": "简单计数器示例。",
+  "author": "OusePocket",
+  "releasedAt": "2026-10-19"
+}

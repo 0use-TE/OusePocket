@@ -14,7 +14,10 @@
 #include "ouse_health_ui.h"
 #include "ouse_tasks.h"
 #include "ouse_memory.h"
+#include "ouse_memory_pressure.h"
 #include "ouse_app_manager_ui.h"
+#include "ouse_app_manager.h"
+#include "ouse_health.h"
 #include "ouse_permissions.h"
 #include "ouse_storage.h"
 #include "ouse_ble.h"
@@ -22,6 +25,7 @@
 #include "src/misc/cache/instance/lv_image_cache.h"
 #include <stdint.h>
 #include <string.h>
+#include <ctype.h>
 
 #if LVGL_VERSION_MAJOR != 9 || LVGL_VERSION_MINOR != 5
 #error "Ouse Core is validated against LVGL 9.5"
@@ -66,6 +70,9 @@ typedef struct {
 static OUSE_PSRAM_BSS core_state_t core;
 static void rebuild_launcher(void);
 #include "ouse_launcher.inc"
+#include "ouse_file_open.inc"
+#include "ouse_keys.inc"
+#include "ouse_boot.inc"
 extern void ouse_navigation_grid(int,int,unsigned,int *,int *,int *,int *);
 
 static lv_obj_t *text(lv_obj_t *parent, const char *value, int x, int y, int width)
@@ -91,6 +98,7 @@ static lv_obj_t *panel(lv_obj_t *parent, int x, int y, int width, int height)
 
 static void app_changed(bool active)
 {
+    if(active)launcher_edit(false);
     if(active)launcher_cancel();
     if (active) { lv_obj_add_flag(core.home, LV_OBJ_FLAG_HIDDEN); ouse_shell_foreground(); }
     else lv_obj_remove_flag(core.home, LV_OBJ_FLAG_HIDDEN);
@@ -99,6 +107,7 @@ static void app_changed(bool active)
 static void launch_app(lv_event_t *event)
 {
     if(launcher.suppress_click)return;
+    if(launcher.editing){launcher_edit(false);return;}
     const char *id = lv_event_get_user_data(event);
     esp_err_t error = ouse_app_open(id);
     if (error!=ESP_OK) LV_LOG_WARN("Application open failed");
@@ -268,6 +277,7 @@ static esp_err_t shell_settings_state(ouse_settings_state_t *state)
 }
 static void shell_back(void)
 {
+    if(launcher.editing){launcher_cancel();launcher_edit(false);return;}
     if (ouse_ime_active()) { ouse_ime_hide(); return; }
     if (ouse_app_back()) return;
     ouse_app_stats_t state;
@@ -442,6 +452,7 @@ static esp_err_t settings_open(lv_obj_t *root,void *context)
     ouse_widget_row(core.settings,LV_SYMBOL_USB,"USB OTG",NULL,open_settings_page,(void *)(uintptr_t)10,NULL);
     section(core.settings,"系统");
     ouse_widget_row(core.settings,LV_SYMBOL_DIRECTORY,"应用管理",NULL,open_settings_page,(void *)(uintptr_t)12,NULL);
+    ouse_widget_row(core.settings,LV_SYMBOL_FILE,"默认应用",NULL,file_settings,NULL,NULL);
     ouse_widget_row(core.settings,LV_SYMBOL_LOOP,"后台活动与服务",NULL,open_settings_page,(void *)(uintptr_t)9,NULL);
     ouse_widget_row(core.settings,LV_SYMBOL_LIST,"系统信息","设备与硬件",open_settings_page,(void *)(uintptr_t)4,NULL);
     ouse_widget_row(core.settings,LV_SYMBOL_SETTINGS,"开发者选项",NULL,open_settings_page,(void *)(uintptr_t)11,NULL);
@@ -566,7 +577,7 @@ static void rebuild_launcher(void)
     launcher_sort();
     if(!launcher_tiles(core.app_count))return;
     for(unsigned i=0;i<core.app_count;++i) {
-        if(i%capacity==0) { page=panel(core.grid,(int)(i/capacity)*width,0,width,height); lv_obj_add_flag(page,LV_OBJ_FLAG_SNAPPABLE); }
+        if(i%capacity==0) { page=panel(core.grid,(int)(i/capacity)*width,0,width,height); lv_obj_add_flag(page,LV_OBJ_FLAG_SNAPPABLE);lv_obj_add_event_cb(page,launcher_blank,LV_EVENT_CLICKED,NULL); }
         unsigned slot=i%capacity;
         lv_obj_t *tile=lv_button_create(page); lv_obj_remove_style_all(tile);
         launcher.tiles[i]=tile;
@@ -583,6 +594,7 @@ static void rebuild_launcher(void)
         ouse_ui_use_font(name,14); lv_obj_set_height(name,name_h);
         lv_label_set_long_mode(name,LV_LABEL_LONG_MODE_DOTS); lv_obj_set_style_text_align(name,LV_TEXT_ALIGN_CENTER,0);
         lv_obj_remove_flag(name,LV_OBJ_FLAG_CLICKABLE);
+        launcher_badge(i,cell_w);
     }
     core.launcher_pages=(core.app_count+capacity-1)/capacity;
     core.launcher_page=saved_page;
@@ -721,6 +733,9 @@ esp_err_t ouse_core_start(const ouse_core_config_t *config)
     lv_screen_load(core.screen);
     core.started = true;
     lv_timer_create(launcher_tick,50,NULL);
+    lv_timer_create(file_preferences_tick,250,NULL);
+    if(core.port.read_key)lv_timer_create(side_keys_tick,20,NULL);
+    if(config->boot_animation)boot_animation_start();
     port->unlock(port->context);
     return ESP_OK;
 }

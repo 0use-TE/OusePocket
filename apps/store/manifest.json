@@ -1,0 +1,88 @@
+{
+  "runtime": "ouse-core",
+  "api": 1,
+  "id": "user.store",
+  "name": "Store",
+  "names": {
+    "zh_CN": "应用商店",
+    "en": "Store"
+  },
+  "icon": "icon.bin",
+  "versionCode": 1,
+  "versionName": "1.0.0",
+  "minNativeApi": 37,
+  "description": "分类发现应用，卡片展示图标，下载与更新 OusePocket 应用。",
+  "author": "OusePocket",
+  "releasedAt": "2026-10-19",
+  "capabilities": {
+    "network": true,
+    "packages": true
+  },
+  "assets": [
+    {
+      "id": "slot0",
+      "type": "image",
+      "path": "assets/slot0.bin"
+    },
+    {
+      "id": "slot1",
+      "type": "image",
+      "path": "assets/slot1.bin"
+    },
+    {
+      "id": "slot2",
+      "type": "image",
+      "path": "assets/slot2.bin"
+    },
+    {
+      "id": "slot3",
+      "type": "image",
+      "path": "assets/slot3.bin"
+    },
+    {
+      "id": "slot4",
+      "type": "image",
+      "path": "assets/slot4.bin"
+    },
+    {
+      "id": "slot5",
+      "type": "image",
+      "path": "assets/slot5.bin"
+    },
+    {
+      "id": "slot6",
+      "type": "image",
+      "path": "assets/slot6.bin"
+    },
+    {
+      "id": "slot7",
+      "type": "image",
+      "path": "assets/slot7.bin"
+    },
+    {
+      "id": "slot8",
+      "type": "image",
+      "path": "assets/slot8.bin"
+    },
+    {
+      "id": "slot9",
+      "type": "image",
+      "path": "assets/slot9.bin"
+    },
+    {
+      "id": "slot10",
+      "type": "image",
+      "path": "assets/slot10.bin"
+    },
+    {
+      "id": "slot11",
+      "type": "image",
+      "path": "assets/slot11.bin"
+    },
+    {
+      "id": "placeholder",
+      "type": "binary",
+      "path": "assets/placeholder.bin"
+    }
+  ]
+}

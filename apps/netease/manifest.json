@@ -13,9 +13,31 @@
     "hid": true
   },
   "assets": [
-    { "id": "disc0", "type": "image", "path": "assets/disc0.png" },
-    { "id": "disc1", "type": "image", "path": "assets/disc1.png" },
-    { "id": "disc2", "type": "image", "path": "assets/disc2.png" },
-    { "id": "disc3", "type": "image", "path": "assets/disc3.png" }
-  ]
+    {
+      "id": "disc0",
+      "type": "image",
+      "path": "assets/disc0.png"
+    },
+    {
+      "id": "disc1",
+      "type": "image",
+      "path": "assets/disc1.png"
+    },
+    {
+      "id": "disc2",
+      "type": "image",
+      "path": "assets/disc2.png"
+    },
+    {
+      "id": "disc3",
+      "type": "image",
+      "path": "assets/disc3.png"
+    }
+  ],
+  "versionCode": 1,
+  "versionName": "1.0.0",
+  "author": "OusePocket",
+  "releasedAt": "2026-10-19",
+  "description": "蓝牙媒体键控制网易云。",
+  "minNativeApi": 1
 }

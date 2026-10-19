@@ -251,6 +251,17 @@ static JSValue alarms_api(JSContext *context,JSValueConst self,int argc,JSValueC
 static JSValue files_api(JSContext *context,JSValueConst self,int argc,JSValueConst *argv,int operation)
 {
     (void)self;instance_t *app=from_js(context);
+    if(operation==8){
+        if(argc!=1 || (!JS_IsNull(argv[0]) && !JS_IsFunction(context,argv[0])))return JS_ThrowTypeError(context,"files.onOpen expects a function or null");
+        JS_FreeValue(context,app->file_handler);app->file_handler=JS_DupValue(context,argv[0]);return JS_UNDEFINED;
+    }
+    if(operation==7){
+        if(app->validation_only || !app->sdcard_allowed)return JS_FALSE;
+        char path[128],absolute[180];if(argc!=1 || !copy_string(context,argv[0],path,sizeof(path)) || !ouse_sd_browser_path(path,absolute,sizeof(absolute)))return JS_ThrowTypeError(context,"files.open expects an SD path shorter than 128 bytes");
+        model_lock(app);bool accepted=app->visible && !app->closed && !app->faulted && !app->file_requested[0];
+        if(accepted)strcpy(app->file_requested,path);
+        model_unlock(app);return JS_NewBool(context,accepted);
+    }
     if(operation==0){
         ouse_files_state_t state={0};if(!app->validation_only)ouse_files_get(&state);
         JSValue value=JS_NewObject(context);

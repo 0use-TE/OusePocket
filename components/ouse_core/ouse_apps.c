@@ -18,6 +18,8 @@ typedef struct {
     void (*close)(void *);
     void (*pause)(void *), (*resume)(void *);
     bool (*back)(void *);
+    esp_err_t (*open_file)(void *,const char *);
+    bool (*key)(void *,unsigned);
     lv_obj_t *root;
     lv_draw_buf_t *preview;
     lv_image_dsc_t image;
@@ -59,6 +61,7 @@ esp_err_t ouse_apps_validate(const ouse_app_definition_t *app)
     if ((app->name_zh && strlen(app->name_zh)>=48) || (app->name_en && strlen(app->name_en)>=48))
         return ESP_ERR_INVALID_ARG;
     if ((app->pause == NULL) != (app->resume == NULL)) return ESP_ERR_INVALID_ARG;
+    if((app->file_types&~7u) || (app->file_types && !app->open_file))return ESP_ERR_INVALID_ARG;
     for (const char *p = app->id; *p; ++p) {
         if (!((*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9') || *p == '.' || *p == '_' || *p == '-'))
             return ESP_ERR_INVALID_ARG;
@@ -77,9 +80,12 @@ static void copy_definition(entry_t *entry,const ouse_app_definition_t *definiti
     if(definition->name_zh)strcpy(entry->info.name_zh,definition->name_zh);
     if(definition->name_en)strcpy(entry->info.name_en,definition->name_en);
     entry->info.icon_image=definition->icon_image;
+    entry->info.file_types=definition->file_types;
     entry->open=definition->open;entry->close=definition->close;entry->context=definition->context;
     entry->pause=definition->pause;entry->resume=definition->resume;
     entry->back=definition->back;
+    entry->open_file=definition->open_file;
+    entry->key=definition->key;
 }
 
 static void resolve_info(const entry_t *entry,ouse_app_info_t *info)
@@ -185,6 +191,20 @@ static void close_instance(int index)
     ESP_LOGI("OuseApps","Closed: %s",entry->info.id);
 }
 
+bool ouse_app_key(unsigned key)
+{
+    if(key>1 || apps.active<0 || apps.transitioning || ouse_tasks_quiescing())return false;
+    entry_t *entry=&apps.entries[apps.active];return entry->root && !entry->maintenance && entry->key && entry->key(entry->context,key);
+}
+esp_err_t ouse_app_open_file(const char *id,const char *path)
+{
+    int index=find(id);
+    if(index<0 || !path || !apps.entries[index].open_file)return ESP_ERR_NOT_SUPPORTED;
+    esp_err_t error=ouse_app_open(id);
+    if(error!=ESP_OK)return error;
+    index=find(id);if(index<0)return ESP_ERR_NOT_FOUND;
+    return apps.entries[index].open_file(apps.entries[index].context,path);
+}
 esp_err_t ouse_app_open(const char *id)
 {
     if(ouse_tasks_quiescing() && (!id || strcmp(id,"ouse.settings")))return ESP_ERR_INVALID_STATE;

@@ -3,7 +3,19 @@
   "api": 1,
   "id": "user.mouse",
   "name": "Mouse",
-  "names": { "zh_CN": "鼠标", "en": "Mouse" },
+  "names": {
+    "zh_CN": "鼠标",
+    "en": "Mouse"
+  },
   "icon": "icon.bin",
-  "capabilities": { "bluetooth": true, "hid": true }
+  "capabilities": {
+    "bluetooth": true,
+    "hid": true
+  },
+  "versionCode": 1,
+  "versionName": "1.0.0",
+  "author": "OusePocket",
+  "releasedAt": "2026-10-19",
+  "description": "触摸板控制电脑鼠标。",
+  "minNativeApi": 1
 }

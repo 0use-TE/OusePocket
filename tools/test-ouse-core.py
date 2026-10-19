@@ -39,6 +39,7 @@ const char *esp_err_to_name(esp_err_t error);
 #define ESP_ERR_INVALID_STATE 0x103
 #define ESP_ERR_NOT_SUPPORTED 0x106
 #define ESP_ERR_TIMEOUT 0x107
+#define ESP_ERR_INVALID_RESPONSE 0x108
 """)
 write_if_changed(OUT / "lv_conf.h", """#pragma once
 #define LV_CONF_H
@@ -547,6 +548,15 @@ static void focused_widgets(lv_obj_t *root) {
     }
     puts("PASS widget pixels: light/dark, checked/off, 160/240/320dpi, fixed 100% text and unsupported-size rejection; opaque round knob/track, 40dp contact, one toggle, content buttons and compact rows");
 }
+static unsigned file_open_target,file_open_calls;
+static bool host_side_keys[2];
+static unsigned host_side_clicks;
+static bool host_read_key(void *context,unsigned key){(void)context;return key<2 && host_side_keys[key];}
+static bool host_app_key(void *context,unsigned key){(void)context;if(key!=1)return false;++host_side_clicks;return true;}
+static char file_open_path[128];
+static esp_err_t file_test_open(lv_obj_t *root,void *context){(void)root;(void)context;return ESP_OK;}
+static void file_test_close(void *context){(void)context;}
+static esp_err_t file_test_receive(void *context,const char *path){file_open_target=(unsigned)(uintptr_t)context;++file_open_calls;snprintf(file_open_path,sizeof(file_open_path),"%s",path);return ESP_OK;}
 int main(int argc, char **argv) {
     setvbuf(stdout,NULL,_IONBF,0);
     (void)argv;
@@ -583,6 +593,9 @@ int main(int argc, char **argv) {
         .set_brightness = set_brightness, .save_brightness = save_setting, .save_theme = save_theme,
         .get_settings_state = settings_state, .get_system_info = system_info, .board_name = "Waveshare P4 LCD 3.5"}, .initial_brightness = 45, .initial_font_percent=100, .apps = definitions, .app_count = (pages ? OUSE_APP_CAPACITY-1 : argc>1 ? 2 : 1)};
     if(argc>1 && !strcmp(argv[1],"--focused-native-ui"))config.port.save_ui=audit_save_ui;
+    if(argc>1 && !strcmp(argv[1],"--hardware-keys")){config.port.read_key=host_read_key;host_side_keys[0]=true;}
+    if(argc>1 && !strncmp(argv[1],"--boot-animation",16))config.boot_animation=true;
+    if(argc>1 && !strcmp(argv[1],"--boot-animation-low-memory"))ouse_test_memory_pressure=OUSE_MEMORY_WARNING;
     assert(!ouse_core_is_started() && strcmp(ouse_core_version(), "CORE_VERSION_EXPECTED") == 0);
     assert(ouse_core_sleep_display()==ESP_ERR_INVALID_STATE && ouse_core_wake_display()==ESP_ERR_INVALID_STATE);
     assert(ouse_core_post_ui(posted, &ui_calls) == ESP_ERR_INVALID_STATE);
@@ -611,6 +624,54 @@ int main(int argc, char **argv) {
     assert(brightness == 45);
     assert(ouse_core_start(&config) == ESP_ERR_INVALID_STATE);
     lv_obj_t *root = lv_screen_active();
+    if(argc>1 && !strncmp(argv[1],"--boot-animation",16)){
+        if(!strcmp(argv[1],"--boot-animation-low-memory")){assert(!label(lv_layer_top(),"Ouse"));ouse_test_memory_pressure=OUSE_MEMORY_NORMAL;assert(ouse_app_open("ouse.settings")==ESP_OK);puts("PASS low memory skips optional boot animation");return 0;}
+        assert(label(lv_layer_top(),"Ouse"));
+        if(!strcmp(argv[1],"--boot-animation-error")){
+            ouse_dialog_show("Boot test error",NULL,NULL);tick();assert(!label(lv_layer_top(),"Ouse") && label(root,"Boot test error"));
+        }else if(!strcmp(argv[1],"--boot-animation-timeout")){
+            for(unsigned index=0;index<7;++index)tick();assert(!label(lv_layer_top(),"Ouse"));
+        }else{
+            for(unsigned frame=0;frame<20;++frame){lv_tick_inc(20);lv_timer_handler();}
+            screenshot("boot-animation.ppm");assert(label(lv_layer_top(),"Ouse"));
+            ouse_core_launcher_restored();tick();assert(!label(lv_layer_top(),"Ouse"));
+        }
+        assert(!ouse_core_is_started() || ouse_app_open("ouse.settings")==ESP_OK);
+        puts("PASS boot animation: nonblocking entrance, readiness dismissal, bounded timeout and native-error priority; desktop usable after cleanup");return 0;
+    }
+    if(argc>1 && !strcmp(argv[1],"--hardware-keys")){
+        ouse_audio_state_t audio;tick();host_side_keys[0]=false;tick();ouse_audio_get(&audio);assert(audio.volume==40);
+        host_side_keys[0]=true;tick();host_side_keys[0]=false;tick();ouse_audio_get(&audio);assert(audio.volume==45);
+        host_side_keys[1]=true;tick();host_side_keys[1]=false;tick();ouse_audio_get(&audio);assert(audio.volume==40);
+        ouse_app_definition_t camera={.id="user.key-camera",.name="Camera",.icon=LV_SYMBOL_IMAGE,.open=file_test_open,.close=file_test_close,.key=host_app_key};
+        assert(ouse_core_user_apply(&camera)==ESP_OK);assert(ouse_app_open(camera.id)==ESP_OK);
+        host_side_keys[1]=true;tick();host_side_keys[1]=false;tick();ouse_audio_get(&audio);assert(audio.volume==40 && host_side_clicks==1);
+        host_side_keys[1]=true;tick();tick();assert(ouse_dialog_active());host_side_keys[1]=false;tick();assert(host_side_clicks==1);
+        click(root,"关机");assert(host_control_requests==0);click(root,"取消");assert(!host_control_requests);
+        host_side_keys[1]=true;tick();tick();host_side_keys[1]=false;tick();click(root,"关机");click(root,"关机");assert(host_control_requests==1 && host_control_action==OUSE_CONTROL_SHUTDOWN && host_side_clicks==1);
+        assert(ouse_app_background()==ESP_OK);assert(ouse_core_sleep_display()==ESP_OK);host_side_keys[0]=true;tick();host_side_keys[0]=false;tick();
+        ouse_power_state_t power;ouse_power_get(&power);ouse_audio_get(&audio);assert(!power.asleep && audio.volume==40);
+        host_side_keys[1]=true;tick();host_side_keys[1]=false;tick();ouse_audio_get(&audio);assert(audio.volume==35 && host_side_clicks==1);
+        puts("PASS hardware keys: boot-held suppression, short volume keys, foreground override, reserved long hold, shutdown confirmation and wake-contact consumption");return 0;
+    }
+    if(argc>1 && !strcmp(argv[1],"--file-associations")){
+        host_files_ready=true;
+        ouse_app_definition_t viewer={.id="user.viewer-one",.name="ViewerOne",.icon=LV_SYMBOL_IMAGE,.open=file_test_open,.close=file_test_close,.file_types=OUSE_FILE_JPEG,.open_file=file_test_receive,.context=(void *)1};
+        assert(ouse_core_user_apply(&viewer)==ESP_OK);ouse_core_launcher_restored();tick();
+        assert(ouse_app_open("ouse.counter")==ESP_OK);
+        assert(ouse_core_open_file("user.background","/photo.jpg")==ESP_ERR_INVALID_STATE);
+        assert(ouse_core_open_file("ouse.counter","/../photo.jpg")==ESP_ERR_INVALID_ARG);
+        assert(ouse_core_open_file("ouse.counter","/photo.JPG")==ESP_OK && file_open_target==1 && !strcmp(file_open_path,"/photo.JPG"));
+        viewer.id="user.viewer-two";viewer.name="ViewerTwo";viewer.context=(void *)2;assert(ouse_core_user_apply(&viewer)==ESP_OK);tick();
+        assert(ouse_app_open("ouse.counter")==ESP_OK);assert(ouse_core_open_file("ouse.counter","/photo.jpg")==ESP_OK);assert(ouse_dialog_active());
+        click(root,"ViewerTwo");click(root,"仅此次");assert(file_open_target==2);tick();assert(!host_file_defaults);
+        assert(ouse_app_open("ouse.counter")==ESP_OK);assert(ouse_core_open_file("ouse.counter","/photo.jpg")==ESP_OK);
+        click(root,"ViewerTwo");click(root,"始终");tick();assert(host_file_defaults && strstr(host_file_defaults,"user.viewer-two\n"));
+        assert(ouse_app_open("ouse.counter")==ESP_OK);unsigned before=file_open_calls;assert(ouse_core_open_file("ouse.counter","/second.jpeg")==ESP_OK);assert(file_open_calls==before+1 && !ouse_dialog_active());
+        assert(ouse_app_open("ouse.counter")==ESP_OK);assert(ouse_core_user_remove("user.viewer-two")==ESP_OK);tick();assert(!strstr(host_file_defaults,"user.viewer-two"));
+        host_files_ready=false;before=file_open_calls;assert(ouse_core_open_file("ouse.counter","/photo.jpg")==ESP_OK);assert(file_open_calls==before && ouse_dialog_active());ouse_dialog_dismiss();
+        puts("PASS file associations: foreground and SD boundaries, exact path/cold-warm delivery, single/multiple handlers, once/always persistence and uninstall cleanup");return 0;
+    }
     if(argc>1 && !strcmp(argv[1],"--ble-settings")){
         assert(ouse_app_open("ouse.settings")==ESP_OK);tick();
         lv_obj_t *entry=label(root,"蓝牙");assert(entry);lv_obj_scroll_to_view_recursive(lv_obj_get_parent(entry),LV_ANIM_OFF);tick();click(root,"蓝牙");tick();
@@ -722,6 +783,13 @@ int main(int argc, char **argv) {
             ouse_app_definition_t added=definitions[1];added.id="user.order-test";assert(ouse_core_user_apply(&added)==ESP_OK);tick();
             assert(strstr(host_launcher_order,"user.order-test\n"));
             saved=_strdup(host_launcher_order);assert(ouse_core_user_apply(&added)==ESP_OK);tick();assert(!strcmp(saved,host_launcher_order));free(saved);
+            lv_obj_t *remove_mark=label(root,"X");assert(remove_mark);
+            lv_obj_send_event(lv_obj_get_parent(lv_obj_get_parent(remove_mark)),LV_EVENT_LONG_PRESSED,NULL);
+            assert(!lv_obj_has_flag(lv_obj_get_parent(remove_mark),LV_OBJ_FLAG_HIDDEN));
+            click(root,"X");assert(ouse_dialog_active() && host_uninstall_requests==0);
+            click(root,"取消");assert(!ouse_dialog_active() && host_uninstall_requests==0);
+            click(root,"X");click(root,"卸载");tick();
+            assert(host_uninstall_requests==1 && !strcmp(host_uninstall_target,added.id));
             assert(ouse_core_user_remove(added.id)==ESP_OK);tick();assert(!strstr(host_launcher_order,"user.order-test"));
             puts("PASS launcher long-hold insertion, cross-page drag, no accidental launch, cancelled drop, save failure/retry, theme rebuild, update retention and uninstall pruning");return 0;
         }
@@ -894,6 +962,11 @@ int main(int argc, char **argv) {
     touch_step(160,180,false);tick();ouse_shell_get_state(&shell);assert(shell.quick && shell.quick_y==0);
     lv_obj_t *quick_slider=brightness_slider(root);assert(quick_slider);
     lv_obj_t *quick_body=lv_obj_get_parent(lv_obj_get_parent(quick_slider));
+    lv_obj_t *usb_tile=lv_obj_get_parent(label(quick_body,"USB OTG"));
+    lv_obj_t *theme_tile=lv_obj_get_parent(label(quick_body,"主题"));
+    assert(lv_obj_get_width(usb_tile)==lv_obj_get_width(theme_tile) && lv_obj_get_width(theme_tile)<lv_obj_get_width(quick_body));
+    host_usb.available=true;lv_obj_send_event(usb_tile,LV_EVENT_SHORT_CLICKED,NULL);assert(host_usb.enabled);
+    lv_obj_send_event(usb_tile,LV_EVENT_SHORT_CLICKED,NULL);assert(!host_usb.enabled);host_usb.available=false;
     int quick_height=lv_obj_get_height(quick_body);lv_obj_set_height(quick_body,220);tick();
     scroll_from_child_gap(quick_body,100,90);screenshot("quick-gap-scroll.ppm");
     lv_obj_set_height(quick_body,quick_height);lv_obj_scroll_to_y(quick_body,0,LV_ANIM_OFF);tick();
@@ -1077,6 +1150,10 @@ if not focused:
     subprocess.run([str(OUT / "check.exe"), "--launcher-order"], check=True, cwd=OUT, timeout=60)
     subprocess.run([str(OUT / "check.exe"), "--launcher-order-reload"], check=True, cwd=OUT, timeout=60)
     subprocess.run([str(OUT / "check.exe"), "--launcher-order-corrupt"], check=True, cwd=OUT, timeout=60)
+    subprocess.run([str(OUT / "check.exe"), "--file-associations"], check=True, cwd=OUT, timeout=60)
+    subprocess.run([str(OUT / "check.exe"), "--hardware-keys"], check=True, cwd=OUT, timeout=60)
+    for mode in ("--boot-animation", "--boot-animation-timeout", "--boot-animation-error", "--boot-animation-low-memory"):
+        subprocess.run([str(OUT / "check.exe"), mode], check=True, cwd=OUT, timeout=60)
     subprocess.run([str(OUT / "check.exe"), "--ime-cursor"], check=True, cwd=OUT, timeout=60)
     subprocess.run([str(OUT / "check.exe"), "--ble-settings"], check=True, cwd=OUT, timeout=60)
 if not widget_only:subprocess.run([str(OUT / "check.exe"), "--focused-native-ui"], check=True, cwd=OUT, timeout=60)
@@ -1086,7 +1163,7 @@ from PIL import Image
 previews=() if widget_only else ("wifi-modal-en-large", "recents-font130", "native-power-compact", "native-timeout-choices", "native-sound-compact", "native-appearance-light", "native-appearance-dark")
 if widget_only or current_ui or not focused:previews+=("widgets-switch-current","widgets-switch-dark","widgets-switch-light","widgets-switch-dark-hdpi","widgets-switch-light-hdpi")
 if not focused:
-    previews+=("desktop", "settings", "settings-gap-scroll", "display", "system", "settings-dark", "settings-text-large", "back-follow", "quick-follow", "quick-gap-scroll", "home-follow", "quick", "recents", "recents-second", "desktop-dark", "quick-dark", "quick-en-large", "desktop-light", "desktop-page2", "save-error", "power", "audio", "wifi", "wifi-password", "wifi-form-gap-scroll")
+    previews+=("boot-animation", "desktop", "settings", "settings-gap-scroll", "display", "system", "settings-dark", "settings-text-large", "back-follow", "quick-follow", "quick-gap-scroll", "home-follow", "quick", "recents", "recents-second", "desktop-dark", "quick-dark", "quick-en-large", "desktop-light", "desktop-page2", "save-error", "power", "audio", "wifi", "wifi-password", "wifi-form-gap-scroll")
 for name in previews:
     with Image.open(OUT / (name+".ppm")) as image:
         image.save(OUT / (name+".png"))

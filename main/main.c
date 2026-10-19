@@ -54,7 +54,7 @@ void app_main(void)
              ouse_core_version(), OUSE_CORE_API_VERSION, esp_reset_reason());
     ESP_LOGI("OuseCore","Fault diagnostics v3: retained early fault + P4 bus/cache snapshot + bounded UART dump");
     ouse_fault_report_previous();
-    ouse_core_config_t config = {.initial_brightness = 45, .density_dpi=160};
+    ouse_core_config_t config = {.initial_brightness = 45, .density_dpi=160,.boot_animation=true};
     esp_err_t settings_error = ouse_system_init(&config.initial_brightness);
     if (settings_error != ESP_OK) {
         ESP_LOGW("OuseCore", "Settings unavailable: %s; NVS is preserved", esp_err_to_name(settings_error));

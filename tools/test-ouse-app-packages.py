@@ -56,10 +56,14 @@ int main(int argc,char **argv){
  for(int index=1;index<argc;++index){
   FILE *file=fopen(argv[index],"rb");assert(file);fseek(file,0,SEEK_END);long size=ftell(file);rewind(file);
   unsigned char *bytes=malloc(size+1);assert(bytes&&fread(bytes,1,size,file)==(size_t)size);fclose(file);
-  ouse_bpk_t *package=NULL;assert(ouse_bpk_parse(bytes,size,&package)==ESP_OK&&package);
+  ouse_bpk_t *package=NULL;
+  if(strstr(argv[index],".reject.bpk")){assert(ouse_bpk_parse(bytes,size,&package)!=ESP_OK&&!package);free(bytes);continue;}
+  assert(ouse_bpk_parse(bytes,size,&package)==ESP_OK&&package);
   ouse_bpk_t *catalog=NULL;assert(ouse_bpk_catalog(bytes,size,&catalog)==ESP_OK&&catalog);
   assert(!catalog->page&&!catalog->script&&!catalog->package.image_count&&!catalog->package.asset_count);
   assert(!strcmp(catalog->id,package->id)&&catalog->package.source_version==package->package.source_version&&catalog->icon_image.data_size==package->icon_image.data_size);
+  assert(!strcmp(catalog->description,package->description)&&!strcmp(catalog->author,package->author)&&!strcmp(catalog->released_at,package->released_at));
+  if(!strcmp(package->id,"user.store")){assert(!strcmp(package->author,"OusePocket")&&!strcmp(package->released_at,"2026-10-19")&&package->description[0]);}
   ouse_bpk_free(catalog);
   bytes[size]=0;ouse_bpk_t *invalid=NULL;assert(ouse_bpk_parse(bytes,size+1,&invalid)!=ESP_OK&&!invalid);free(bytes);
   if(!strcmp(package->id,"user.music")){assert(package->package.image_count==1 && package->images[0].image->header.w==128);assert(package->package.files_allowed && !package->package.sdcard_allowed);}
@@ -126,4 +130,19 @@ parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--apps',nargs='+',default=['music','alarm','service-test','explorer'])
 names=parser.parse_args().apps
 for name in names:bpk.pack(ROOT/'apps'/name,OUT/f'{name}.bpk')
-subprocess.run([str(OUT/'packages.exe')]+[str(OUT/f'{name}.bpk') for name in names],cwd=OUT,check=True,timeout=15)
+import io,json,zipfile
+source=io.BytesIO()
+with zipfile.ZipFile(source,'w',compression=zipfile.ZIP_STORED) as archive:
+ for path in (ROOT/'apps/store').iterdir():
+  if path.name in ['manifest.json','page.json','app.js','icon.bin']:archive.writestr(path.name,path.read_bytes())
+rejects=[]
+for ordinal,(key,value) in enumerate([('author','x'*65),('description','x'*513),('author',False),('description','bad\x00text'),('releasedAt','2026-02-29'),('releasedAt','2026-04-31'),('releasedAt','2026-13-01'),('releasedAt','0000-01-01')]):
+ target=OUT/f'metadata-{ordinal}.reject.bpk'
+ with zipfile.ZipFile(source) as archive,zipfile.ZipFile(target,'w',compression=zipfile.ZIP_STORED) as output:
+  for entry in archive.infolist():
+   data=archive.read(entry.filename)
+   if entry.filename=='manifest.json':
+    manifest=json.loads(data);manifest[key]=value;data=json.dumps(manifest,ensure_ascii=False).encode('utf-8')
+   output.writestr(entry.filename,data)
+ rejects.append(str(target))
+subprocess.run([str(OUT/'packages.exe')]+[str(OUT/f'{name}.bpk') for name in names]+rejects,cwd=OUT,check=True,timeout=15)

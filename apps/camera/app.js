@@ -29,14 +29,16 @@ function refresh(){
 }
 Ouse.ui.on("album","click",()=>{if(pending)return;if(!ready()){popup("请插入 SD 卡后再打开相册。");return;}Ouse.openApp("user.gallery");});
 Ouse.ui.on("dismiss","click",()=>Ouse.ui.hide("dialog"));
-Ouse.ui.on("shutter","click",()=>{
+function capture(){
  if(pending||opening)return;
  const state=Ouse.camera.get();
  if(!ready()){popup("请插入 SD 卡后再拍摄。");return;}
  if(!state.running){popup("摄像头无法打开，请重新进入相机。");return;}
  kind="capture";pending=Ouse.camera.capture();
  if(!pending)popup("操作失败，请稍后重试。");refresh();
-});
+}
+Ouse.ui.on("shutter","click",capture);
+Ouse.keys.on("pwr",capture);
 Ouse.tasks.onComplete(event=>{
  if(event.id!==pending)return;pending=0;
  if(event.state!=="succeeded")popup(kind==="start"?"摄像头无法打开，请检查连接后重新进入相机。":kind==="list"?"无法读取相册。":"拍摄失败，请检查 SD 卡和剩余空间。");

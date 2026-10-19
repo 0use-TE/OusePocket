@@ -7,5 +7,11 @@
     "zh_CN": "猜数字",
     "en": "Guess"
   },
-  "icon": "icon.bin"
+  "icon": "icon.bin",
+  "versionCode": 1,
+  "versionName": "1.0.0",
+  "author": "OusePocket",
+  "releasedAt": "2026-10-19",
+  "description": "猜数字 1 到 100。",
+  "minNativeApi": 1
 }

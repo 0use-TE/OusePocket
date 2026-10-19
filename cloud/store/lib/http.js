@@ -1,0 +1,4 @@
+import {timingSafeEqual} from "node:crypto";
+export function authorized(request){const token=process.env.STORE_ADMIN_TOKEN;if(!token||token.length<24)return false;const actual=Buffer.from(request.headers.get("authorization")||""),expected=Buffer.from("Bearer "+token);return actual.length===expected.length&&timingSafeEqual(actual,expected);}
+export function json(value,status=200){return Response.json(value,{status,headers:{"Cache-Control":"no-store","X-Content-Type-Options":"nosniff"}});}
+export async function boundedBody(request,maximum){const reader=request.body?.getReader();if(!reader)throw new Error("Missing body");const parts=[];let size=0;try{for(;;){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>maximum)throw new Error("Upload too large");parts.push(Buffer.from(value));}return Buffer.concat(parts,size);}finally{await reader.cancel().catch(()=>{});reader.releaseLock();}}

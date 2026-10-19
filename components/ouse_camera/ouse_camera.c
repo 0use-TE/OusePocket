@@ -54,12 +54,12 @@ unsigned ouse_camera_image_width(unsigned image){return image<2 ? OUSE_CAMERA_WI
 unsigned ouse_camera_image_height(unsigned image){return image<2 ? OUSE_CAMERA_HEIGHT : 96;}
 static bool photo_path(const char *path,char absolute[180])
 {
-    if(!path || strncmp(path,"Pictures/",9) || !ouse_files_path(path,absolute,180))return false;
+    if(!path || (path[0]!='/' && strncmp(path,"Pictures/",9)) || !ouse_files_read_path(path,absolute,180))return false;
     const char *extension=strrchr(path,'.');return extension && (!strcasecmp(extension,".jpg") || !strcasecmp(extension,".jpeg"));
 }
 static bool video_path(const char *path,char absolute[180])
 {
-    if(!path || strncmp(path,"Pictures/",9) || !ouse_files_path(path,absolute,180))return false;
+    if(!path || (path[0]!='/' && strncmp(path,"Pictures/",9)) || !ouse_files_read_path(path,absolute,180))return false;
     const char *extension=strrchr(path,'.');return extension && !strcasecmp(extension,".avi");
 }
 static bool media_path(const char *path,char absolute[180])

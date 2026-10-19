@@ -13,6 +13,8 @@
 #include "ouse_alarm.h"
 #include "ouse_usb.h"
 #include "esp_system.h"
+#include "ouse_board.h"
+#include "ouse_dialog.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -22,12 +24,15 @@
 static atomic_bool ui_done=true;
 static char closing_app[48]; // owned until UI completion; never stack context
 static bool close_all;
+static void power_off_failed(void *context)
+{(void)context;ouse_dialog_show("关机未完成。可在电源菜单恢复运行，或检查电源连接。",NULL,NULL);}
 static void close_ui(void *unused)
 {
     (void)unused;
     if(close_all){
-        for(unsigned i=0;i<OUSE_RECENTS_CAPACITY;++i){ouse_app_info_t app;
-            if(ouse_app_get_info(i,&app)==ESP_OK && strcmp(app.id,"ouse.settings"))(void)ouse_app_close_id(app.id);
+        for(unsigned index=0;;++index){ouse_app_info_t app;
+            if(ouse_app_get_info(index,&app)!=ESP_OK)break;
+            if(strcmp(app.id,"ouse.settings"))(void)ouse_app_close_id(app.id);
         }
     }else if(closing_app[0])(void)ouse_app_close_id(closing_app);
     atomic_store(&ui_done,true);
@@ -128,11 +133,12 @@ static void cancel_transient_work(void)
 }
 static void worker(void *unused)
 {
-    (void)unused;bool draining=false,blocked=false;int64_t deadline=0,settled=0,next_memory=0;
+    (void)unused;bool draining=false,blocked=false,poweroff=false;int64_t deadline=0,settled=0,next_memory=0;
     char blocker[64]="";
     for(;;){ouse_control_t control;
         if(ouse_control_take(&control)){
-            if(control.action==OUSE_CONTROL_RESTART && !draining && atomic_load(&ui_done)){
+            if((control.action==OUSE_CONTROL_RESTART || control.action==OUSE_CONTROL_SHUTDOWN) && !draining && atomic_load(&ui_done)){
+                poweroff=control.action==OUSE_CONTROL_SHUTDOWN;
                 ouse_tasks_quiesce(true);cancel_transient_work();ouse_devices_wake_workers();
                 esp_err_t error=close_request(NULL);draining=error==ESP_OK;blocked=!draining;
                 snprintf(blocker,sizeof(blocker),"%s",error==ESP_OK ? "" : "ui-dispatch-failed");
@@ -153,7 +159,13 @@ static void worker(void *unused)
             const char *reason=drain_blocker(deadline-15000000);int64_t now=esp_timer_get_time();
             snprintf(blocker,sizeof(blocker),"%s",reason ? reason : "");
             if(reason)settled=0;else if(!settled)settled=now;
-            if(settled && now-settled>=500000)esp_restart();
+            if(settled && now-settled>=500000){
+                if(!poweroff)esp_restart();
+                esp_err_t error=ouse_board_power_off();
+                if(error==ESP_OK)vTaskDelay(pdMS_TO_TICKS(1000));
+                draining=false;blocked=true;snprintf(blocker,sizeof(blocker),"%s",error==ESP_OK ? "power-off-not-effective" : "power-off-failed");
+                (void)ouse_core_post_ui(power_off_failed,NULL);
+            }
             if(now>=deadline){draining=false;blocked=true;if(!blocker[0])strcpy(blocker,"settling");}
         }
         if(esp_timer_get_time()>=next_memory){ouse_system_sample_memory();next_memory=esp_timer_get_time()+1000000;}

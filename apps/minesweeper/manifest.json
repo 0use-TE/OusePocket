@@ -1,1 +1,37 @@
-{"runtime":"ouse-core","api":1,"id":"user.minesweeper","name":"Minesweeper","names":{"zh_CN":"扫雷","en":"Minesweeper"},"icon":"icon.bin","capabilities":{"media":true},"assets":[{"id":"boom","type":"binary","path":"assets/boom.wav"},{"id":"click","type":"binary","path":"assets/click.wav"},{"id":"win","type":"binary","path":"assets/win.wav"}]}
+{
+  "runtime": "ouse-core",
+  "api": 1,
+  "id": "user.minesweeper",
+  "name": "Minesweeper",
+  "names": {
+    "zh_CN": "扫雷",
+    "en": "Minesweeper"
+  },
+  "icon": "icon.bin",
+  "capabilities": {
+    "media": true
+  },
+  "assets": [
+    {
+      "id": "boom",
+      "type": "binary",
+      "path": "assets/boom.wav"
+    },
+    {
+      "id": "click",
+      "type": "binary",
+      "path": "assets/click.wav"
+    },
+    {
+      "id": "win",
+      "type": "binary",
+      "path": "assets/win.wav"
+    }
+  ],
+  "versionCode": 1,
+  "versionName": "1.0.0",
+  "author": "OusePocket",
+  "releasedAt": "2026-10-19",
+  "description": "扫雷 8×8。",
+  "minNativeApi": 1
+}

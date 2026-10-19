@@ -1,10 +1,24 @@
-# Ouse Core 0.28.0
+# Ouse Core 0.33.0
 
 OusePocket 是 ESP32-P4 上的轻量多媒体应用框架。仓库根目录就是 ESP-IDF 工程；硬件与系统服务使用原生 C/C++，桌面和设置使用 LVGL，独立应用使用 JSON＋JavaScript。旧 Brookesia 工程、微雪示例与历史资料保存在 `legacy/`，当前固件不依赖该目录。
 
 当前目标板是微雪 ESP32-P4 WIFI6 Touch LCD 3.5，16 MB Flash、32 MB PSRAM、320×480 屏幕，要求芯片 revision ≥3.1。
 
 ## 本版状态
+
+0.33.0 P4 商店改为分类与两列真实图标卡片，连续滚动，无搜索及翻页按钮。连接中可随时进入源设置，页面只保留地址与连接按钮；有界图片槽由 PSRAM 暂存、UI 线程交换。原生 API 37，JS API 1。见 `docs/0.33.0-p4-store-cards.md`。
+
+0.32.0 完成网页商店图标卡片、分类/搜索/排序、独立发布页与 BPK 自动填表。清单新增 description、author、releasedAt，服务端修改后写回下载包，内核解析并通过 packages.list 暴露；元数据常驻于 PSRAM。原生 API 36、JS API 1。见 `docs/0.32.0-store-metadata-usb-hid.md`。
+
+0.31.0 提供 Next.js 商店服务、HTTP/HTTPS 自定义源的商店客户端及 SD BPK 安装入口；网络和本地安装共用内核校验、系统确认和原子提交。支持版本、最低 API、下载校验、取消及降级拒绝；原生 API 35、JS API 1。接口与实测见 `docs/0.31.0-store-install.md`，运行服务见 `cloud/store/README.md`。
+
+0.30.1 修复 ESP-TLS 异步建连首次 select 超时后监听集合丢失导致的 HTTPS 假超时；HTTP 层使用独立、每次重建的有界套接字就绪检查，不修改 SDK，不关闭证书校验。扩展有界 HTTP 头以兼容常见 CDN 响应。天气普通刷新复用已有城市，显式定位失败时回退；原生 API 34、JS API 1。见 `docs/0.30.1-weather-https.md`。
+
+0.30.0 增加应用按下、移动、松开、取消触摸接口，有界缓冲合并移动并保留结束事件；鼠标 BPK 接入触摸板跟手与按住拖拽。下拉面板加入蓝牙与 USB OTG 短按开关/长按设置，六卡两列，状态栏显示蓝牙连接图标。网易云移除无法同步电脑的播放状态文字。包含 0.29.1 闹钟缓存 PSRAM 迁移；原生 API 33，JS API 1。见 `docs/0.30.0-pointer-bluetooth.md`。
+
+0.29.1 将闹钟数据库与查询缓存迁到 PSRAM，减少 16,528 字节内部常驻数据；闹钟锁、线程栈、持久化格式和提醒逻辑保持不变。原生 API 32、JS API 1 不变。
+
+0.29.0 分离 JS 软调度片与硬超时，修复蓝牙重复关闭和设置保存的原生任务泄漏，将任务表、通知与诊断缓存迁入 PSRAM，并缩减保留在内部 RAM 的脚本线程栈。补充真实 HID 就绪状态，修复网易云未连接提示，减少录音机列表重复刷新。原生 API 32，JS API 1，不更新 C6。见 `docs/0.29.0-kernel-stability-memory.md`。
 
 0.28.0 向 BPK 开放有权限与实例隔离的 BLE 客户端及系统 HID：扫描、连接、GATT 发现/读写/订阅，键盘、媒体键与鼠标报告。HID 仅前台应用可用，退出/失焦释放输入，持续按键有两秒保护。原生 API 31，JS API 1，不更新 C6。见 `docs/0.28.0-app-bluetooth-hid.md`。
 

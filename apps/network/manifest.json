@@ -17,5 +17,11 @@
       "type": "image",
       "path": "assets/mode.bin"
     }
-  ]
+  ],
+  "versionCode": 1,
+  "versionName": "1.0.0",
+  "author": "OusePocket",
+  "releasedAt": "2026-10-19",
+  "description": "Ping、HTTP、WebSocket、MQTT 测试。",
+  "minNativeApi": 1
 }

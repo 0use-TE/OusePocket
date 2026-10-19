@@ -21,7 +21,7 @@ typedef struct {
     ouse_http_sink_t sink;
     void *context;
     size_t limit, header_bytes, field_size, value_size;
-    char field[64], value[256];
+    char field[64], value[512];
     bool in_value, done, head;
     esp_err_t error;
 } decoder_t;
@@ -138,6 +138,21 @@ static esp_err_t send_bytes(esp_tls_t *tls,const void *data,size_t size,int64_t 
     }
     return ESP_OK;
 }
+static esp_err_t connected_socket(esp_tls_t *tls,int64_t deadline,ouse_http_stop_t stop,void *context)
+{
+    int socket_fd=-1;
+    if(esp_tls_get_conn_sockfd(tls,&socket_fd)!=ESP_OK || socket_fd<0)return ESP_FAIL;
+    for(;;){
+        esp_err_t error=checkpoint(deadline,stop,context);if(error!=ESP_OK)return error;
+        fd_set writes;FD_ZERO(&writes);FD_SET(socket_fd,&writes);struct timeval timeout={.tv_usec=50000};
+        int ready=select(socket_fd+1,NULL,&writes,NULL,&timeout);
+        if(ready<0){if(errno==EINTR)continue;return ESP_FAIL;}
+        if(!ready)continue;
+        int socket_error=0;socklen_t length=sizeof(socket_error);
+        if(getsockopt(socket_fd,SOL_SOCKET,SO_ERROR,&socket_error,&length)!=0 || socket_error)return ESP_FAIL;
+        return ESP_OK;
+    }
+}
 esp_err_t ouse_http_transfer(const ouse_http_request_t *r,int64_t deadline,size_t limit,
     ouse_http_response_t *response,ouse_http_sink_t sink,ouse_http_stop_t stop,void *context)
 {
@@ -158,7 +173,12 @@ esp_err_t ouse_http_transfer(const ouse_http_request_t *r,int64_t deadline,size_
     char *request=malloc(5120);decoder_t *d=calloc(1,sizeof(*d));
     if(!request || !d){error=ESP_ERR_NO_MEM;goto done;}
     while((error=checkpoint(phase_deadline,stop,context))==ESP_OK){
-        int connected=esp_tls_conn_new_async(host,host_size,port,&config,tls);
+        esp_tls_cfg_t step=config;esp_tls_conn_state_t state;
+        if(secure && esp_tls_get_conn_state(tls,&state)==ESP_OK && state==ESP_TLS_CONNECTING){
+            error=connected_socket(tls,phase_deadline,stop,context);if(error!=ESP_OK)break;
+            step.non_block=false;
+        }
+        int connected=esp_tls_conn_new_async(host,host_size,port,&step,tls);
         if(connected==1)break;
         if(connected<0){error=ESP_FAIL;break;}
         vTaskDelay(1);
@@ -167,18 +187,7 @@ esp_err_t ouse_http_transfer(const ouse_http_request_t *r,int64_t deadline,size_
     // Fixed IDF's plain-TCP async path returns before the nonblocking connect
     // is established. Explicitly await writability and SO_ERROR; otherwise a
     // normal pending connect could be misreported as a send failure.
-    int socket_fd=-1;
-    if(esp_tls_get_conn_sockfd(tls,&socket_fd)!=ESP_OK || socket_fd<0){error=ESP_FAIL;goto done;}
-    for(;;){
-        error=checkpoint(phase_deadline,stop,context);if(error!=ESP_OK)goto done;
-        fd_set writes;FD_ZERO(&writes);FD_SET(socket_fd,&writes);struct timeval timeout={.tv_usec=50000};
-        int ready=select(socket_fd+1,NULL,&writes,NULL,&timeout);
-        if(ready<0){if(errno==EINTR)continue;error=ESP_FAIL;goto done;}
-        if(!ready)continue;
-        int socket_error=0;socklen_t length=sizeof(socket_error);
-        if(getsockopt(socket_fd,SOL_SOCKET,SO_ERROR,&socket_error,&length)!=0 || socket_error){error=ESP_FAIL;goto done;}
-        break;
-    }
+    error=connected_socket(tls,phase_deadline,stop,context);if(error!=ESP_OK)goto done;
     // Host syntax preserves IPv6 brackets and explicit nondefault ports.
     bool ipv6=strchr(host,':')!=NULL;char authority[272];
     snprintf(authority,sizeof(authority),ipv6 ? "[%s]:%d" : "%s:%d",host,port);
@@ -187,7 +196,12 @@ esp_err_t ouse_http_transfer(const ouse_http_request_t *r,int64_t deadline,size_
     int length=snprintf(request,5120,"%s %.*s",r->method,(int)path_size,path);
     if(parts.field_set&(1<<UF_QUERY))length+=snprintf(request+length,5120-length,"?%.*s",parts.field_data[UF_QUERY].len,r->url+parts.field_data[UF_QUERY].off);
     length+=snprintf(request+length,5120-length," HTTP/1.1\r\nHost: %s\r\nConnection: close\r\nAccept-Encoding: identity\r\nContent-Length: %u\r\n",authority,(unsigned)r->body_size);
-    for(unsigned i=0;i<r->header_count;++i)length+=snprintf(request+length,5120-length,"%s: %s\r\n",r->headers[i].name,r->headers[i].value);
+    for(unsigned i=0;i<r->header_count;++i){
+        int available=5120-length;
+        int written=snprintf(request+length,available,"%s: %s\r\n",r->headers[i].name,r->headers[i].value);
+        if(written<0 || written>=available){error=ESP_ERR_INVALID_SIZE;goto done;}
+        length+=written;
+    }
     length+=snprintf(request+length,5120-length,"\r\n");
     if(length<0 || length>=5120){error=ESP_ERR_INVALID_SIZE;goto done;}
     error=send_bytes(tls,request,length,phase_deadline,stop,context);

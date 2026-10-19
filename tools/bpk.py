@@ -186,6 +186,20 @@ def validate(data):
     if not isinstance(app_id, str) or not re.fullmatch(r"user\.[a-z0-9._-]+", app_id) or len(app_id) >= 48:
         raise ValueError("Application ID must be user.* (ASCII, max 47 bytes)")
     _name(manifest.get("name"), "name")
+    for key,maximum in (("description",512),("author",64)):
+        if key in manifest and (not isinstance(manifest[key],str) or not 1 <= len(manifest[key].encode("utf-8")) <= maximum or "\x00" in manifest[key]):
+            raise ValueError(key + " exceeds its UTF-8 text limit")
+    if "releasedAt" in manifest:
+        import datetime
+        value = manifest["releasedAt"]
+        if not isinstance(value,str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}",value):
+            raise ValueError("releasedAt must be YYYY-MM-DD")
+        datetime.date.fromisoformat(value)
+    for key in ("versionCode", "minNativeApi"):
+        if key in manifest and (type(manifest[key]) is not int or not 1 <= manifest[key] <= 2147483647):
+            raise ValueError(key + " must be a positive 32-bit integer")
+    if "versionName" in manifest and (not isinstance(manifest["versionName"], str) or not 1 <= len(manifest["versionName"].encode("utf-8")) <= 31 or "\x00" in manifest["versionName"]):
+        raise ValueError("versionName must contain 1..31 UTF-8 bytes")
     if manifest.get("icon") != "icon.bin":
         raise ValueError("BPK requires icon=icon.bin inside the archive")
     names = manifest.get("names", {})
@@ -194,9 +208,16 @@ def validate(data):
     for locale, value in names.items():
         _name(value, f"names.{locale}")
     capabilities = manifest.get("capabilities", {})
-    if (not isinstance(capabilities, dict) or set(capabilities) - {"background", "notifications", "network", "media", "alarms", "files", "sdcard", "camera", "photos", "bluetooth", "hid"} or
+    if (not isinstance(capabilities, dict) or set(capabilities) - {"background", "notifications", "network", "media", "alarms", "files", "sdcard", "camera", "photos", "bluetooth", "hid", "packages"} or
             any(type(value) is not bool for value in capabilities.values())):
-        raise ValueError("capabilities supports only background/notifications/network/media/alarms/files/sdcard/camera/photos/bluetooth/hid: true/false")
+        raise ValueError("capabilities supports only background/notifications/network/media/alarms/files/sdcard/camera/photos/bluetooth/hid/packages: true/false")
+    file_types = manifest.get("fileTypes", [])
+    if not isinstance(file_types, list) or any(not isinstance(value, str) for value in file_types) or len(file_types) != len(set(file_types)) or set(file_types) - {"image/jpeg", "audio/wav", "video/x-msvideo"}:
+        raise ValueError("fileTypes must contain unique supported MIME types")
+    if any(not (capabilities.get("media") and capabilities.get("files") if value == "audio/wav" else capabilities.get("photos")) for value in file_types):
+        raise ValueError("fileTypes requires matching media/files or photos capabilities")
+    if file_types and manifest.get("minNativeApi", 1) < 38:
+        raise ValueError("fileTypes requires minNativeApi >= 38")
     _icon(content["icon.bin"])
     assets = _assets(manifest)
     if set(content) != set(FILES) | {asset["path"] for asset in assets}:

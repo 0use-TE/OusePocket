@@ -8,6 +8,13 @@
 #include "ouse_media.h"
 #include "ouse_uninstall_journal.h"
 #include "ouse_app_manager.h"
+#include "ouse_packages.h"
+#include "ouse_net.h"
+#include "ouse_files.h"
+#include "ouse_dialog.h"
+#include "ouse_memory_pressure.h"
+#include "psa/crypto.h"
+#include <stdatomic.h>
 #include "ouse_permissions.h"
 #include "driver/uart.h"
 #include "esp_heap_caps.h"
@@ -19,6 +26,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <dirent.h>
@@ -42,6 +50,10 @@ static portMUX_TYPE status_lock=portMUX_INITIALIZER_UNLOCKED;
 static ouse_installer_state_t status;
 static char pending_remove[48],pending_reset[48];
 static esp_err_t recovery_error;
+static atomic_int package_decision;
+static EXT_RAM_BSS_ATTR struct {ouse_package_request_t request;unsigned char *bytes;size_t size;ouse_bpk_t *parsed;int64_t since;bool active,waiting;} package_job;
+static EXT_RAM_BSS_ATTR char package_prompt[640];
+static void package_accept(void){atomic_store(&package_decision,1);}
 void ouse_installer_get_state(ouse_installer_state_t *out)
 {if(out){portENTER_CRITICAL(&status_lock);*out=status;portEXIT_CRITICAL(&status_lock);}}
 static void publish_status(bool busy,esp_err_t error)
@@ -61,6 +73,9 @@ static void ui_call(void *unused)
         if(ui.error==ESP_OK && !strcmp(ui.package->id,pending_reset))ui.error=ouse_core_user_maintenance(pending_reset,true);
     }
     else if(ui.action==2)ui.error=ouse_core_user_remove(ui.id);
+    else if(ui.action==7){ui.error=ouse_dialog_active()?ESP_ERR_INVALID_STATE:ESP_OK;if(ui.error==ESP_OK)ouse_dialog_show(package_prompt,"安装",package_accept);}
+    else if(ui.action==8){ui.error=ouse_dialog_action_is(package_accept)?ESP_OK:ESP_ERR_INVALID_STATE;}
+    else if(ui.action==9){if(ouse_dialog_action_is(package_accept))ouse_dialog_dismiss();ui.error=ESP_OK;}
     else if(ui.action==6){ouse_core_launcher_restored();ui.error=ESP_OK;}
     else if(ui.action==4 || ui.action==5)ui.error=ouse_core_user_maintenance(ui.id,ui.action==4);
     else ui.error=ouse_app_open(ui.id);
@@ -211,6 +226,8 @@ static esp_err_t refresh_manager(void)
         ouse_bpk_t *package=installed[index];ouse_managed_app_t *app=&snapshot->apps[snapshot->count++];
         app->permissions=(package->package.media_allowed ? 1u : 0u)|(package->package.camera_allowed ? 2u : 0u)|((package->package.files_allowed || package->package.photos_allowed) ? 4u : 0u)|(package->package.bluetooth_allowed ? 8u : 0u)|(package->package.hid_allowed ? 16u : 0u);
         strcpy(app->id,package->id);strcpy(app->name,package->name);strcpy(app->name_zh,package->name_zh);strcpy(app->name_en,package->name_en);
+        app->version_code=package->version_code;strcpy(app->version_name,package->version_name);
+        strcpy(app->description,package->description);strcpy(app->author,package->author);strcpy(app->released_at,package->released_at);
         char path[128];path_for(app->id,path);struct stat info;
         app->measured=stat(path,&info)==0 && info.st_size>=0;
         if(app->measured)app->package_bytes=info.st_size;
@@ -256,6 +273,15 @@ static void process_manager(void)
     }
     publish_status(false,error);ouse_manager_complete(&request,error);
 }
+static esp_err_t commit_package(ouse_bpk_t *p,const unsigned char *bytes,size_t size,char *result,size_t capacity)
+{
+    snprintf(result,capacity,"storage-commit");char path[128];path_for(p->id,path);
+    FILE *file=fopen(STAGING,"wb");bool ok=false;
+    if(file){ok=fwrite(bytes,1,size,file)==size;if(fflush(file)!=0)ok=false;if(fsync(fileno(file))!=0)ok=false;if(fclose(file)!=0)ok=false;}
+    if(!ok||rename(STAGING,path)!=0){unlink(STAGING);ouse_bpk_free(p);return ESP_FAIL;}
+    snprintf(result,capacity,"activation");esp_err_t error=activate(p);(void)ouse_storage_refresh();
+    if(error==ESP_OK)snprintf(result,capacity,"%s",p->id);else{ouse_bpk_free(p);snprintf(result,capacity,"committed-reboot-to-restore");}return error;
+}
 static esp_err_t install_upload(char *result,size_t capacity)
 {
     snprintf(result,capacity,"upload-integrity");
@@ -273,23 +299,76 @@ static esp_err_t install_upload(char *result,size_t capacity)
     snprintf(result,capacity,"schema-syntax-capacity");
     error=on_ui(0,p,NULL); // full schema/syntax/capacity check BEFORE Flash writes
     if(error!=ESP_OK){ESP_LOGE(TAG,"BPK rejected: schema/syntax/capacity (%s)",esp_err_to_name(error));ouse_bpk_free(p);return error;}
-    snprintf(result,capacity,"storage-commit");
-    char path[128];path_for(p->id,path);
-    FILE *file=fopen(STAGING,"wb");bool ok=false;
-    if(file){
-        ok=fwrite(upload,1,received,file)==received;
-        if(fflush(file)!=0)ok=false;
-        if(fsync(fileno(file))!=0)ok=false;
-        if(fclose(file)!=0)ok=false;
+    return commit_package(p,upload,received,result,capacity);
+}
+static bool package_stop(void *unused){(void)unused;return ouse_tasks_quiescing()||ouse_task_cancel_requested(package_job.request.task);}
+static esp_err_t package_sink(void *unused,const unsigned char *bytes,size_t size)
+{
+    (void)unused;if(package_stop(NULL))return ESP_ERR_INVALID_STATE;
+    if(size>package_job.request.size-package_job.size)return ESP_ERR_INVALID_SIZE;
+    memcpy(package_job.bytes+package_job.size,bytes,size);package_job.size+=size;ouse_packages_progress("downloading",package_job.size,package_job.request.size,NULL);return ESP_OK;
+}
+static esp_err_t package_read(void)
+{
+    if(package_job.request.local){
+        char *path=heap_caps_malloc(1100,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);if(!path)return ESP_ERR_NO_MEM;
+        bool valid=ouse_sd_browser_path(package_job.request.location,path,1100);size_t length=strlen(package_job.request.location);
+        if(!valid||length<4||strcasecmp(package_job.request.location+length-4,".bpk")){free(path);return ESP_ERR_INVALID_ARG;}
+        if(!ouse_files_lease_begin()){free(path);return ESP_ERR_INVALID_STATE;}
+        struct stat info;esp_err_t error=ESP_ERR_NOT_FOUND;
+        if(stat(path,&info)==0&&S_ISREG(info.st_mode)&&info.st_size>0&&info.st_size<=OUSE_BPK_MAX){
+            package_job.request.size=info.st_size;package_job.bytes=heap_caps_malloc(info.st_size,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
+            FILE *file=package_job.bytes?fopen(path,"rb"):NULL;error=package_job.bytes?ESP_FAIL:ESP_ERR_NO_MEM;
+            if(file){package_job.size=fread(package_job.bytes,1,info.st_size,file);error=package_job.size==(size_t)info.st_size&&fgetc(file)==EOF&&!ferror(file)?ESP_OK:ESP_FAIL;fclose(file);}
+        }
+        ouse_files_lease_end();free(path);return error;
     }
-    if(!ok || rename(STAGING,path)!=0){unlink(STAGING);ouse_bpk_free(p);return ESP_FAIL;}
-    // LittleFS atomic rename is the commit point. Interrupted uploads never
-    // replace the previous package. Only this worker can mutate user registry.
-    snprintf(result,capacity,"activation");error=activate(p);
-    (void)ouse_storage_refresh();
-    if(error==ESP_OK)snprintf(result,capacity,"%s",p->id);
-    else {ouse_bpk_free(p);snprintf(result,capacity,"committed-reboot-to-restore");}
-    return error;
+    package_job.bytes=heap_caps_malloc(package_job.request.size,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);if(!package_job.bytes)return ESP_ERR_NO_MEM;
+    ouse_http_response_t *response=heap_caps_calloc(1,sizeof(*response),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);if(!response)return ESP_ERR_NO_MEM;
+    ouse_http_request_t request={.url=package_job.request.location,.method="GET",.timeout_ms=30000};
+    esp_err_t error=ouse_http_transfer(&request,esp_timer_get_time()+60000000,package_job.request.size,response,package_sink,package_stop,NULL);
+    if(error==ESP_OK&&(response->status!=200||package_job.size!=package_job.request.size))error=ESP_ERR_INVALID_SIZE;
+    free(response);return error;
+}
+static void package_finish(esp_err_t error,bool cancelled)
+{
+    if(package_job.waiting)(void)on_ui(9,NULL,NULL);
+    ouse_bpk_free(package_job.parsed);free(package_job.bytes);memset(&package_job,0,sizeof(package_job));ouse_packages_finish(error,cancelled);
+    publish_status(false,error);(void)refresh_manager();
+}
+static void process_package(void)
+{
+    if(!package_job.active){
+        if(upload||ouse_manager_pending())return;
+        if(!ouse_packages_take(&package_job.request))return;
+        package_job.active=true;publish_status(true,ESP_OK);
+        if(!ouse_task_start(package_job.request.task,true)){package_finish(ESP_OK,true);return;}
+        if(pending_remove[0]||pending_reset[0]||recovery_error!=ESP_OK||!storage_ready){package_finish(ESP_ERR_INVALID_STATE,false);return;}
+        if(ouse_memory_pressure()!=OUSE_MEMORY_NORMAL){package_finish(ESP_ERR_NO_MEM,false);return;}
+        ouse_packages_progress("downloading",0,package_job.request.size,NULL);
+        esp_err_t error=package_read();if(error==ESP_OK&&package_stop(NULL))error=ESP_ERR_INVALID_STATE;
+        if(error==ESP_OK&&!package_job.request.local){
+            unsigned char hash[32];size_t length=0;char hex[65];
+            if(psa_crypto_init()!=PSA_SUCCESS||psa_hash_compute(PSA_ALG_SHA_256,package_job.bytes,package_job.size,hash,sizeof(hash),&length)!=PSA_SUCCESS||length!=32)error=ESP_FAIL;
+            else{for(unsigned index=0;index<32;++index)snprintf(hex+index*2,3,"%02x",hash[index]);if(strcmp(hex,package_job.request.sha256))error=ESP_ERR_INVALID_CRC;}
+        }
+        if(error==ESP_OK)error=ouse_bpk_parse(package_job.bytes,package_job.size,&package_job.parsed);
+        if(error==ESP_OK&&!package_job.request.local&&(strcmp(package_job.parsed->id,package_job.request.app_id)||package_job.parsed->version_code!=package_job.request.version_code))error=ESP_ERR_INVALID_ARG;
+        if(error==ESP_OK)error=on_ui(0,package_job.parsed,NULL);
+        if(error==ESP_OK&&package_stop(NULL))error=ESP_ERR_INVALID_STATE;
+        if(error!=ESP_OK){package_finish(error,package_stop(NULL));return;}
+        ouse_bpk_t *parsed=package_job.parsed;int old=find_package(parsed->id);
+        if(old>=0&&parsed->version_code<installed[old]->version_code){package_finish(ESP_ERR_INVALID_VERSION,false);return;}
+        snprintf(package_prompt,sizeof(package_prompt),"%s\n%s\n%s → %s\n%s\n%.100s\n功能：%s%s%s%s%s%s%s",parsed->name_zh[0]?parsed->name_zh:parsed->name,parsed->id,old>=0?(installed[old]->version_name[0]?installed[old]->version_name:"旧版本"):"未安装",parsed->version_name[0]?parsed->version_name:"无版本",package_job.request.local?"SD 卡安装":!strncmp(package_job.request.location,"http://",7)?"HTTP 未加密来源":"HTTPS 来源",package_job.request.location,parsed->package.network_allowed?"网络 ":"",parsed->package.media_allowed?"音频 ":"",parsed->package.camera_allowed?"摄像头 ":"",(parsed->package.files_allowed||parsed->package.sdcard_allowed||parsed->package.photos_allowed)?"文件 ":"",parsed->package.bluetooth_allowed?"蓝牙 ":"",parsed->package.hid_allowed?"HID ":"",parsed->package.packages_allowed?"安装应用":"");
+        atomic_store(&package_decision,0);error=on_ui(7,NULL,NULL);
+        if(error!=ESP_OK){package_finish(error,false);return;}
+        package_job.waiting=true;package_job.since=esp_timer_get_time();ouse_packages_progress("confirmation",package_job.size,package_job.size,parsed->id);return;
+    }
+    if(package_stop(NULL)||esp_timer_get_time()-package_job.since>120000000){package_finish(ESP_ERR_INVALID_STATE,true);return;}
+    if(!atomic_load(&package_decision)){if(on_ui(8,NULL,NULL)!=ESP_OK)package_finish(ESP_OK,true);return;}
+    if(package_stop(NULL)){package_finish(ESP_OK,true);return;}
+    ouse_packages_progress("installing",package_job.size,package_job.size,package_job.parsed->id);char result[80];ouse_bpk_t *parsed=package_job.parsed;package_job.parsed=NULL;
+    esp_err_t error=commit_package(parsed,package_job.bytes,package_job.size,result,sizeof(result));package_finish(error,false);
 }
 static bool number8(const char *text,uint32_t *n)
 {
@@ -299,6 +378,7 @@ static bool number8(const char *text,uint32_t *n)
 }
 static esp_err_t command(ouse_frame_t *f,char *result,size_t cap)
 {
+    if(package_job.active&&(!strcmp(f->verb,"REMOVE")||!strcmp(f->verb,"BEGIN")))return ESP_ERR_INVALID_STATE;
     if(upload && owner!=f->token)return ESP_ERR_INVALID_STATE;
     activity=esp_timer_get_time();
     if(!strcmp(f->verb,"HELLO")){
@@ -333,6 +413,7 @@ static esp_err_t command(ouse_frame_t *f,char *result,size_t cap)
         return ESP_OK;
     }
     if(!strcmp(f->verb,"BEGIN")){
+        if(package_job.active)return ESP_ERR_INVALID_STATE;
         if(pending_remove[0] || pending_reset[0] || recovery_error!=ESP_OK || ouse_manager_pending())return ESP_ERR_INVALID_STATE;
         if(upload)return ESP_ERR_INVALID_STATE;
         char *colon=strchr(f->payload,':');uint32_t n,crc;
@@ -455,7 +536,8 @@ static void worker(void *context)
     ESP_LOGI(TAG,"READY; UART0 921600; protocol=OPK1; storage=%s",storage_ready?"ready":"unavailable");
     unsigned char bytes[256];
     for(;;){
-        process_manager();
+        process_package();
+        if(!package_job.active)process_manager();
 #if CONFIG_OUSE_DEVICE_DEBUG
         ouse_debug_poll();
 #endif
@@ -471,6 +553,7 @@ esp_err_t ouse_installer_start(void)
 {
     if(started || !ouse_core_is_started())return ESP_ERR_INVALID_STATE;
     esp_err_t manager=ouse_manager_init();if(manager!=ESP_OK)return manager;
+    manager=ouse_packages_init();if(manager!=ESP_OK)return manager;
     // Refuse to share RX ownership with a console REPL or another installer.
     if(uart_is_driver_installed(UART_NUM_0))return ESP_ERR_INVALID_STATE;
     rx_line=malloc(OUSE_WIRE_MAX);if(!rx_line)return ESP_ERR_NO_MEM;

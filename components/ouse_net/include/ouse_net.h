@@ -7,9 +7,9 @@ extern "C" {
 #define OUSE_NET_URL_MAX 512
 #define OUSE_NET_BODY_MAX 8192
 #define OUSE_NET_RESPONSE_MAX 32768
-#define OUSE_NET_HEADERS_MAX 12
+#define OUSE_NET_HEADERS_MAX 24
 #define OUSE_NET_PENDING_MAX 8
-typedef struct { char name[64], value[256]; } ouse_http_header_t;
+typedef struct { char name[64], value[512]; } ouse_http_header_t;
 typedef struct {
     const char *url, *method; // GET, HEAD, POST, PUT, PATCH, DELETE
     const unsigned char *body;

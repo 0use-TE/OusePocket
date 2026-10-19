@@ -6,60 +6,168 @@
     "id": "page",
     "width": "fill",
     "height": "fill",
-    "layout": "column",
     "padding": 12,
-    "gap": 10,
     "style": { "backgroundColor": "$background" },
     "children": [
       {
-        "type": "container",
-        "id": "header",
-        "width": "fill",
+        "type": "label",
+        "id": "title",
+        "text": "演示笔",
+        "x": 0,
+        "y": 0,
+        "width": 160,
         "height": 32,
-        "layout": "row",
-        "gap": 8,
+        "fontSize": 20,
+        "style": { "textColor": "$text" }
+      },
+      {
+        "type": "label",
+        "id": "status",
+        "text": "连接中",
+        "x": 184,
+        "y": 0,
+        "width": 112,
+        "height": 32,
+        "fontSize": 15,
+        "style": { "textColor": "$secondary", "textAlign": "right" }
+      },
+      {
+        "type": "container",
+        "id": "stage",
+        "x": 0,
+        "y": 56,
+        "width": 296,
+        "height": 120,
+        "style": { "backgroundColor": "$surface", "borderColor": "$border", "borderWidth": 1, "radius": 18 },
         "children": [
-          { "type": "label", "id": "title", "text": "演示笔", "width": "fill", "height": 32, "fontSize": 20, "style": { "textColor": "$text" } },
-          { "type": "label", "id": "status", "text": "连接中", "width": 96, "height": 32, "fontSize": 15, "style": { "textColor": "$secondary" } }
+          {
+            "type": "label",
+            "id": "hint",
+            "text": "翻页遥控",
+            "x": 0,
+            "y": 44,
+            "width": 296,
+            "height": 32,
+            "fontSize": 18,
+            "style": { "textColor": "$secondary", "textAlign": "center" }
+          }
         ]
       },
       {
         "type": "container",
         "id": "pages",
-        "width": "fill",
-        "height": "fill",
+        "x": 0,
+        "y": 200,
+        "width": 296,
+        "height": 64,
         "layout": "row",
         "gap": 10,
         "children": [
-          { "type": "button", "id": "prev", "text": "上一页", "width": "fill", "height": "fill", "fontSize": 20, "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 18 } },
-          { "type": "button", "id": "next", "text": "下一页", "width": "fill", "height": "fill", "fontSize": 20, "style": { "backgroundColor": "$accent", "textColor": "#ffffff", "radius": 18 } }
+          {
+            "type": "button",
+            "id": "prev",
+            "text": "上一页",
+            "width": "fill",
+            "height": 64,
+            "fontSize": 17,
+            "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 16 }
+          },
+          {
+            "type": "button",
+            "id": "next",
+            "text": "下一页",
+            "width": "fill",
+            "height": 64,
+            "fontSize": 17,
+            "style": { "backgroundColor": "$accent", "textColor": "#ffffff", "radius": 16 }
+          }
         ]
       },
       {
         "type": "container",
         "id": "show",
-        "width": "fill",
-        "height": 52,
+        "x": 0,
+        "y": 280,
+        "width": 296,
+        "height": 48,
         "layout": "row",
         "gap": 10,
         "children": [
-          { "type": "button", "id": "start", "text": "开始", "width": "fill", "height": 52, "fontSize": 16, "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 14 } },
-          { "type": "button", "id": "black", "text": "黑屏", "width": "fill", "height": 52, "fontSize": 16, "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 14 } },
-          { "type": "button", "id": "end", "text": "结束", "width": "fill", "height": 52, "fontSize": 16, "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 14 } }
+          {
+            "type": "button",
+            "id": "start",
+            "text": "开始",
+            "width": "fill",
+            "height": 48,
+            "fontSize": 15,
+            "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 14 }
+          },
+          {
+            "type": "button",
+            "id": "black",
+            "text": "黑屏",
+            "width": "fill",
+            "height": 48,
+            "fontSize": 15,
+            "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 14 }
+          },
+          {
+            "type": "button",
+            "id": "end",
+            "text": "结束",
+            "width": "fill",
+            "height": 48,
+            "fontSize": 15,
+            "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 14 }
+          }
         ]
       },
       {
         "type": "container",
         "id": "arrows",
-        "width": "fill",
-        "height": 52,
+        "x": 0,
+        "y": 340,
+        "width": 296,
+        "height": 48,
         "layout": "row",
         "gap": 10,
         "children": [
-          { "type": "button", "id": "left", "text": "左", "width": "fill", "height": 52, "fontSize": 16, "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 14 } },
-          { "type": "button", "id": "up", "text": "上", "width": "fill", "height": 52, "fontSize": 16, "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 14 } },
-          { "type": "button", "id": "down", "text": "下", "width": "fill", "height": 52, "fontSize": 16, "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 14 } },
-          { "type": "button", "id": "right", "text": "右", "width": "fill", "height": 52, "fontSize": 16, "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 14 } }
+          {
+            "type": "button",
+            "id": "left",
+            "text": "左",
+            "width": "fill",
+            "height": 48,
+            "fontSize": 15,
+            "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 14 }
+          },
+          {
+            "type": "button",
+            "id": "up",
+            "text": "上",
+            "width": "fill",
+            "height": 48,
+            "fontSize": 15,
+            "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 14 }
+          },
+          {
+            "type": "button",
+            "id": "down",
+            "text": "下",
+            "width": "fill",
+            "height": 48,
+            "fontSize": 15,
+            "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 14 }
+          },
+          {
+            "type": "button",
+            "id": "right",
+            "text": "右",
+            "width": "fill",
+            "height": 48,
+            "fontSize": 15,
+            "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 14 }
+          }
         ]
       }
     ]

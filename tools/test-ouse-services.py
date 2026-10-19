@@ -21,6 +21,7 @@ headers = {
 #include <stdbool.h>
 #include <stddef.h>
 bool ouse_files_path(const char *,char *,size_t);
+bool ouse_files_read_path(const char *,char *,size_t);
 FILE *ouse_files_open(const char *);
 int ouse_files_close(FILE *);
 ''',
@@ -95,8 +96,8 @@ int64_t esp_timer_get_time(void);
 typedef struct {int unused;} fd_set;
 typedef int socklen_t;
 struct timeval {long tv_sec,tv_usec;};
-#define FD_ZERO(p) ((void)(p))
-#define FD_SET(fd,p) ((void)(fd),(void)(p))
+#define FD_ZERO(p) ((p)->unused=0)
+#define FD_SET(fd,p) ((void)(fd),(p)->unused=1)
 #define SOL_SOCKET 1
 #define SO_ERROR 2
 int select(int count,void *reads,fd_set *writes,void *errors,struct timeval *timeout);
@@ -108,11 +109,13 @@ int getsockopt(int fd,int level,int option,void *value,socklen_t *size);
 #include "esp_err.h"
 #define ESP_TLS_ERR_SSL_WANT_READ -0x6900
 #define ESP_TLS_ERR_SSL_WANT_WRITE -0x6880
-typedef struct {int unused;} esp_tls_t;
+typedef enum {ESP_TLS_INIT,ESP_TLS_CONNECTING,ESP_TLS_HANDSHAKE,ESP_TLS_DONE} esp_tls_conn_state_t;
+typedef struct {esp_tls_conn_state_t state;} esp_tls_t;
 typedef struct {bool non_block,is_plain_tcp,skip_common_name;int timeout_ms;int (*crt_bundle_attach)(void *);} esp_tls_cfg_t;
 esp_tls_t *esp_tls_init(void);
 int esp_tls_conn_new_async(const char *host,int size,int port,const esp_tls_cfg_t *cfg,esp_tls_t *tls);
 int esp_tls_get_conn_sockfd(esp_tls_t *tls,int *fd);
+int esp_tls_get_conn_state(esp_tls_t *tls,esp_tls_conn_state_t *state);
 int esp_tls_conn_destroy(esp_tls_t *tls);
 int esp_tls_conn_read(esp_tls_t *tls,void *data,size_t size);
 int esp_tls_conn_write(esp_tls_t *tls,const void *data,size_t size);

@@ -107,7 +107,7 @@ static void connected_refresh(uint16_t handle)
 {
     struct ble_gap_conn_desc description;if(ble_gap_conn_find(handle,&description))return;
     char peer[18];address_text(&description.peer_id_addr,peer);
-    portENTER_CRITICAL(&lock);state.connected=true;state.encrypted=description.sec_state.encrypted;state.bonded=description.sec_state.bonded;
+    portENTER_CRITICAL(&lock);state.connected=true;state.encrypted=description.sec_state.encrypted;state.authenticated=description.sec_state.authenticated;state.bonded=description.sec_state.bonded;
     strcpy(state.peer,peer);changed();portEXIT_CRITICAL(&lock);
 }
 static void discovered(const struct ble_gap_disc_desc *description)
@@ -140,7 +140,7 @@ static int gap_event(struct ble_gap_event *event,void *context)
         break;
     case BLE_GAP_EVENT_DISCONNECT:
         connection=BLE_HS_CONN_HANDLE_NONE;prompt_until=0;
-        portENTER_CRITICAL(&lock);state.connected=false;state.encrypted=false;state.bonded=false;state.pair_pending=false;state.peer[0]=0;changed();portEXIT_CRITICAL(&lock);
+        portENTER_CRITICAL(&lock);state.connected=false;state.encrypted=false;state.authenticated=false;state.bonded=false;state.pair_pending=false;state.peer[0]=0;changed();portEXIT_CRITICAL(&lock);
         (void)advertise();break;
     case BLE_GAP_EVENT_DISC:discovered(&event->disc);break;
     case BLE_GAP_EVENT_DISC_COMPLETE:

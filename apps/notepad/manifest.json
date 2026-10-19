@@ -7,5 +7,11 @@
     "zh_CN": "记事本",
     "en": "Notes"
   },
-  "icon": "icon.bin"
+  "icon": "icon.bin",
+  "versionCode": 1,
+  "versionName": "1.0.0",
+  "description": "记录灵感、待办和日常片段，笔记保存在设备本地。",
+  "author": "OusePocket",
+  "releasedAt": "2026-10-19",
+  "minNativeApi": 1
 }

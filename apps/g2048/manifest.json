@@ -7,5 +7,11 @@
     "zh_CN": "2048",
     "en": "2048"
   },
-  "icon": "icon.bin"
+  "icon": "icon.bin",
+  "versionCode": 1,
+  "versionName": "1.0.0",
+  "author": "OusePocket",
+  "releasedAt": "2026-10-19",
+  "description": "滑动合成 2048。",
+  "minNativeApi": 1
 }

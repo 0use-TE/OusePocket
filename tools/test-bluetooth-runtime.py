@@ -26,6 +26,7 @@ static instance_t *from_js(JSContext *context){return JS_GetContextOpaque(contex
 static bool copy_string(JSContext *context,JSValueConst value,char *out,size_t capacity){if(!JS_IsString(value))return false;const char *text=JS_ToCString(context,value);if(!text)return false;bool valid=strlen(text)<capacity;if(valid)strcpy(out,text);JS_FreeCString(context,text);return valid;}
 static int ouse_permissions_get(const char *id,int permission){(void)id;return granted[permission];}
 void ouse_ble_get(ouse_ble_state_t *out){memset(out,0,sizeof(*out));out->enabled=out->ready=true;}
+void ouse_ble_app_get(const ouse_task_owner_t *owner,ouse_ble_app_state_t *out){(void)owner;memset(out,0,sizeof(*out));}
 esp_err_t ouse_ble_app_open(const ouse_task_owner_t *owner,bool hid,uint32_t *session){assert(owner->instance==42);(void)hid;*session=++opens;return 0;}
 void ouse_ble_app_close(const ouse_task_owner_t *owner){assert(owner->instance==42);++closes;}
 bool ouse_ble_app_poll(const ouse_task_owner_t *owner,uint32_t session,ouse_ble_event_t *out,unsigned *dropped){(void)owner;assert(session);memset(out,0,sizeof(*out));strcpy(out->type,"notification");out->size=2;out->data[0]=7;out->data[1]=8;*dropped=3;return true;}

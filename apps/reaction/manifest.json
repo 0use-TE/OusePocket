@@ -1,1 +1,37 @@
-{"runtime":"ouse-core","api":1,"id":"user.reaction","name":"Reaction","names":{"zh_CN":"反应力","en":"Reaction"},"icon":"icon.bin","capabilities":{"media":true},"assets":[{"id":"go","type":"binary","path":"assets/go.wav"},{"id":"foul","type":"binary","path":"assets/foul.wav"},{"id":"win","type":"binary","path":"assets/win.wav"}]}
+{
+  "runtime": "ouse-core",
+  "api": 1,
+  "id": "user.reaction",
+  "name": "Reaction",
+  "names": {
+    "zh_CN": "反应力",
+    "en": "Reaction"
+  },
+  "icon": "icon.bin",
+  "capabilities": {
+    "media": true
+  },
+  "assets": [
+    {
+      "id": "go",
+      "type": "binary",
+      "path": "assets/go.wav"
+    },
+    {
+      "id": "foul",
+      "type": "binary",
+      "path": "assets/foul.wav"
+    },
+    {
+      "id": "win",
+      "type": "binary",
+      "path": "assets/win.wav"
+    }
+  ],
+  "versionCode": 1,
+  "versionName": "1.0.0",
+  "author": "OusePocket",
+  "releasedAt": "2026-10-19",
+  "description": "反应力测试。",
+  "minNativeApi": 1
+}

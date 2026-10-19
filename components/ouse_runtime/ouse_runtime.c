@@ -14,6 +14,7 @@
 #include "ouse_clock.h"
 #include "ouse_media.h"
 #include "ouse_files.h"
+#include "ouse_dialog.h"
 #include "ouse_camera.h"
 #include "ouse_recorder.h"
 #include "ouse_permissions.h"
@@ -29,6 +30,9 @@
 #include "esp_log.h"
 #include "esp_heap_caps.h"
 #include "ouse_memory.h"
+#include "ouse_packages.h"
+#include "ouse_app_manager.h"
+#include "ouse_pointer.h"
 #include "ouse_memory_pressure.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -50,8 +54,8 @@
 #define STARTUP_BUDGET_US 100000
 #define MAX_JOBS 8
 #define MAX_EVENTS 16
-#define WORKER_STACK_BYTES (64 * 1024)
-#define JS_STACK_BYTES (40 * 1024)
+#define WORKER_STACK_BYTES (32 * 1024)
+#define JS_STACK_BYTES (20 * 1024)
 #define MAX_ASSET_BYTES OUSE_RUNTIME_IMAGE_BYTES_MAX
 #define MAX_STORAGE_PENDING 8
 #define MAX_STORAGE_JOBS 64
@@ -112,7 +116,7 @@ typedef enum { NAV_OPEN, NAV_PUSH, NAV_BACK, NAV_REPLACE } navigation_action_t;
 typedef enum { CONTAINER, LABEL, BUTTON, SLIDER, IMAGE, TEXT_INPUT, SWITCH,
     CHECKBOX, DROPDOWN, PROGRESS, SPINNER, ARC, CARD, LIST, LIST_ITEM, TOOLBAR,
     DIVIDER, DIALOG, BOTTOM_SHEET } node_type_t;
-typedef enum { EVENT_CLICK, EVENT_CHANGE, EVENT_FOCUS, EVENT_BLUR, EVENT_SUBMIT, EVENT_DISMISS, EVENT_SWIPE, EVENT_COUNT } widget_event_t;
+typedef enum { EVENT_CLICK, EVENT_CHANGE, EVENT_FOCUS, EVENT_BLUR, EVENT_SUBMIT, EVENT_DISMISS, EVENT_SWIPE, EVENT_POINTER_DOWN, EVENT_POINTER_MOVE, EVENT_POINTER_UP, EVENT_POINTER_CANCEL, EVENT_COUNT } widget_event_t;
 typedef struct {
     bool bg_set, color_set, border_set, opacity_set, accent_set, thumb_set;
     uint32_t bg, color, border, accent, thumb;
@@ -144,6 +148,7 @@ typedef struct {
     lv_obj_t *object, *caption, *subtitle, *overlay; // UI only; never dereferenced by worker
     uint32_t shown_text, shown_value, shown_style, shown_focus, shown_image, shown_scroll;
     int scroll_y,scroll_bottom,scroll_height;
+    unsigned pointer_mask;
 } node_t;
 typedef struct {
     JSValue handler;
@@ -179,6 +184,7 @@ typedef struct instance {
     void (*release_sources)(void *);
     ouse_script_image_t images[16];
     lv_image_dsc_t image_descriptors[16];
+    unsigned char *pending_images[16];
     char image_ids[16][32];
     unsigned image_count;
     ouse_script_asset_t assets[OUSE_RUNTIME_ASSETS_MAX];
@@ -193,6 +199,7 @@ typedef struct instance {
     bool background_allowed, notifications_allowed, network_allowed, media_allowed, alarms_allowed, files_allowed, sdcard_allowed,camera_allowed,photos_allowed,bluetooth_allowed,hid_allowed;
     atomic_uint_least32_t bluetooth_session;
     atomic_bool bluetooth_hid;
+    bool packages_allowed;
     lv_image_dsc_t native_images[OUSE_CAMERA_IMAGES];uint32_t native_image_versions[OUSE_CAMERA_IMAGES];
     JSRuntime *runtime;
     JSContext *context;
@@ -202,12 +209,22 @@ typedef struct instance {
     bool swipe_armed, swipe_suppress_click; // UI-only swipe tracking
     int swipe_node;
     int16_t swipe_x, swipe_y;
+    ouse_pointer_t pointer;
+    int pointer_origin_x,pointer_origin_y;
+    bool pointer_delivered;
+    unsigned pointer_node;
+    uint32_t pointer_generation,pointer_move_time;
     uint32_t display_revision, core_display_revision, applied_theme_revision, applied_display_revision; // UI-only revision tracking
     node_t nodes[MAX_NODES];
     script_timer_t timers[MAX_TIMERS];
     unsigned node_count;
     bool dp_units, parsing_page;
-    JSValue translations, changes[6], lifecycle_handler, notification_handler, navigation_handler, back_handler;
+    JSValue translations, changes[6], lifecycle_handler, notification_handler, navigation_handler, back_handler,file_handler;
+    JSValue key_handlers[2];
+    bool key_claimed[2];
+    unsigned key_pending;
+    uint32_t key_generation[2];
+    char file_requested[128],file_received[128];
     bool back_enabled,back_pending;
     uint32_t back_generation;
     JSValue page_roots[MAX_PAGES]; // worker only; static JSON, never application objects
@@ -269,7 +286,7 @@ static TaskHandle_t worker_task;
 static portMUX_TYPE stats_lock=portMUX_INITIALIZER_UNLOCKED;
 static OUSE_PSRAM_BSS struct {char id[48],message[1024];} last_fault;
 static ouse_runtime_stats_t runtime_stats;
-static ouse_runtime_diagnostics_t runtime_diagnostics;
+static OUSE_PSRAM_BSS ouse_runtime_diagnostics_t runtime_diagnostics;
 static unsigned error_count;
 static uint32_t now_ms(void) {return (uint32_t)(esp_timer_get_time()/1000);}
 static void model_lock(instance_t *app) {xSemaphoreTake(app->model_lock,portMAX_DELAY);}
@@ -283,7 +300,7 @@ static void release_instance(instance_t *app)
     (void)ouse_media_stop_owner(&app->owner);
     ouse_permissions_cancel(app->owner.instance);ouse_channels_close_owner(&app->owner);ouse_ble_app_close(&app->owner);
     ouse_task_owner_close(&app->owner);ouse_sd_browser_forget(&app->owner);ouse_camera_forget(&app->owner);
-    for(unsigned i=0;i<app->image_count;++i)free((void *)app->image_descriptors[i].data);
+    for(unsigned i=0;i<app->image_count;++i){free((void *)app->image_descriptors[i].data);free(app->pending_images[i]);}
     for(unsigned image=0;image<OUSE_CAMERA_IMAGES;++image)free((void *)app->native_images[image].data);
     for(unsigned i=0;i<app->asset_count;++i)free((void *)app->assets[i].data);
     free(app->page);free(app->script);
@@ -512,6 +529,26 @@ static JSValue ui_set_image(JSContext *context,JSValueConst self,int argc,JSValu
     if(!node || node->model.type!=IMAGE || !copy_string(context,argv[1],id,sizeof(id)) || !find_image(app,id))return JS_ThrowTypeError(context,"setImage expects image widget and packaged image id");
     model_lock(app);strcpy(node->model.image,id);++node->model.image_revision;model_unlock(app);return JS_UNDEFINED;
 }
+static JSValue ui_set_image_data(JSContext *context,JSValueConst self,int argc,JSValueConst *argv)
+{
+    (void)self;instance_t *app=from_js(context);node_t *node=argc==2?find_node(app,argv[0]):NULL;size_t length=0;
+    if(app->closed||app->faulted||app->validation_only)return JS_FALSE;
+    if(!node||node->model.type!=IMAGE||!JS_IsArrayBuffer(argv[1]))return JS_ThrowTypeError(context,"setImageData expects image widget and OIC1 ArrayBuffer");
+    unsigned char *source=JS_GetArrayBuffer(context,&length,argv[1]);if(!source||length<12||memcmp(source,"OIC1",4))return JS_ThrowTypeError(context,"Invalid OIC1 image");
+    unsigned width=source[4]|((unsigned)source[5]<<8),height=source[6]|((unsigned)source[7]<<8);if(!width||!height||width>96||height>96||length!=8+(size_t)width*height*4)return JS_ThrowRangeError(context,"OIC1 must be <=96x96 BGRA");
+    unsigned slot=0;model_lock(app);for(;slot<app->image_count;++slot)if(!strcmp(app->image_ids[slot],node->model.image))break;model_unlock(app);
+    if(slot==app->image_count||app->image_descriptors[slot].header.cf!=LV_COLOR_FORMAT_ARGB8888)return JS_FALSE;
+    lv_image_dsc_t *target=&app->image_descriptors[slot];unsigned char *pixels=ouse_psram_malloc(target->data_size);if(!pixels)return JS_ThrowOutOfMemory(context);
+    for(unsigned row=0;row<target->header.h;++row)for(unsigned column=0;column<target->header.w;++column)memcpy(pixels+row*target->header.stride+column*4,source+8+((size_t)(row*height/target->header.h)*width+column*width/target->header.w)*4,4);
+    model_lock(app);free(app->pending_images[slot]);app->pending_images[slot]=pixels;model_unlock(app);return JS_TRUE;
+}
+static void pending_images_pump(instance_t *app)
+{
+    for(unsigned slot=0;slot<app->image_count;++slot){model_lock(app);unsigned char *pixels=app->pending_images[slot];app->pending_images[slot]=NULL;model_unlock(app);if(!pixels)continue;
+        lv_image_dsc_t *image=&app->image_descriptors[slot];lv_image_cache_drop(image);const void *previous=image->data;image->data=pixels;
+        model_lock(app);for(unsigned index=0;index<app->node_count;++index)if(app->nodes[index].model.type==IMAGE&&!strcmp(app->nodes[index].model.image,app->image_ids[slot]))++app->nodes[index].model.image_revision;model_unlock(app);free((void *)previous);
+    }
+}
 static JSValue assets_api(JSContext *context,JSValueConst self,int argc,JSValueConst *argv,int action)
 {
     (void)self;instance_t *app=from_js(context);
@@ -559,7 +596,7 @@ static JSValue ui_focus(JSContext *context,JSValueConst self,int argc,JSValueCon
 }
 static int event_index(const char *event)
 {
-    const char *names[]={"click","change","focus","blur","submit","dismiss","swipe"};
+    const char *names[]={"click","change","focus","blur","submit","dismiss","swipe","pointerdown","pointermove","pointerup","pointercancel"};
     for(int i=0;i<EVENT_COUNT;++i)if(!strcmp(event,names[i]))return i;
     return -1;
 }
@@ -568,7 +605,9 @@ static JSValue ui_on(JSContext *context,JSValueConst self,int argc,JSValueConst 
     (void)self;instance_t *app=from_js(context);node_t *node=argc==3 ? find_node(app,argv[0]) : NULL;char event[16];
     int index=-1;if(node && copy_string(context,argv[1],event,sizeof(event)))index=event_index(event);
     if(index<0 || (!JS_IsNull(argv[2]) && !JS_IsFunction(context,argv[2])))return JS_ThrowTypeError(context,"on(id, event, function|null): invalid binding");
-    JS_FreeValue(context,node->handlers[index]);node->handlers[index]=JS_DupValue(context,argv[2]);return JS_UNDEFINED;
+    JS_FreeValue(context,node->handlers[index]);node->handlers[index]=JS_DupValue(context,argv[2]);
+    if(index>=EVENT_POINTER_DOWN){model_lock(app);if(JS_IsNull(argv[2]))node->pointer_mask&=~(1u<<index);else node->pointer_mask|=1u<<index;model_unlock(app);}
+    return JS_UNDEFINED;
 }
 static JSValue native_home(JSContext *context,JSValueConst self,int argc,JSValueConst *argv)
 {
@@ -725,6 +764,7 @@ static JSValue system_info(JSContext *context,JSValueConst self,int argc,JSValue
     JS_SetPropertyStr(context,object,"memoryPressure",JS_NewString(context,pressure==OUSE_MEMORY_CRITICAL ? "critical" : pressure==OUSE_MEMORY_WARNING ? "warning" : "normal"));
 #undef FIELD
     JS_SetPropertyStr(context,object,"coreVersion",JS_NewString(context,ouse_core_version()));
+    JS_SetPropertyStr(context,object,"nativeApi",JS_NewUint32(context,OUSE_CORE_API_VERSION));
     JS_SetPropertyStr(context,object,"idfVersion",JS_NewString(context,info.idf_version));
     return object;
 }
@@ -1234,6 +1274,15 @@ static JSValue ui_set_style(JSContext *context,JSValueConst self,int argc,JSValu
 #include "ouse_runtime_bluetooth.inc"
 
 #include "ouse_runtime_channels.inc"
+#include "ouse_runtime_packages.inc"
+static JSValue keys_on(JSContext *context,JSValueConst self,int argc,JSValueConst *argv)
+{
+    (void)self;instance_t *app=from_js(context);char name[8];
+    if(argc!=2 || !copy_string(context,argv[0],name,sizeof(name)) || (strcmp(name,"boot") && strcmp(name,"pwr")) || (!JS_IsFunction(context,argv[1]) && !JS_IsNull(argv[1])))return JS_ThrowTypeError(context,"keys.on expects boot/pwr and a function or null");
+    unsigned key=!strcmp(name,"pwr");bool claimed=JS_IsFunction(context,argv[1]);
+    JS_FreeValue(context,app->key_handlers[key]);app->key_handlers[key]=JS_DupValue(context,argv[1]);
+    model_lock(app);app->key_claimed[key]=claimed;app->key_pending&=~(1u<<key);model_unlock(app);return JS_UNDEFINED;
+}
 static void install_api(instance_t *app)
 {
     JSContext *context=app->context;
@@ -1241,6 +1290,7 @@ static void install_api(instance_t *app)
     JS_SetPropertyStr(context,ui,"setText",JS_NewCFunctionMagic(context,ui_text,"setText",2,JS_CFUNC_generic_magic,1));
     JS_SetPropertyStr(context,ui,"setStyle",JS_NewCFunction(context,ui_set_style,"setStyle",2));
     JS_SetPropertyStr(context,ui,"setImage",JS_NewCFunction(context,ui_set_image,"setImage",2));
+    JS_SetPropertyStr(context,ui,"setImageData",JS_NewCFunction(context,ui_set_image_data,"setImageData",2));
     JS_SetPropertyStr(context,ui,"getScroll",JS_NewCFunctionMagic(context,ui_scroll,"getScroll",1,JS_CFUNC_generic_magic,0));
     JS_SetPropertyStr(context,ui,"scrollTo",JS_NewCFunctionMagic(context,ui_scroll,"scrollTo",2,JS_CFUNC_generic_magic,1));
     JS_SetPropertyStr(context,ui,"on",JS_NewCFunction(context,ui_on,"on",3));
@@ -1283,7 +1333,13 @@ static void install_api(instance_t *app)
     JS_SetPropertyStr(context,api,"media",media);
     JSValue files=JS_NewObject(context);const char *file_methods[]={"get","list","refresh","download","browse","directory","recover"};
     for(int index=0;index<7;++index)JS_SetPropertyStr(context,files,file_methods[index],JS_NewCFunctionMagic(context,files_api,file_methods[index],index==1 || index==4 ? 2 : index==5 ? 1 : 0,JS_CFUNC_generic_magic,index));
+    JS_SetPropertyStr(context,files,"open",JS_NewCFunctionMagic(context,files_api,"open",1,JS_CFUNC_generic_magic,7));
+    JS_SetPropertyStr(context,files,"onOpen",JS_NewCFunctionMagic(context,files_api,"onOpen",1,JS_CFUNC_generic_magic,8));
     JS_SetPropertyStr(context,api,"files",files);
+    JSValue keys=JS_NewObject(context);JS_SetPropertyStr(context,keys,"on",JS_NewCFunction(context,keys_on,"on",2));JS_SetPropertyStr(context,api,"keys",keys);
+    JSValue packages=JS_NewObject(context);const char *package_methods[]={"state","list","install","installFromSD"};
+    for(unsigned index=0;index<4;++index)JS_SetPropertyStr(context,packages,package_methods[index],JS_NewCFunctionMagic(context,packages_api,package_methods[index],0,JS_CFUNC_generic_magic,index));
+    JS_SetPropertyStr(context,api,"packages",packages);
     JSValue bluetooth=JS_NewObject(context);const char *bluetooth_methods[]={"get","open","close","poll","scan","connect","disconnect","services","characteristics","descriptors","read","write","subscribe","keyboard","consumer","mouse","release","pair"};
     for(unsigned index=0;index<sizeof(bluetooth_methods)/sizeof(bluetooth_methods[0]);++index)JS_SetPropertyStr(context,bluetooth,bluetooth_methods[index],JS_NewCFunctionMagic(context,bluetooth_api,bluetooth_methods[index],0,JS_CFUNC_generic_magic,index));
     JS_SetPropertyStr(context,api,"bluetooth",bluetooth);
@@ -1647,8 +1703,33 @@ static bool parse_node(instance_t *app,JSValueConst value,int parent,unsigned de
 
 // Only run before initial readiness, or after the UI has acknowledged that all
 // previous page objects have been detached. No LVGL object survives this reset.
+static void pointer_deliver(instance_t *app,const ouse_pointer_event_t *event)
+{
+    if(event->node>=app->node_count)return;
+    if(event->type==0){app->pointer_delivered=true;app->pointer_node=event->node;app->pointer_generation=event->generation;}
+    else if(!app->pointer_delivered || app->pointer_node!=event->node || app->pointer_generation!=event->generation)return;
+    if(event->type>=2)app->pointer_delivered=false;
+    node_t *node=&app->nodes[event->node];JSValue handler=JS_DupValue(app->context,node->handlers[EVENT_POINTER_DOWN+event->type]);
+    if(JS_IsFunction(app->context,handler)){
+        JSValue value=JS_NewObject(app->context);
+        JS_SetPropertyStr(app->context,value,"x",JS_NewInt32(app->context,event->x));JS_SetPropertyStr(app->context,value,"y",JS_NewInt32(app->context,event->y));
+        JS_SetPropertyStr(app->context,value,"dx",JS_NewInt32(app->context,event->dx));JS_SetPropertyStr(app->context,value,"dy",JS_NewInt32(app->context,event->dy));
+        JS_SetPropertyStr(app->context,value,"timeMs",JS_NewUint32(app->context,event->time));JS_SetPropertyStr(app->context,value,"pointerId",JS_NewInt32(app->context,1));
+        JSValue result=call_js(app,"pointer",node->model.id,handler,JS_UNDEFINED,1,&value);JS_FreeValue(app->context,value);result_ok(app,result);
+    }
+    JS_FreeValue(app->context,handler);
+}
+static void pointer_cancel_worker(instance_t *app)
+{
+    model_lock(app);memset(&app->pointer,0,sizeof(app->pointer));model_unlock(app);
+    if(app->pointer_delivered && app->context && !app->faulted){
+        ouse_pointer_event_t event={.node=app->pointer_node,.generation=app->pointer_generation,.type=3,.time=now_ms()};begin_call(app);pointer_deliver(app,&event);
+    }
+    app->pointer_delivered=false;
+}
 static void reset_page_nodes(instance_t *app)
 {
+    pointer_cancel_worker(app);
     for(unsigned i=0;i<app->node_count;++i){
         for(unsigned e=0;e<EVENT_COUNT;++e)JS_FreeValue(app->context,app->nodes[i].handlers[e]);
         memset(&app->nodes[i],0,sizeof(app->nodes[i]));
@@ -1764,9 +1845,31 @@ static void queue_swipe(instance_t *app,unsigned node,uint32_t generation,const 
     }
     model_unlock(app);wake_worker();
 }
+static bool pointer_input(instance_t *app,lv_obj_t *object,lv_event_code_t code)
+{
+    if(code!=LV_EVENT_PRESSED && code!=LV_EVENT_PRESSING && code!=LV_EVENT_RELEASED && code!=LV_EVENT_PRESS_LOST)return false;
+    int index=find_object_node(app,object);if(index<0)return false;
+    lv_indev_t *indev=lv_indev_active();lv_point_t point={0};if(indev)lv_indev_get_point(indev,&point);
+    model_lock(app);bool interested=app->nodes[index].pointer_mask!=0;
+    bool valid=app->visible && !app->closed && !app->faulted && app->navigation_stage==NAV_IDLE && node_visible_locked(app,index,true);
+    bool captured=app->pointer.captured && app->pointer.node==(unsigned)index;
+    if(!interested && !captured){model_unlock(app);return false;}
+    if(code==LV_EVENT_PRESSED && valid){lv_area_t bounds;lv_obj_get_coords(object,&bounds);app->pointer_origin_x=bounds.x1;app->pointer_origin_y=bounds.y1;}
+    int x=point.x-app->pointer_origin_x,y=point.y-app->pointer_origin_y;
+    if(app->dp_units){x=ouse_ui_to_dp(x);y=ouse_ui_to_dp(y);}
+    unsigned type=code==LV_EVENT_PRESSED ? 0 : code==LV_EVENT_PRESSING ? 1 : code==LV_EVENT_RELEASED ? 2 : 3;
+    if(!valid)type=3;
+    bool changed=false;
+    if((code!=LV_EVENT_PRESSED || valid) && (type!=1 || x!=app->pointer.x || y!=app->pointer.y))changed=ouse_pointer_push(&app->pointer,type,index,app->generation,x,y,now_ms());
+    model_unlock(app);
+    if(code==LV_EVENT_PRESSED){lv_obj_add_flag(object,LV_OBJ_FLAG_PRESS_LOCK);lv_obj_remove_flag(object,LV_OBJ_FLAG_SCROLL_CHAIN_HOR|LV_OBJ_FLAG_SCROLL_CHAIN_VER);}
+    if(changed)wake_worker();
+    return true;
+}
 static void input_event(lv_event_t *event)
 {
     instance_t *app=lv_event_get_user_data(event);if(app->applying_model)return;lv_obj_t *object=lv_event_get_target_obj(event);lv_event_code_t code=lv_event_get_code(event);
+    if(pointer_input(app,object,code))return;
     if(code==LV_EVENT_PRESSED){
         int index=find_object_node(app,object);
         lv_indev_t *indev=lv_indev_active();
@@ -2248,6 +2351,8 @@ static void build_nodes(instance_t *app)
         show_text(app,node,&model);show_value(app,node,&model);apply_style(app,node,&model);
         node->shown_text=model.text_revision;node->shown_value=model.value_revision;node->shown_style=model.style_revision;node->shown_image=model.image_revision;
         lv_obj_add_event_cb(object,input_event,LV_EVENT_ALL,app);
+        model_lock(app);bool pointer_enabled=node->pointer_mask!=0;model_unlock(app);
+        if(pointer_enabled){lv_obj_add_flag(object,LV_OBJ_FLAG_CLICKABLE|LV_OBJ_FLAG_PRESS_LOCK);lv_obj_remove_flag(object,LV_OBJ_FLAG_SCROLLABLE|LV_OBJ_FLAG_GESTURE_BUBBLE);}
     }
     sync_modal_visibility(app);lv_obj_update_layout(app->viewport);
 }
@@ -2315,10 +2420,11 @@ static void ui_pump(lv_timer_t *timer)
     if(snapshot.revisions[2]!=app->core_display_revision || snapshot.app_width!=previous.app_width || snapshot.app_height!=previous.app_height ||
         snapshot.keyboard_visible!=previous.keyboard_visible || snapshot.keyboard_height!=previous.keyboard_height || snapshot.keyboard_inset!=previous.keyboard_inset)++app->display_revision;
     app->core_display_revision=snapshot.revisions[2];snapshot.revisions[2]=app->display_revision;
-    unsigned commands;int values[4];bool save,ready,faulted,visible,home;char launch[48];navigation_stage_t navigation_stage;
+    unsigned commands;int values[4];bool save,ready,faulted,visible,home;char launch[48],file[128];navigation_stage_t navigation_stage;
     model_lock(app);app->snapshot=snapshot;commands=app->pending_commands;app->pending_commands=0;memcpy(values,app->command_values,sizeof(values));save=app->brightness_save;
     if(detach)app->navigation_stage=NAV_DETACHED;
     ready=app->ready;faulted=app->faulted;visible=app->visible;home=app->home_requested;app->home_requested=false;strcpy(launch,app->launch_requested);app->launch_requested[0]=0;navigation_stage=app->navigation_stage;model_unlock(app);
+    model_lock(app);strcpy(file,app->file_requested);app->file_requested[0]=0;model_unlock(app);
     if(detach)wake_worker();
     if(commands & 1u)(void)ouse_core_set_theme((ouse_theme_t)values[0]);
     if(commands & 2u)(void)ouse_core_set_ui((unsigned)values[1],ouse_ui_font_percent());
@@ -2334,7 +2440,9 @@ static void ui_pump(lv_timer_t *timer)
     }
     if(!faulted && ready && visible && app->built && navigation_stage!=NAV_REQUESTED && navigation_stage!=NAV_DETACHED){
         native_images_pump(app);
-        for(unsigned i=0;i<app->node_count;++i){node_t *node=&app->nodes[i];node_model_t model;model_lock(app);model=node->model;model_unlock(app);
+        pending_images_pump(app);
+        for(unsigned i=0;i<app->node_count;++i){node_t *node=&app->nodes[i];node_model_t model;model_lock(app);model=node->model;bool pointer_enabled=node->pointer_mask!=0;model_unlock(app);
+            if(pointer_enabled){lv_obj_add_flag(node->object,LV_OBJ_FLAG_CLICKABLE|LV_OBJ_FLAG_PRESS_LOCK);lv_obj_remove_flag(node->object,LV_OBJ_FLAG_SCROLLABLE|LV_OBJ_FLAG_GESTURE_BUBBLE);}
             if(node->shown_text!=model.text_revision){show_text(app,node,&model);node->shown_text=model.text_revision;}
             if(node->shown_image!=model.image_revision){lv_image_set_src(node->object,find_image(app,model.image));node->shown_image=model.image_revision;}
             if(node->shown_value!=model.value_revision){show_value(app,node,&model);node->shown_value=model.value_revision;}
@@ -2362,12 +2470,14 @@ static void ui_pump(lv_timer_t *timer)
             model_lock(app);node->shown_scroll=revision;node->scroll_y=position;node->scroll_bottom=bottom;node->scroll_height=height;model_unlock(app);
         }
     }
-    if(launch[0] && visible && !faulted)(void)ouse_app_open(launch);
+    if(file[0] && visible && !faulted){esp_err_t error=ouse_core_open_file(app->id,file);if(error!=ESP_OK && error!=ESP_ERR_NOT_SUPPORTED && !ouse_dialog_active())ouse_dialog_show("无法打开文件，请稍后重试。",NULL,NULL);}
+    else if(launch[0] && visible && !faulted)(void)ouse_app_open(launch);
     else if(home && visible)(void)ouse_app_background();
 }
 // Worker functions below never enter LVGL or synchronously request the UI task.
 static void lifecycle(instance_t *app,const char *name)
 {
+    if(!strcmp(name,"onPause") || !strcmp(name,"onClose"))pointer_cancel_worker(app);
     if(!app->context || app->faulted)return;
     begin_call(app);JSValue global=JS_GetGlobalObject(app->context),object=JS_GetPropertyStr(app->context,global,"app");
     if(JS_IsException(object)){JS_FreeValue(app->context,global);exception(app);return;}
@@ -2389,7 +2499,8 @@ static void destroy_js(instance_t *app)
         for(unsigned i=0;i<MAX_TIMERS;++i)JS_FreeValue(app->context,app->timers[i].handler);
         for(unsigned i=0;i<MAX_JOBS;++i){JS_FreeValue(app->context,app->rejected_promises[i]);JS_FreeValue(app->context,app->rejection_reasons[i]);}
         JS_FreeValue(app->context,app->translations);JS_FreeValue(app->context,app->lifecycle_handler);JS_FreeValue(app->context,app->notification_handler);
-        JS_FreeValue(app->context,app->navigation_handler);JS_FreeValue(app->context,app->back_handler);JS_FreeValue(app->context,app->task_handler);
+        JS_FreeValue(app->context,app->navigation_handler);JS_FreeValue(app->context,app->back_handler);JS_FreeValue(app->context,app->task_handler);JS_FreeValue(app->context,app->file_handler);
+        for(unsigned index=0;index<2;++index)JS_FreeValue(app->context,app->key_handlers[index]);
         for(unsigned i=0;i<MAX_PAGES;++i)JS_FreeValue(app->context,app->page_roots[i]);
         for(unsigned i=0;i<6;++i)JS_FreeValue(app->context,app->changes[i]);
         JS_FreeContext(app->context);app->context=NULL;
@@ -2409,7 +2520,8 @@ static esp_err_t initialize_js(instance_t *app)
         if(error!=ESP_OK)return error;
     }
     model_lock(app);bool closed=app->closed;model_unlock(app);if(closed)return ESP_ERR_INVALID_STATE;
-    app->translations=app->lifecycle_handler=app->notification_handler=app->navigation_handler=app->back_handler=app->task_handler=JS_UNDEFINED;
+    app->translations=app->lifecycle_handler=app->notification_handler=app->navigation_handler=app->back_handler=app->task_handler=app->file_handler=JS_UNDEFINED;
+    for(unsigned index=0;index<2;++index)app->key_handlers[index]=JS_UNDEFINED;
     for(unsigned i=0;i<MAX_PAGES;++i)app->page_roots[i]=JS_UNDEFINED;
     for(unsigned i=0;i<6;++i){app->changes[i]=JS_UNDEFINED;app->revisions[i]=group_revision(app,i);}
     for(unsigned i=0;i<MAX_JOBS;++i)app->rejected_promises[i]=app->rejection_reasons[i]=JS_UNDEFINED;
@@ -2485,11 +2597,37 @@ static void run_batch(instance_t *app)
     if(!app->worker_runnable || app->faulted || navigation_pending(app))return;
     begin_call(app);
     navigation_changed(app); // bind the new page before deferred asynchronous work
+    if(app->faulted || navigation_pending(app) || ouse_budget_slice_done(&app->budget))return;
+    for(unsigned key=0;key<2;++key){
+        model_lock(app);bool pending=(app->key_pending&(1u<<key))!=0;app->key_pending&=~(1u<<key);
+        bool valid=pending && app->visible && app->generation==app->key_generation[key];model_unlock(app);
+        if(valid && JS_IsFunction(app->context,app->key_handlers[key])){
+            JSValue event=JS_NewObject(app->context);JS_SetPropertyStr(app->context,event,"key",JS_NewString(app->context,key ? "pwr" : "boot"));JS_SetPropertyStr(app->context,event,"type",JS_NewString(app->context,"click"));
+            JSValue handler=JS_DupValue(app->context,app->key_handlers[key]);JSValue result=call_js(app,"keys","click",handler,JS_UNDEFINED,1,&event);
+            JS_FreeValue(app->context,event);JS_FreeValue(app->context,handler);if(!result_ok(app,result) || navigation_pending(app))return;
+        }
+    }
+    if(app->worker_visible && JS_IsFunction(app->context,app->file_handler)){
+        char path[128];model_lock(app);strcpy(path,app->file_received);app->file_received[0]=0;model_unlock(app);
+        if(path[0]){JSValue value=JS_NewObject(app->context);JS_SetPropertyStr(app->context,value,"path",JS_NewString(app->context,path));
+            JSValue handler=JS_DupValue(app->context,app->file_handler);JSValue result=call_js(app,"files","onOpen",handler,JS_UNDEFINED,1,&value);
+            JS_FreeValue(app->context,value);JS_FreeValue(app->context,handler);if(!result_ok(app,result))return;}
+    }
     if(app->faulted || navigation_pending(app))return;
     if(!result_ok(app,JS_UNDEFINED))return; // resume last slice's pending Promise jobs
     if(ouse_budget_slice_done(&app->budget) || !reconcile_policy(app) || !app->worker_runnable || navigation_pending(app))return;
     preference_notifications(app);notification_open_events(app);process_storage_results(app);process_net_results(app);task_completion_events(app);
     if(!reconcile_policy(app) || !app->worker_runnable || navigation_pending(app))return;
+    for(unsigned count=0;count<4 && !app->faulted && !ouse_budget_slice_done(&app->budget);++count){
+        ouse_pointer_event_t event;model_lock(app);
+        bool pending=app->pointer.count!=0;
+        if(pending && app->pointer.events[app->pointer.head].type==1 && (uint32_t)(now_ms()-app->pointer_move_time)<16)pending=false;
+        bool found=pending && ouse_pointer_pop(&app->pointer,&event);
+        bool valid=found && app->visible && event.generation==app->generation;
+        model_unlock(app);if(!found)break;
+        if(valid){if(event.type==1)app->pointer_move_time=now_ms();pointer_deliver(app,&event);}
+        if(!reconcile_policy(app) || !app->worker_runnable || navigation_pending(app))return;
+    }
     input_event_t input;unsigned processed=0;
     while(!app->faulted && processed++<4 && !ouse_budget_slice_done(&app->budget) && xQueueReceive(app->events,&input,0)==pdTRUE){
         model_lock(app);bool valid=app->visible && input.generation==app->generation;model_unlock(app);
@@ -2666,7 +2804,7 @@ static instance_t *allocate_instance(const ouse_script_package_t *package)
     strcpy(app->id,package->id);app->background_allowed=package->background_allowed;app->notifications_allowed=package->notifications_allowed;
     app->network_allowed=package->network_allowed;app->media_allowed=package->media_allowed;app->alarms_allowed=package->alarms_allowed;app->files_allowed=package->files_allowed;app->sdcard_allowed=package->sdcard_allowed;
     app->camera_allowed=package->camera_allowed;app->photos_allowed=package->photos_allowed;
-    app->bluetooth_allowed=package->bluetooth_allowed;app->hid_allowed=package->hid_allowed;
+    app->bluetooth_allowed=package->bluetooth_allowed;app->hid_allowed=package->hid_allowed;app->packages_allowed=package->packages_allowed;
     app->load_sources=package->load;app->release_sources=package->release;app->source_version=package->source_version;
     if(!app->model_lock || !app->events || (!package->load && copy_instance_resources(app,package)!=ESP_OK)){release_instance(app);return NULL;}
     capture_ui(&app->snapshot);app->core_display_revision=app->snapshot.revisions[2];app->display_revision=1;app->snapshot.revisions[2]=app->display_revision;return app;
@@ -2760,6 +2898,23 @@ static void close_app(void *opaque)
     if(app->built)for(unsigned i=0;i<app->image_count;++i)lv_image_cache_drop(&app->image_descriptors[i]);
     app->root=app->viewport=NULL;wake_worker();release_instance(app);
 }
+static bool script_key(void *opaque,unsigned key)
+{
+    ouse_script_app_t *state=opaque;instance_t *app=state->instance;if(!app || key>1)return false;
+    model_lock(app);bool accepted=app->visible && app->ready && !app->closed && !app->faulted && app->key_claimed[key];
+    if(accepted){app->key_pending|=1u<<key;app->key_generation[key]=app->generation;}
+    model_unlock(app);if(accepted)wake_worker();return accepted;
+}
+static esp_err_t script_open_file(void *opaque,const char *path)
+{
+    ouse_script_app_t *state=opaque;instance_t *app=state->instance;
+    if(!app || !path || strnlen(path,128)>=128)return ESP_ERR_INVALID_ARG;
+    model_lock(app);bool accepted=!app->closed && !app->faulted && app->visible;
+    if(accepted)strcpy(app->file_received,path);
+    model_unlock(app);
+    if(accepted)wake_worker();
+    return accepted ? ESP_OK : ESP_ERR_INVALID_STATE;
+}
 esp_err_t ouse_script_prepare(ouse_script_app_t *state,const ouse_script_package_t *package,ouse_app_definition_t *definition)
 {
     if(!state || !package || !definition || state->instance ||
@@ -2771,7 +2926,7 @@ esp_err_t ouse_script_prepare(ouse_script_app_t *state,const ouse_script_package
         !valid_package_resources(package))return ESP_ERR_INVALID_ARG;
     state->package=package;
     *definition=(ouse_app_definition_t){.id=package->id,.name=package->name,.icon=package->icon,.open=open_app,.close=close_app,.pause=pause_app,.resume=resume_app,.back=back_app,.context=state,
-        .name_zh=package->name_zh,.name_en=package->name_en,.icon_image=package->icon_image};return ESP_OK;
+        .name_zh=package->name_zh,.name_en=package->name_en,.icon_image=package->icon_image,.file_types=package->file_types,.open_file=package->file_types ? script_open_file : NULL,.key=script_key};return ESP_OK;
 }
 void ouse_runtime_get_error(char *out,size_t capacity)
 {

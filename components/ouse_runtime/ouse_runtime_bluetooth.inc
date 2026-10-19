@@ -13,7 +13,11 @@ static JSValue bluetooth_api(JSContext *context,JSValueConst self,int argc,JSVal
         JS_SetPropertyStr(context,result,"enabled",JS_NewBool(context,state.enabled));JS_SetPropertyStr(context,result,"ready",JS_NewBool(context,state.ready));
         JS_SetPropertyStr(context,result,"connected",JS_NewBool(context,state.connected));JS_SetPropertyStr(context,result,"encrypted",JS_NewBool(context,state.encrypted));
         JS_SetPropertyStr(context,result,"scanning",JS_NewBool(context,state.scanning));JS_SetPropertyStr(context,result,"error",JS_NewInt32(context,state.error));
-        JS_SetPropertyStr(context,result,"session",JS_NewUint32(context,app->bluetooth_session));
+        ouse_ble_app_state_t owned;ouse_ble_app_get(&app->owner,&owned);
+        JS_SetPropertyStr(context,result,"session",JS_NewUint32(context,owned.session));
+        JS_SetPropertyStr(context,result,"busy",JS_NewBool(context,owned.busy));JS_SetPropertyStr(context,result,"closing",JS_NewBool(context,owned.closing));
+        JS_SetPropertyStr(context,result,"keyboardReady",JS_NewBool(context,owned.keyboard_ready));JS_SetPropertyStr(context,result,"consumerReady",JS_NewBool(context,owned.consumer_ready));JS_SetPropertyStr(context,result,"mouseReady",JS_NewBool(context,owned.mouse_ready));
+        JS_SetPropertyStr(context,result,"authenticated",JS_NewBool(context,state.authenticated));JS_SetPropertyStr(context,result,"bonded",JS_NewBool(context,state.bonded));JS_SetPropertyStr(context,result,"bonds",JS_NewUint32(context,state.bonds));
         for(unsigned index=0;index<state.count;++index){const ouse_ble_peer_t *peer=&state.peers[index];JSValue value=JS_NewObject(context);
             JS_SetPropertyStr(context,value,"name",JS_NewString(context,peer->name));JS_SetPropertyStr(context,value,"address",JS_NewString(context,peer->address));
             JS_SetPropertyStr(context,value,"service",JS_NewString(context,peer->service));

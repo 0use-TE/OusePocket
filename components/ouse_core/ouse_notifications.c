@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include "ouse_notifications.h"
+#include "ouse_memory.h"
 #include <string.h>
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -13,14 +14,16 @@ typedef struct {
     ouse_notification_open_t value;
     uint64_t created_ms;
 } open_entry_t;
+static OUSE_PSRAM_BSS ouse_notification_t notification_records[OUSE_NOTIFICATION_CAPACITY];
+static OUSE_PSRAM_BSS open_entry_t notification_opens[OPEN_CAPACITY];
 static struct {
     SemaphoreHandle_t lock;
     StaticSemaphore_t lock_storage;
-    ouse_notification_t records[OUSE_NOTIFICATION_CAPACITY];
-    open_entry_t opens[OPEN_CAPACITY];
+    ouse_notification_t *records;
+    open_entry_t *opens;
     unsigned count,open_count;
     uint32_t serial,open_serial,generation;
-} notifications;
+} notifications={.records=notification_records,.opens=notification_opens};
 
 static bool bounded(const char *value,unsigned capacity,bool required)
 { return value && (!required || *value) && strnlen(value,capacity)<capacity; }

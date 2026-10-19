@@ -8,6 +8,9 @@ typedef struct {
     char id[48],name[48],name_zh[48],name_en[48];
     size_t package_bytes,data_bytes;unsigned alarms;bool system,measured;
     unsigned permissions;
+    uint32_t version_code;
+    char version_name[32];
+    char description[513],author[65],released_at[11];
 } ouse_managed_app_t;
 typedef struct {
     bool ready,busy,recovery_pending;unsigned count;

@@ -3,8 +3,27 @@
   "api": 1,
   "id": "user.services",
   "name": "System services",
-  "names": {"zh_CN": "系统服务测试", "en": "System services"},
+  "names": {
+    "zh_CN": "系统服务测试",
+    "en": "System services"
+  },
   "icon": "icon.bin",
-  "capabilities": {"network": true, "alarms": true, "media": true},
-  "assets": [{"id": "tone", "type": "binary", "path": "assets/tone.wav"}]
+  "capabilities": {
+    "network": true,
+    "alarms": true,
+    "media": true
+  },
+  "assets": [
+    {
+      "id": "tone",
+      "type": "binary",
+      "path": "assets/tone.wav"
+    }
+  ],
+  "versionCode": 1,
+  "versionName": "1.0.0",
+  "author": "OusePocket",
+  "releasedAt": "2026-10-19",
+  "description": "系统服务测试",
+  "minNativeApi": 1
 }

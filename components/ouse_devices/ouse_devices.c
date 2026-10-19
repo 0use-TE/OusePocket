@@ -12,7 +12,7 @@ static struct {
     ouse_audio_request_t audio_request;
     ouse_wifi_request_t wifi_request;
     ouse_device_save_state_t save;
-    uint32_t save_id,save_task;
+    uint32_t save_id,save_task,save_active_id;
     uint32_t wifi_task;
     uint32_t suspended_media;
     bool overlay_pending;
@@ -294,15 +294,16 @@ bool ouse_devices_take_save(ouse_device_config_t *out,uint32_t *id)
 {
     lock();bool pending=devices.save_pending;
     if(pending){
-        devices.save_task=0;
-        if(ouse_task_create(&system_owner,OUSE_TASK_SETTINGS,"devicesSave",OUSE_TASK_FINISH_ON_CLOSE,false,&devices.save_task)==ESP_OK)
+        if(!devices.save_inflight){
+            if(ouse_task_create(&system_owner,OUSE_TASK_SETTINGS,"devicesSave",OUSE_TASK_FINISH_ON_CLOSE,false,&devices.save_task)!=ESP_OK){unlock();return false;}
             (void)ouse_task_start(devices.save_task,false);
-        *out=devices.config;*id=devices.save_id;devices.save_pending=false;devices.save_inflight=true;
+        }
+        *out=devices.config;*id=devices.save_active_id=devices.save_id;devices.save_pending=false;devices.save_inflight=true;
     }unlock();return pending;
 }
 void ouse_devices_saved(uint32_t id,esp_err_t error)
 {
-    lock();ouse_task_finish(devices.save_task,error,false);devices.save_inflight=false;if(id==devices.save_id){devices.save.error=error;devices.save.pending=false;++devices.save.revision;}unlock();
+    lock();if(devices.save_inflight && id==devices.save_active_id){ouse_task_finish(devices.save_task,error,false);devices.save_task=0;devices.save_inflight=false;if(id==devices.save_id){devices.save.error=error;devices.save.pending=false;++devices.save.revision;}}unlock();
 }
 void ouse_devices_save_state(ouse_device_save_state_t *out) {lock();*out=devices.save;unlock();}
 void ouse_devices_retry_save(void) {if(!ouse_tasks_submission_begin())return;lock();if(devices.initialized)dirty();unlock();ouse_tasks_submission_end();notify(0);}

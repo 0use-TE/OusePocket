@@ -94,6 +94,7 @@ fixture = r'''
 #include "ouse_files.h"
 #include "ouse_net.h"
 static void (*worker)(void *);
+bool ouse_sd_browser_path(const char *path,char *absolute,size_t capacity){if(!path || path[0]!='/' || strstr(path,".."))return false;int size=snprintf(absolute,capacity,"/sdcard%s",path);return size>0 && (size_t)size<capacity;}
 static void *queued[8];static int queued_count;
 static int mount_failure,http_status=200,cancelled,terminal,terminal_error,not_ready;
 static unsigned worker_creations,recover_calls,timeout_budget;

@@ -31,7 +31,7 @@ typedef int esp_err_t;
 #define S_ISREG(mode) (((mode)&_S_IFREG)!=0)
 #define fsync _commit
 #define unlink _unlink
-enum {JOB_LAUNCHER_GET,JOB_LAUNCHER_SET};
+enum {JOB_LAUNCHER_GET,JOB_LAUNCHER_SET,JOB_DEFAULTS_GET,JOB_DEFAULTS_SET};
 typedef struct {int operation;char *value;size_t value_size;} storage_job_t;
 static bool fail_memory,fail_rename;
 static void *allocate(size_t size){return fail_memory ? NULL : malloc(size);}
@@ -52,6 +52,9 @@ int main(void){
     assert(launcher_value(&get,&result)==ESP_OK && !strcmp(result,first));free(result);result=NULL;
     assert(_access("store/launcher-order.tmp",0)!=0);fail_rename=false;
     assert(launcher_value(&put,&result)==ESP_OK);
+    storage_job_t defaults={.operation=JOB_DEFAULTS_SET,.value="OUSEF1\nuser.gallery\nuser.music\nuser.gallery\n",.value_size=45};
+    defaults.value_size=strlen(defaults.value);assert(launcher_value(&defaults,&result)==ESP_OK);
+    defaults.operation=JOB_DEFAULTS_GET;assert(launcher_value(&defaults,&result)==ESP_OK && !strcmp(result,defaults.value));free(result);result=NULL;
     assert(launcher_value(&get,&result)==ESP_OK && !strcmp(result,second));free(result);result=NULL;
     fail_memory=true;assert(launcher_value(&get,&result)==ESP_ERR_NO_MEM && !result);fail_memory=false;
     FILE *file=fopen("store/launcher-order.v1","wb");assert(file);const char bad[]={'O',0,'K'};assert(fwrite(bad,1,sizeof(bad),file)==sizeof(bad));fclose(file);

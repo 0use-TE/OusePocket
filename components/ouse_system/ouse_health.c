@@ -13,7 +13,7 @@ void ouse_health_publish(const ouse_health_snapshot_t *snapshot)
 {if(snapshot){portENTER_CRITICAL(&health_lock);cache=*snapshot;portEXIT_CRITICAL(&health_lock);}}
 esp_err_t ouse_control_request(ouse_control_action_t action,const char *app_id,uint32_t task_id,uint32_t instance_id)
 {
-    if((unsigned)action>OUSE_CONTROL_STOP || (app_id && strnlen(app_id,48)>=48) ||
+    if((unsigned)action>OUSE_CONTROL_SHUTDOWN || (app_id && strnlen(app_id,48)>=48) ||
        (action==OUSE_CONTROL_STOP && (!app_id || !*app_id)))return ESP_ERR_INVALID_ARG;
     portENTER_CRITICAL(&health_lock);
     esp_err_t error=(!enabled || pending) ? ESP_ERR_INVALID_STATE : ESP_OK;

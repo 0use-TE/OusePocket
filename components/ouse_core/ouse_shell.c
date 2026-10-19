@@ -2,6 +2,8 @@
 #include "ouse_shell.h"
 #include "ouse_widgets.h"
 #include "ouse_devices.h"
+#include "ouse_ble.h"
+#include "ouse_usb.h"
 #include "ouse_dialog.h"
 #include "ouse_device_ui.h"
 #include "src/misc/cache/instance/lv_image_cache.h"
@@ -27,13 +29,14 @@ static OUSE_PSRAM_BSS struct {
     unsigned notification_count;
     uint32_t notification_generation,notification_ui_generation,notification_age_minute;
     bool notifications_selected;
-    lv_obj_t *wifi_icon,*notification_dot,*banner,*banner_title,*banner_body;
+    lv_obj_t *wifi_icon,*bluetooth_icon,*notification_dot,*banner,*banner_title,*banner_body;
+    bool bluetooth_connected;
     uint32_t banner_seen,notification_read,banner_serial,banner_until;
     int wifi_level;
     struct {char app_id[48];lv_image_dsc_t image;} notification_icons[OUSE_NOTIFICATION_CAPACITY];
     unsigned notification_icon_count;
     lv_obj_t *gear,*light,*clock,*battery,*status,*nav,*volume_box,*volume_slider,*volume_icon;
-    quick_tile_t wifi_tile,power_tile,sound_tile,theme_tile;
+    quick_tile_t wifi_tile,bluetooth_tile,power_tile,sound_tile,theme_tile,usb_tile;
     lv_obj_t *recents,*strip,*clear,*cards[OUSE_RECENTS_CAPACITY],*card_titles[OUSE_RECENTS_CAPACITY];
     lv_obj_t *shield,*back_indicator,*back_arrow,*flight,*flight_image,*pill;
     lv_obj_t *bottom_guard;
@@ -316,6 +319,23 @@ static void theme_clicked(lv_event_t *event)
     (void)event;shell.save_failed=ouse_core_set_theme(ouse_theme_get()==OUSE_THEME_DARK ? OUSE_THEME_LIGHT : OUSE_THEME_DARK)!=ESP_OK;
     refresh(NULL);
 }
+static void bluetooth_clicked(lv_event_t *event)
+{
+    if(lv_event_get_code(event)==LV_EVENT_LONG_PRESSED){ouse_shell_foreground();shell.config.open_settings(13);return;}
+    ouse_ble_state_t state;ouse_ble_get(&state);(void)ouse_ble_enable(!state.enabled);refresh(NULL);
+}
+static void usb_clicked(lv_event_t *event)
+{
+    if(lv_event_get_code(event)==LV_EVENT_LONG_PRESSED){ouse_shell_foreground();shell.config.open_settings(10);return;}
+    ouse_usb_state_t state;ouse_usb_get(&state);if(state.available)(void)ouse_usb_set_enabled(!state.enabled);refresh(NULL);
+}
+static void bluetooth_draw(lv_event_t *event)
+{
+    lv_area_t bounds;lv_obj_get_coords(lv_event_get_target_obj(event),&bounds);
+    const int points[][2]={{2,4},{15,14},{8,19},{8,1},{15,6},{2,16}};
+    lv_draw_line_dsc_t line;lv_draw_line_dsc_init(&line);line.width=D(2);line.color=lv_color_hex(ouse_theme_colors().text);line.opa=shell.bluetooth_connected ? LV_OPA_COVER : LV_OPA_50;
+    for(unsigned index=0;index<5;++index){line.p1=(lv_point_precise_t){bounds.x1+D(points[index][0]),bounds.y1+D(points[index][1])};line.p2=(lv_point_precise_t){bounds.x1+D(points[index+1][0]),bounds.y1+D(points[index+1][1])};lv_draw_line(lv_event_get_layer(event),&line);}
+}
 static void save_quick(lv_event_t *event)
 {
     (void)event;if(shell.brightness_failed)return;
@@ -578,12 +598,14 @@ static void layout_quick(void)
     rect(shell.quick_body,D(16),header+D(8),width,shell.height-header-D(46));
     int tile_width=(width-D(12))/2;
     quick_tile_layout(&shell.wifi_tile,0,0,tile_width,tile_height);
-    quick_tile_layout(&shell.power_tile,tile_width+D(12),0,width-tile_width-D(12),tile_height);
+    quick_tile_layout(&shell.bluetooth_tile,tile_width+D(12),0,width-tile_width-D(12),tile_height);
     quick_tile_layout(&shell.sound_tile,0,tile_height+D(12),tile_width,tile_height);
-    quick_tile_layout(&shell.theme_tile,tile_width+D(12),tile_height+D(12),width-tile_width-D(12),tile_height);
-    quick_capsule_layout(shell.volume_box,shell.volume_slider,2*(tile_height+D(12)),width,D(56));
+    quick_tile_layout(&shell.power_tile,tile_width+D(12),tile_height+D(12),width-tile_width-D(12),tile_height);
+    quick_tile_layout(&shell.theme_tile,0,2*(tile_height+D(12)),tile_width,tile_height);
+    quick_tile_layout(&shell.usb_tile,tile_width+D(12),2*(tile_height+D(12)),width-tile_width-D(12),tile_height);
+    quick_capsule_layout(shell.volume_box,shell.volume_slider,3*(tile_height+D(12)),width,D(56));
     lv_obj_align(shell.volume_icon,LV_ALIGN_LEFT_MID,D(16),0);
-    quick_capsule_layout(shell.light,shell.slider,2*(tile_height+D(12))+D(68),width,D(56));
+    quick_capsule_layout(shell.light,shell.slider,3*(tile_height+D(12))+D(68),width,D(56));
 }
 static void refresh(lv_timer_t *timer)
 {
@@ -604,6 +626,8 @@ static void refresh(lv_timer_t *timer)
     ouse_wifi_state_t wifi={0};ouse_wifi_get(&wifi);int level=!wifi.connected ? 0 : wifi.rssi>=-60 ? 3 : wifi.rssi>=-75 ? 2 : 1;
     if(level!=shell.wifi_level){shell.wifi_level=level;lv_obj_invalidate(shell.wifi_icon);}
     lv_obj_invalidate(shell.wifi_icon);
+    ouse_ble_state_t bluetooth;ouse_ble_get(&bluetooth);shell.bluetooth_connected=bluetooth.connected;
+    if(bluetooth.enabled)show(shell.bluetooth_icon);else hide(shell.bluetooth_icon);lv_obj_invalidate(shell.bluetooth_icon);
     refresh_notification_banner(power.asleep);
     // Quick settings can change text size while overview stays open beneath
     // it. Text bindings update the font; resize its explicit line box too.
@@ -631,6 +655,15 @@ static void refresh(lv_timer_t *timer)
     ouse_ui_text(shell.date,date);
     if(shell.generation!=ouse_ui_generation()) {shell.generation=ouse_ui_generation();layout_quick();}
     quick_control_color(shell.theme_tile.button,ouse_theme_get()==OUSE_THEME_DARK);
+    ouse_usb_state_t usb;ouse_usb_get(&usb);quick_control_color(shell.usb_tile.button,usb.available && usb.enabled);
+    if(!usb.available)quick_status_pair(shell.usb_tile.status,"不可用","Unavailable");
+    else if(!usb.enabled)quick_status_pair(shell.usb_tile.status,"已关闭","Off");
+    else if(usb.mounted)quick_status_pair(shell.usb_tile.status,"已连接","Connected");
+    else quick_status_pair(shell.usb_tile.status,"未连接","Disconnected");
+    quick_control_color(shell.bluetooth_tile.button,bluetooth.enabled);
+    if(!bluetooth.enabled)quick_status_pair(shell.bluetooth_tile.status,"已关闭","Off");
+    else if(bluetooth.connected)quick_status_pair(shell.bluetooth_tile.status,"已连接","Connected");
+    else quick_status_pair(shell.bluetooth_tile.status,"未连接","Disconnected");
     quick_status_pair(shell.theme_tile.status,ouse_theme_get()==OUSE_THEME_DARK ? "深色" : "浅色",ouse_theme_get()==OUSE_THEME_DARK ? "Dark" : "Light");
     if(!lv_obj_has_state(shell.slider,LV_STATE_PRESSED))lv_slider_set_value(shell.slider,shell.config.brightness(),LV_ANIM_OFF);
     ouse_wifi_state_t w={0};ouse_wifi_get(&w);
@@ -875,6 +908,7 @@ void ouse_shell_init(const ouse_shell_config_t *config)
     lv_obj_set_style_transform_scale_x(battery,D(256),0);lv_obj_set_style_transform_scale_y(battery,D(256),0);
     ouse_theme_apply(battery,OUSE_STYLE_MUTED,0);
     shell.wifi_level=-1;shell.wifi_icon=ouse_widget_box(status,OUSE_STYLE_DESKTOP,0);rect(shell.wifi_icon,shell.width-D(92),D(7),D(20),D(20));lv_obj_set_style_bg_opa(shell.wifi_icon,LV_OPA_TRANSP,0);lv_obj_add_event_cb(shell.wifi_icon,wifi_draw,LV_EVENT_DRAW_MAIN,NULL);
+    shell.bluetooth_icon=ouse_widget_box(status,OUSE_STYLE_DESKTOP,0);rect(shell.bluetooth_icon,shell.width-D(116),D(7),D(20),D(20));lv_obj_set_style_bg_opa(shell.bluetooth_icon,LV_OPA_TRANSP,0);lv_obj_add_event_cb(shell.bluetooth_icon,bluetooth_draw,LV_EVENT_DRAW_MAIN,NULL);
     shell.notification_dot=ouse_widget_box(status,OUSE_STYLE_PILL,4);rect(shell.notification_dot,D(68),D(14),D(6),D(6));lv_obj_set_style_bg_color(shell.notification_dot,lv_color_hex(0x3988ff),0);hide(shell.notification_dot);
     shell.banner=ouse_widget_box(config->screen,OUSE_STYLE_PANEL,18);rect(shell.banner,D(8),D(42),shell.width-D(16),D(84));lv_obj_add_flag(shell.banner,LV_OBJ_FLAG_CLICKABLE);
     shell.banner_title=ouse_widget_text(shell.banner,"",18);rect(shell.banner_title,D(12),D(10),shell.width-D(80),D(26));lv_label_set_long_mode(shell.banner_title,LV_LABEL_LONG_MODE_DOTS);
@@ -903,9 +937,17 @@ void ouse_shell_init(const ouse_shell_config_t *config)
     lv_obj_add_flag(shell.quick_body,LV_OBJ_FLAG_SCROLLABLE|LV_OBJ_FLAG_CLICKABLE);lv_obj_set_scroll_dir(shell.quick_body,LV_DIR_VER);
     lv_obj_set_scrollbar_mode(shell.quick_body,LV_SCROLLBAR_MODE_OFF);
     quick_tile_create(&shell.wifi_tile,shell.quick_body,LV_SYMBOL_WIFI,"Wi-Fi","Wi-Fi",7,NULL);
+    quick_tile_create(&shell.bluetooth_tile,shell.quick_body,LV_SYMBOL_BLUETOOTH,"蓝牙","Bluetooth",13,bluetooth_clicked);
+    lv_obj_remove_event_cb(shell.bluetooth_tile.button,bluetooth_clicked);
+    lv_obj_add_event_cb(shell.bluetooth_tile.button,bluetooth_clicked,LV_EVENT_SHORT_CLICKED,NULL);
+    lv_obj_add_event_cb(shell.bluetooth_tile.button,bluetooth_clicked,LV_EVENT_LONG_PRESSED,NULL);
     quick_tile_create(&shell.power_tile,shell.quick_body,LV_SYMBOL_BATTERY_FULL,"电源","Power",5,NULL);
     quick_tile_create(&shell.sound_tile,shell.quick_body,LV_SYMBOL_VOLUME_MAX,"声音","Sound",6,sound_clicked);
     quick_tile_create(&shell.theme_tile,shell.quick_body,LV_SYMBOL_TINT,"主题","Theme",0,theme_clicked);
+    quick_tile_create(&shell.usb_tile,shell.quick_body,LV_SYMBOL_USB,"USB OTG","USB OTG",10,usb_clicked);
+    lv_obj_remove_event_cb(shell.usb_tile.button,usb_clicked);
+    lv_obj_add_event_cb(shell.usb_tile.button,usb_clicked,LV_EVENT_SHORT_CLICKED,NULL);
+    lv_obj_add_event_cb(shell.usb_tile.button,usb_clicked,LV_EVENT_LONG_PRESSED,NULL);
     shell.volume_box=ouse_widget_box(shell.quick_body,OUSE_STYLE_PANEL,28);
     shell.volume_icon=quick_symbol(shell.volume_box,LV_SYMBOL_VOLUME_MAX);
     shell.volume_slider=lv_slider_create(shell.volume_box);ouse_widget_slider(shell.volume_slider,32);

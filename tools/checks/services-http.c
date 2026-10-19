@@ -12,16 +12,20 @@ static const char *input;
 static unsigned offset,fragment,created,destroyed,reads;
 static int64_t read_delay,dns_delay;
 static bool cancelled,secure;
+static bool delayed_connect;
+static unsigned select_timeouts,connect_resumes;
+static int connection_error;
 static unsigned char collected[32769];static size_t collected_size;
 static char sent[6000];static size_t sent_size;
 esp_tls_t *esp_tls_init(void){++created;return calloc(1,sizeof(esp_tls_t));}
 int esp_tls_conn_destroy(esp_tls_t *tls){assert(tls);++destroyed;free(tls);return 0;}
 int esp_crt_bundle_attach(void *config){(void)config;return ESP_OK;}
 int esp_tls_conn_new_async(const char *host,int size,int port,const esp_tls_cfg_t *c,esp_tls_t *tls)
-{assert(tls&&size>0&&host&&port>0&&c->non_block&&!c->skip_common_name&&c->timeout_ms<=50);secure=!c->is_plain_tcp;if(secure)assert(c->crt_bundle_attach==esp_crt_bundle_attach);test_clock+=dns_delay;return 1;}
+{assert(tls&&size>0&&host&&port>0&&!c->skip_common_name&&c->timeout_ms<=50);secure=!c->is_plain_tcp;if(secure)assert(c->crt_bundle_attach==esp_crt_bundle_attach);test_clock+=dns_delay;if(secure&&delayed_connect){if(tls->state==ESP_TLS_INIT){assert(c->non_block);tls->state=ESP_TLS_CONNECTING;return 0;}assert(tls->state==ESP_TLS_CONNECTING&&!c->non_block);++connect_resumes;}else assert(c->non_block);tls->state=ESP_TLS_DONE;return 1;}
 int esp_tls_get_conn_sockfd(esp_tls_t *tls,int *fd){assert(tls);*fd=1;return ESP_OK;}
-int select(int n,void *r,fd_set *w,void *e,struct timeval *t){(void)n;(void)r;(void)w;(void)e;(void)t;return 1;}
-int getsockopt(int fd,int l,int o,void *value,socklen_t *size){assert(fd==1&&l==SOL_SOCKET&&o==SO_ERROR&&*size==sizeof(int));*(int*)value=0;return 0;}
+int esp_tls_get_conn_state(esp_tls_t *tls,esp_tls_conn_state_t *state){*state=tls->state;return ESP_OK;}
+int select(int n,void *r,fd_set *w,void *e,struct timeval *t){(void)n;(void)r;(void)e;assert(w->unused&&t->tv_usec==50000);w->unused=0;if(select_timeouts){--select_timeouts;test_clock+=50000;return 0;}return 1;}
+int getsockopt(int fd,int l,int o,void *value,socklen_t *size){assert(fd==1&&l==SOL_SOCKET&&o==SO_ERROR&&*size==sizeof(int));*(int*)value=connection_error;return 0;}
 int esp_tls_conn_write(esp_tls_t *t,const void *data,size_t size)
 {assert(t);size_t n=size>17 ? 17 : size;assert(sent_size+n<sizeof(sent));memcpy(sent+sent_size,data,n);sent_size+=n;sent[sent_size]=0;return (int)n;}
 int esp_tls_conn_read(esp_tls_t *t,void *data,size_t size)
@@ -30,7 +34,7 @@ static bool stopped(void *p){(void)p;return cancelled;}
 static esp_err_t sink(void *p,const unsigned char *bytes,size_t n)
 {(void)p;assert(collected_size+n<=32768);memcpy(collected+collected_size,bytes,n);collected_size+=n;return ESP_OK;}
 static void reset(const char *response)
-{input=response;offset=reads=sent_size=collected_size=0;test_clock=read_delay=dns_delay=0;cancelled=false;fragment=7;}
+{input=response;offset=reads=sent_size=collected_size=0;test_clock=read_delay=dns_delay=0;cancelled=delayed_connect=false;fragment=7;select_timeouts=connect_resumes=0;connection_error=0;}
 static esp_err_t transfer(ouse_http_request_t *q,size_t limit,ouse_http_response_t *r)
 {unsigned before=destroyed;esp_err_t e=ouse_http_transfer(q,test_clock+1000000,limit,r,sink,stopped,NULL);assert(destroyed==before+1 && created==destroyed);return e;}
 int main(void)
@@ -46,15 +50,28 @@ int main(void)
     reset("HTTP/1.1 200 OK\r\nContent-Length: 9\r\n\r\nshort");assert(transfer(&q,64,&r)!=ESP_OK);
     reset("HTTP/1.1 200 OK\r\nContent-Length: 0\r\nContent-Length: 1\r\n\r\n");assert(transfer(&q,64,&r)!=ESP_OK);
     reset("HTTP/1.1 200 OK\r\nContent-Length: 0\r\nContent-Encoding: gzip\r\n\r\n");assert(transfer(&q,64,&r)==ESP_ERR_NOT_SUPPORTED);
+    char many_headers[4096]="HTTP/1.1 200 OK\r\nContent-Length: 0\r\n";
+    for(unsigned index=0;index<18;++index){char header[40];snprintf(header,sizeof(header),"X-Field-%u: yes\r\n",index);strcat(many_headers,header);}
+    strcat(many_headers,"Report-To: ");size_t prefix=strlen(many_headers);memset(many_headers+prefix,'x',300);strcpy(many_headers+prefix+300,"\r\n\r\n");
+    reset(many_headers);assert(transfer(&q,64,&r)==ESP_OK&&r.header_count==20);
+    strcpy(many_headers,"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n");
+    for(unsigned index=0;index<24;++index){char header[40];snprintf(header,sizeof(header),"X-Field-%u: yes\r\n",index);strcat(many_headers,header);}strcat(many_headers,"\r\n");
+    reset(many_headers);assert(transfer(&q,64,&r)==ESP_ERR_INVALID_SIZE);
     reset("HTTP/1.1 200 OK\r\n\r\neof-body");assert(transfer(&q,64,&r)==ESP_OK&&collected_size==8);
     q.method="HEAD";reset("HTTP/1.1 200 OK\r\nContent-Length: 999999\r\n\r\n");assert(transfer(&q,64,&r)==ESP_OK&&r.body_size==0);q.method="GET";
     reset("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");fragment=1;read_delay=100000;assert(transfer(&q,64,&r)==ESP_ERR_TIMEOUT&&reads<12);
     reset("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");dns_delay=1000001;assert(transfer(&q,64,&r)==ESP_ERR_TIMEOUT&&reads==0);
     reset("");cancelled=true;unsigned before=created;assert(ouse_http_transfer(&q,1000000,64,&r,sink,stopped,NULL)==ESP_ERR_INVALID_STATE&&created==before);
+    reset("HTTP/1.1 204 No Content\r\n\r\n");delayed_connect=true;select_timeouts=3;assert(transfer(&q,64,&r)==ESP_OK&&connect_resumes==1);
+    reset("");delayed_connect=true;select_timeouts=30;assert(transfer(&q,64,&r)==ESP_ERR_TIMEOUT&&!connect_resumes);
+    reset("");delayed_connect=true;connection_error=1;assert(transfer(&q,64,&r)==ESP_FAIL&&!connect_resumes);
     q.url="http://example.test/";reset("HTTP/1.1 204 No Content\r\n\r\n");assert(transfer(&q,64,&r)==ESP_OK&&!secure);
     const char *bad[]={"file:///x","http://u:p@example.test/","http://example.test/#secret","http://example.test/\r\nx","http://example.test:0/"};
     for(unsigned i=0;i<sizeof(bad)/sizeof(bad[0]);++i){q.url=bad[i];assert(ouse_http_validate(&q)==ESP_ERR_INVALID_ARG);}
     q.url="https://example.test/";ouse_http_header_t h={.name="Host",.value="other"};q.headers=&h;q.header_count=1;assert(ouse_http_validate(&q)==ESP_ERR_INVALID_ARG);
     strcpy(h.name,"Authorization");strcpy(h.value,"x\r\nInjected: yes");assert(ouse_http_validate(&q)==ESP_ERR_INVALID_ARG);
+    ouse_http_header_t oversized[OUSE_NET_HEADERS_MAX];memset(oversized,0,sizeof(oversized));
+    for(unsigned index=0;index<OUSE_NET_HEADERS_MAX;++index){snprintf(oversized[index].name,sizeof(oversized[index].name),"X-%u",index);memset(oversized[index].value,'x',500);}
+    q.headers=oversized;q.header_count=OUSE_NET_HEADERS_MAX;reset("");assert(transfer(&q,64,&r)==ESP_ERR_INVALID_SIZE);
     puts("PASS HTTP: production framing, fragment/chunk/trailer/HEAD/EOF, truncation, limits, whole deadline, DNS overrun cleanup, cancellation, TLS config, no redirect/injection");
 }

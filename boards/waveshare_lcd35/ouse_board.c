@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Explicit adapter for the published Waveshare BSP, not a device plugin system.
 #include "ouse_board.h"
+#include "driver/gpio.h"
 #include "bsp/esp-bsp.h"
 #include "bsp/display.h"
 #include "esp_lv_adapter.h"
@@ -109,6 +110,8 @@ static const ouse_hardware_info_t hardware = {
     .power = "AXP2101",
 };
 
+static bool board_key(void *context,unsigned key)
+{(void)context;return key==0 ? gpio_get_level(GPIO_NUM_35)==0 : key==1 && gpio_get_level(GPIO_NUM_49)!=0;}
 esp_err_t ouse_board_init(ouse_core_port_t *port)
 {
     if (!port) return ESP_ERR_INVALID_ARG;
@@ -136,12 +139,15 @@ esp_err_t ouse_board_init(ouse_core_port_t *port)
     lv_display_set_flush_wait_cb(display, ouse_display_flush_wait);
 #endif
     bsp_display_unlock();
+    gpio_config_t keys={.pin_bit_mask=(1ULL<<35)|(1ULL<<49),.mode=GPIO_MODE_INPUT,.pull_up_en=GPIO_PULLUP_DISABLE,.pull_down_en=GPIO_PULLDOWN_DISABLE,.intr_type=GPIO_INTR_DISABLE};
+    esp_err_t key_error=gpio_config(&keys);if(key_error!=ESP_OK)return key_error;
     *port = (ouse_core_port_t){
         .display = display,
         .touch = bsp_display_get_input_dev(),
         .lock = board_lock,
         .unlock = board_unlock,
         .set_brightness = board_brightness,
+        .read_key=board_key,
         .board_name = "Waveshare P4 LCD 3.5",
         .hardware = &hardware,
     };

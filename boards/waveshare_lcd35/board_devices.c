@@ -18,6 +18,12 @@ extern void ouse_board_audio_worker(void *);
 extern void ouse_board_wifi_worker(void *);
 static bool read_reg(uint8_t address,uint8_t *data,size_t size)
 {return pmic && i2c_master_transmit_receive(pmic,&address,1,data,size,50)==ESP_OK;}
+esp_err_t ouse_board_power_off(void)
+{
+    uint8_t value;if(!read_reg(0x10,&value,1))return ESP_ERR_INVALID_STATE;
+    uint8_t command[]={0x10,(uint8_t)(value|1u)};
+    return i2c_master_transmit(pmic,command,sizeof(command),100);
+}
 static void sample_power(void)
 {
     ouse_power_state_t state={.available=pmic!=NULL,.percent=-1,.error=ESP_ERR_NOT_FOUND};

@@ -8,6 +8,7 @@
 #include <stdio.h>
 static bool notice_active;
 bool ouse_files_path(const char *path,char *absolute,size_t capacity){(void)path;(void)absolute;(void)capacity;return false;}
+bool ouse_files_read_path(const char *path,char *absolute,size_t capacity){return ouse_files_path(path,absolute,capacity);}
 FILE *ouse_files_open(const char *path){(void)path;return NULL;}
 int ouse_files_close(FILE *file){return fclose(file);}
 esp_err_t ouse_notifications_publish(const char *app,const ouse_notification_request_t *r)

@@ -1,5 +1,12 @@
 "use strict";
 let page="album",offset=0,entries=[],pending=0,kind="",notice=false,returning=false,selected=0,scrollTarget=0,lastScroll=0;
+let externalPath="";
+function openExternal(){
+ if(!externalPath||pending)return;
+ if(!ready()){externalPath="";popup("SD 卡不可用，请检查连接。");return;}
+ const path=externalPath;externalPath="";entries=[{path,video:/\.avi$/i.test(path)}];selected=0;open(0);
+}
+Ouse.files.onOpen(event=>{externalPath=event.path;if(pending){Ouse.tasks.cancel(pending);return;}openExternal();});
 function show(id,value){if(value)Ouse.ui.show(id);else Ouse.ui.hide(id);}
 function popup(value){Ouse.ui.setText(page==="album"?"detail":"viewerDetail",value);Ouse.ui.show(page==="album"?"dialog":"viewerDialog");}
 function ready(){const card=Ouse.files.get();return !!(card.ready&&card.present);}
@@ -62,6 +69,7 @@ function viewer(){
 Ouse.navigation.onChange(event=>{page=event.page;bind();if(page==="album"){Ouse.photos.stop();if(returning){returning=false;list(offset,scrollTarget);}}});
 Ouse.tasks.onComplete(event=>{
  if(event.id!==pending)return;pending=0;
+ if(externalPath){openExternal();return;}
  if(event.state!=="succeeded"){popup(kind==="remove"?"删除失败，请检查 SD 卡。":"读取失败，请检查 SD 卡及文件格式。");paint();viewer();return;}
  const state=Ouse.photos.get();
  if(kind==="list"){entries=state.entries;offset=state.offset;paint();lastScroll=scrollTarget;Ouse.ui.scrollTo("grid",scrollTarget);}

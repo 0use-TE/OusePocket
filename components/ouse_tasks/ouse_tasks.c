@@ -1,13 +1,19 @@
 // SPDX-License-Identifier: MIT
 // Bounded metadata only: no JS, LVGL, hardware I/O or task-owned result buffers.
 #include "ouse_tasks.h"
+#ifdef ESP_PLATFORM
+#include "esp_attr.h"
+#define OUSE_TASK_TABLE_BSS EXT_RAM_BSS_ATTR
+#else
+#define OUSE_TASK_TABLE_BSS
+#endif
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include <limits.h>
 #include <string.h>
 
 static portMUX_TYPE registry_lock=portMUX_INITIALIZER_UNLOCKED;
-static struct {
+static OUSE_TASK_TABLE_BSS struct {
     ouse_task_snapshot_t records[OUSE_TASK_CAPACITY];
     ouse_task_owner_t owners[OUSE_TASK_OWNERS_MAX];
     uint32_t next_id,next_instance,revision,rejected,recycled;

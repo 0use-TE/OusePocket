@@ -12,7 +12,7 @@ out = options.output
 out.mkdir(parents=True, exist_ok=True)
 header = ['#pragma once', '#include "ouse_runtime.h"']
 source = ['// Generated host-only fixtures; do not edit.', '#include "script_packages.h"']
-fixtures = [("counter", "examples/counter", "ouse.counter", "LV_SYMBOL_PLUS"),
+fixtures = [("counter", "apps/counter", "ouse.counter", "LV_SYMBOL_PLUS"),
             ("resource-monitor", "apps/resource-monitor", "ouse.resources", "LV_SYMBOL_LIST"),
             ("api-test", "apps/api-test", "ouse.api-test", "LV_SYMBOL_EYE_OPEN")]
 for name, path, app_id, icon in fixtures:

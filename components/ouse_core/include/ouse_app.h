@@ -30,6 +30,9 @@ typedef struct {
     const char *name_zh, *name_en;
     // Borrowed image; it must outlive the registered app and every UI using it.
     const lv_image_dsc_t *icon_image;
+    unsigned file_types;
+    esp_err_t (*open_file)(void *context,const char *path);
+    bool (*key)(void *context,unsigned key);
 } ouse_app_definition_t;
 
 typedef struct {
@@ -37,7 +40,14 @@ typedef struct {
     // name is resolved for the current locale; these retain untranslated input.
     char default_name[48], name_zh[48], name_en[48];
     const lv_image_dsc_t *icon_image;
+    unsigned file_types;
 } ouse_app_info_t;
+
+#define OUSE_FILE_JPEG 1u
+#define OUSE_FILE_WAVE 2u
+#define OUSE_FILE_AVI 4u
+esp_err_t ouse_app_open_file(const char *id,const char *path);
+bool ouse_app_key(unsigned key);
 
 typedef struct {
     unsigned registered, live_instances;

@@ -35,6 +35,13 @@ static char pending_reset[48];
 static unsigned restored;
 static int ui_signal;
 static int *ui_done=&ui_signal;
+static char package_prompt[640];
+static void package_accept(void){}
+static bool dialog_active;
+static bool ouse_dialog_active(void){return dialog_active;}
+static bool ouse_dialog_action_is(void (*callback)(void)){return dialog_active&&callback==package_accept;}
+static void ouse_dialog_show(const char *message,const char *caption,void (*callback)(void)){assert(message&&caption&&callback==package_accept);dialog_active=true;}
+static void ouse_dialog_dismiss(void){dialog_active=false;}
 static struct {int action;ouse_bpk_t *package;const char *id;esp_err_t error;ouse_script_validation_t *validation;} ui;
 #define portMAX_DELAY 0xffffffff
 #define pdTRUE 1
@@ -66,6 +73,9 @@ static esp_err_t ouse_core_post_ui(void (*callback)(void *),void *context){asser
 int main(void){
     ouse_bpk_t package={.id="user.validation"};
     assert(on_ui(6,NULL,NULL)==ESP_OK && restored==1);prepared=0;
+    assert(on_ui(7,NULL,NULL)==ESP_OK&&on_ui(8,NULL,NULL)==ESP_OK);
+    assert(on_ui(7,NULL,NULL)==ESP_ERR_INVALID_STATE);
+    assert(on_ui(9,NULL,NULL)==ESP_OK&&on_ui(8,NULL,NULL)==ESP_ERR_INVALID_STATE);prepared=0;
     assert(on_ui(0,&package,NULL)==ESP_OK && waits==1 && prepared==1 && !live && !job);
     timeout=true;assert(on_ui(0,&package,NULL)==ESP_ERR_TIMEOUT && live==1 && job && job->refs==1);
     complete();assert(!live && !job); // late worker result owns only its own lifetime

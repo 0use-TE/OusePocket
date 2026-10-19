@@ -122,11 +122,11 @@ symbols.mkdir(parents=True, exist_ok=True)
 for name in ["ouse_core_desktop.elf", "ouse_core_desktop.map", "config/sdkconfig.h"]:
     shutil.copy2(BUILD / name, symbols / Path(name).name)
 # Include ready-to-run USB installer, example, source and pyserial without pip.
-subprocess.run([sys.executable,str(ROOT/"tools/bpk.py"),"pack",str(ROOT/"examples/counter"),str(OUT/"counter.bpk")],check=True)
+subprocess.run([sys.executable,str(ROOT/"tools/bpk.py"),"pack",str(ROOT/"apps/counter"),str(OUT/"counter.bpk")],check=True)
 shutil.copy2(ROOT/"tools/bpk.py",OUT/"bpk.py")
 (OUT/"USB安装说明.md").write_text((ROOT/"docs/0.4.6-usb-bpk.md").read_text(encoding="utf-8").replace("ouse-core-0.4.6-full.bin",f"ouse-core-{version}-full.bin"),encoding="utf-8")
 shutil.copy2(ROOT/"docs/0.4.7-wifi-compatibility.md",OUT/"WiFi修复说明.md")
-shutil.copytree(ROOT/"examples/counter",OUT/"counter",dirs_exist_ok=True)
+shutil.copytree(ROOT/"apps/counter",OUT/"counter",dirs_exist_ok=True)
 import serial
 import importlib.metadata
 assert serial.VERSION == "3.5"

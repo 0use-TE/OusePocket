@@ -12,7 +12,8 @@ const WMO={
  95:"雷暴",96:"雷暴伴小冰雹",99:"雷暴伴大冰雹"
 };
 const GEO_IP="https://get.geojs.io/v1/ip/geo.json";
-let busy=false,taskId=0,mode="auto",place=null,hits=[],snapshot=null;
+let busy=false,taskId=0,mode="auto",place=null,hits=[],snapshot=null,closed=false,revision=0;
+function validPlace(value){return !!value&&typeof value.name==="string"&&!!value.name.trim()&&Number.isFinite(value.lat)&&Math.abs(value.lat)<=90&&Number.isFinite(value.lon)&&Math.abs(value.lon)<=180;}
 function text(id,value){Ouse.ui.setText(id,String(value));}
 function visible(id,show){if(show)Ouse.ui.show(id);else Ouse.ui.hide(id);}
 function nowMs(){const clock=Ouse.clock&&Ouse.clock.get?Ouse.clock.get():null;return clock&&clock.utcMs?clock.utcMs:0;}
@@ -59,7 +60,20 @@ function paintHits(){
  }
 }
 function request(url){
- return Ouse.net.request({url:url,method:"GET",headers:{Accept:"application/json"},timeoutMs:20000,responseType:"text"});
+ ++revision;
+ return Ouse.net.request({url:url,method:"GET",headers:{Accept:"application/json"},timeoutMs:url===GEO_IP?8000:20000,responseType:"text"});
+}
+function receive(req,success,failure){
+ const current=revision;
+ req.then(response=>{if(!closed&&revision===current)success(response);},error=>{if(!closed&&revision===current)failure(error);});
+}
+function networkError(prefix,error){
+ const message=error&&error.message?String(error.message):"网络错误";
+ return message.indexOf("TIMEOUT")>=0?prefix+"超时，请重试":prefix+"失败："+message;
+}
+function selectPlace(value,nextMode){
+ if(!place||place.lat!==value.lat||place.lon!==value.lon)snapshot=null;
+ place=value;mode=nextMode;paintSnapshot(snapshot);persist();
 }
 function weatherUrl(lat,lon){
  return "https://api.open-meteo.com/v1/forecast?latitude="+lat+"&longitude="+lon+"&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&timezone=auto";
@@ -82,28 +96,29 @@ function parseWeather(body,label){
  if(typeof temp!=="number"||typeof humidity!=="number"||typeof wind!=="number"||typeof code!=="number")return null;
  return {mode:mode,name:label||placeLabel(),temp:Math.round(temp),humidity:Math.round(humidity),wind:Math.round(wind),desc:describe(code|0),atMs:nowMs()};
 }
-function fetchWeather(){
- if(!place||!Number.isFinite(place.lat)||!Number.isFinite(place.lon)){finishBusy("请先定位或搜索城市");return;}
+function fetchWeather(fallback=false){
+ if(!validPlace(place)){finishBusy("请先定位或搜索城市");return;}
  paintStatus("正在获取天气…");
  let req=null;
  try{req=request(weatherUrl(place.lat,place.lon));}
  catch(error){finishBusy("无法发起天气请求");return;}
  taskId=req.taskId||0;
- req.then(response=>{
+ receive(req,response=>{
   if(!response||!response.ok){finishBusy("天气请求失败"+(response?" HTTP "+response.status:""));return;}
   const parsed=parseWeather(response.body||"",placeLabel());
   if(!parsed){finishBusy("天气数据无法解析");return;}
-  snapshot=parsed;paintSnapshot(snapshot);persist();finishBusy("");
- },error=>{finishBusy("天气失败："+(error&&error.message?error.message:"网络错误"));});
+  snapshot=parsed;paintSnapshot(snapshot);persist();finishBusy(fallback?"定位失败，已更新已有城市":"");
+ },error=>{finishBusy(networkError("天气请求",error));});
 }
 function parseGeoIp(body){
  let data=null;
  try{data=JSON.parse(body);}catch(error){return null;}
  if(data&&data.simulated===true)return {name:"杭州",lat:30.27,lon:120.15};
  if(data&&data.status&&data.status!=="success")return null;
+ if(!data||(data.lat==null&&data.latitude==null)||(data.lon==null&&data.longitude==null))return null;
  const lat=Number(data.lat!=null?data.lat:data.latitude);
  const lon=Number(data.lon!=null?data.lon:data.longitude);
- if(!Number.isFinite(lat)||!Number.isFinite(lon))return null;
+ if(!Number.isFinite(lat)||Math.abs(lat)>90||!Number.isFinite(lon)||Math.abs(lon)>180)return null;
  return {name:String(data.city||"当前位置"),lat:lat,lon:lon};
 }
 function parseSearch(body){
@@ -121,21 +136,25 @@ function parseSearch(body){
  }
  return out;
 }
+function locationFailed(message){
+ if(validPlace(place)){fetchWeather(true);return;}
+ finishBusy(message.replace("，请重试","")+"，请搜索城市");
+}
 function locateAuto(){
  if(busy)return;
- busy=true;mode="auto";hits=[];paintHits();
+ busy=true;hits=[];paintHits();
  Ouse.ui.setEnabled("search",false);Ouse.ui.setEnabled("auto",false);Ouse.ui.setEnabled("refresh",false);
  paintStatus("正在定位…");paintDate();
  let req=null;
  try{req=request(GEO_IP);}
- catch(error){finishBusy("无法发起定位请求");return;}
+ catch(error){locationFailed("无法发起定位请求");return;}
  taskId=req.taskId||0;
- req.then(response=>{
-  if(!response||!response.ok){finishBusy("定位失败"+(response?" HTTP "+response.status:""));return;}
+ receive(req,response=>{
+  if(!response||!response.ok){locationFailed("定位失败"+(response?" HTTP "+response.status:""));return;}
   const found=parseGeoIp(response.body||"");
-  if(!found){finishBusy("定位数据无法解析");return;}
-  place=found;paintSnapshot(null);persist();fetchWeather();
- },error=>{finishBusy("定位失败："+(error&&error.message?error.message:"网络错误"));});
+  if(!found){locationFailed("定位数据无法解析");return;}
+  selectPlace(found,"auto");fetchWeather();
+ },error=>{locationFailed(networkError("定位",error));});
 }
 function searchCity(){
  if(busy)return;
@@ -148,7 +167,7 @@ function searchCity(){
  try{req=request(searchUrl(name));}
  catch(error){finishBusy("无法发起搜索");return;}
  taskId=req.taskId||0;
- req.then(response=>{
+ receive(req,response=>{
   if(!response||!response.ok){finishBusy("搜索失败"+(response?" HTTP "+response.status:""));return;}
   hits=parseSearch(response.body||"");
   paintHits();
@@ -158,14 +177,14 @@ function searchCity(){
 }
 function pickHit(index){
  if(busy||!hits[index])return;
- mode="manual";place={name:hits[index].name,lat:hits[index].lat,lon:hits[index].lon};
- hits=[];paintHits();paintSnapshot(null);persist();
+ selectPlace({name:hits[index].name,lat:hits[index].lat,lon:hits[index].lon},"manual");
+ hits=[];paintHits();
  busy=true;Ouse.ui.setEnabled("search",false);Ouse.ui.setEnabled("auto",false);Ouse.ui.setEnabled("refresh",false);
  fetchWeather();
 }
 function refresh(){
  if(busy)return;
- if(mode==="auto"||!place){locateAuto();return;}
+ if(!validPlace(place)){locateAuto();return;}
  busy=true;Ouse.ui.setEnabled("search",false);Ouse.ui.setEnabled("auto",false);Ouse.ui.setEnabled("refresh",false);
  paintDate();fetchWeather();
 }
@@ -175,14 +194,15 @@ Ouse.ui.on("refresh","click",refresh);
 for(let i=0;i<5;i++)Ouse.ui.on("hit"+i,"click",()=>pickHit(i));
 paintDate();paintSnapshot(null);paintStatus("");paintHits();
 Ouse.storage.get("weather").then(value=>{
+ if(closed||revision)return;
  if(value&&(value.version===2||value.version===3)){
   mode=value.mode==="manual"?"manual":"auto";
-  if(value.place&&typeof value.place.name==="string"&&Number.isFinite(value.place.lat)&&Number.isFinite(value.place.lon))place=value.place;
-  else if(value.autoPlace&&typeof value.autoPlace.name==="string")place=value.autoPlace;
+  if(validPlace(value.place))place=value.place;
+  else if(validPlace(value.autoPlace))place=value.autoPlace;
   if(value.snapshot&&typeof value.snapshot.temp==="number")snapshot=value.snapshot;
  }
  paintDate();paintSnapshot(snapshot);paintStatus("");
  if(place)refresh();else locateAuto();
-},()=>{locateAuto();});
+},()=>{if(!closed&&!revision)locateAuto();});
 Ouse.timers.setInterval(paintDate,30000);
-globalThis.app={onResume(){paintDate();},onClose(){if(taskId)Ouse.tasks.cancel(taskId);}};
+globalThis.app={onResume(){paintDate();},onClose(){closed=true;++revision;if(taskId)Ouse.tasks.cancel(taskId);}};

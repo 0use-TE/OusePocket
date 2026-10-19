@@ -7,7 +7,7 @@ Copy-Item -Path "$PSScriptRoot/local-bpk/*" -Destination $bundleRoot
 $serialPath = & python -c 'import serial; print(serial.__path__[0])'
 if ($LASTEXITCODE -ne 0) { throw 'Python with pyserial is required to package this tool.' }
 Copy-Item -LiteralPath $serialPath.Trim() -Destination "$bundleRoot/vendor" -Recurse -Force
-$sources = @('apps/resource-monitor', 'apps/api-test', 'apps/service-test', 'apps/music', 'apps/alarm', 'apps/countdown', 'apps/stopwatch', 'examples/calculator', 'examples/counter')
+$sources = @('apps/resource-monitor', 'apps/api-test', 'apps/service-test', 'apps/music', 'apps/alarm', 'apps/countdown', 'apps/stopwatch', 'apps/calculator', 'apps/counter')
 foreach ($source in $sources) {
     $name = Split-Path $source -Leaf
     & python "$PSScriptRoot/bpk.py" pack "$projectRoot/$source" "$bundleRoot/packages/$name.bpk"

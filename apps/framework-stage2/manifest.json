@@ -3,7 +3,19 @@
   "api": 1,
   "id": "user.stage2-test",
   "name": "Stage 2 Test",
-  "names": {"zh_CN": "第二阶段测试", "en": "Stage 2 Test"},
+  "names": {
+    "zh_CN": "第二阶段测试",
+    "en": "Stage 2 Test"
+  },
   "icon": "icon.bin",
-  "capabilities": {"background": true, "notifications": true}
+  "capabilities": {
+    "background": true,
+    "notifications": true
+  },
+  "versionCode": 1,
+  "versionName": "1.0.0",
+  "author": "OusePocket",
+  "releasedAt": "2026-10-19",
+  "description": "第二阶段测试",
+  "minNativeApi": 1
 }

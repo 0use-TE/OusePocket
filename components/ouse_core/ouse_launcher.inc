@@ -1,19 +1,67 @@
 typedef struct {
     char (*ids)[48];
     unsigned count;
-    lv_obj_t **tiles,*ghost;
+    lv_obj_t **tiles,**badges,*ghost;
     unsigned tile_capacity,from,to;
     lv_indev_t *pointer;
     lv_point_t point;
     uint32_t edge_since,revision,saving_revision;
     int edge;
-    bool dragging,suppress_click,loaded,restored,io,writing,dirty,failed;
+    bool dragging,suppress_click,loaded,restored,io,writing,dirty,failed,editing;
+    char remove_id[48];
+    uint32_t remove_request;
     atomic_bool completed;
     esp_err_t error;
     char *result;
 } launcher_state_t;
 static OUSE_PSRAM_BSS launcher_state_t launcher;
 static void launcher_cancel(void);
+static void launcher_edit(bool enabled)
+{
+    launcher.editing=enabled;
+    for(unsigned index=0;index<core.app_count && index<launcher.tile_capacity;++index){
+        if(!launcher.badges[index])continue;
+        if(enabled)lv_obj_remove_flag(launcher.badges[index],LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_add_flag(launcher.badges[index],LV_OBJ_FLAG_HIDDEN);
+    }
+}
+static void launcher_blank(lv_event_t *event)
+{
+    if(launcher.editing && lv_event_get_target_obj(event)==lv_event_get_current_target_obj(event))launcher_edit(false);
+}
+static void launcher_remove_confirmed(void)
+{
+    if(launcher.remove_request)return;
+    esp_err_t error=ouse_manager_request(OUSE_MANAGER_UNINSTALL,launcher.remove_id,&launcher.remove_request);
+    if(error!=ESP_OK)ouse_dialog_show(ouse_ui_locale() ? "Application service busy. Try again." : "应用服务繁忙，请稍后重试。",NULL,NULL);
+}
+static void launcher_remove_clicked(lv_event_t *event)
+{
+    if(launcher.dragging || launcher.remove_request || ouse_dialog_active())return;
+    const char *id=lv_event_get_user_data(event);ouse_app_info_t info;
+    if(!launcher.editing || strncmp(id,"user.",5) || ouse_app_find_info(id,&info)!=ESP_OK)return;
+    strcpy(launcher.remove_id,id);
+    char body[360];snprintf(body,sizeof(body),"%s\n\n%s",info.name,ouse_ui_locale() ?
+        "Uninstall this app and its local data and alarms? SD files stay." :
+        "卸载应用并删除本地数据和闹钟？SD 卡文件会保留。");
+    ouse_dialog_show(body,ouse_ui_locale() ? "Uninstall" : "卸载",launcher_remove_confirmed);
+}
+static void launcher_badge(unsigned index,int cell_width)
+{
+    launcher.badges[index]=NULL;
+    if(strncmp(core.icons[index].id,"user.",5))return;
+    lv_obj_t *badge=lv_button_create(launcher.tiles[index]);lv_obj_remove_style_all(badge);
+    lv_obj_set_size(badge,ouse_ui_dp(28),ouse_ui_dp(28));
+    lv_obj_set_pos(badge,(cell_width+ouse_ui_dp(40))/2-ouse_ui_dp(18),0);
+    lv_obj_set_style_bg_color(badge,lv_color_hex(0xD63648),0);
+    lv_obj_set_style_bg_opa(badge,LV_OPA_COVER,0);lv_obj_set_style_radius(badge,LV_RADIUS_CIRCLE,0);
+    lv_obj_remove_flag(badge,LV_OBJ_FLAG_SCROLLABLE|LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_t *mark=lv_label_create(badge);ouse_ui_text(mark,"X");ouse_ui_use_font(mark,16);
+    lv_obj_set_style_text_color(mark,lv_color_hex(0xFFFFFF),0);lv_obj_center(mark);
+    lv_obj_add_event_cb(badge,launcher_remove_clicked,LV_EVENT_CLICKED,core.icons[index].id);
+    launcher.badges[index]=badge;
+    if(!launcher.editing)lv_obj_add_flag(badge,LV_OBJ_FLAG_HIDDEN);
+}
 
 static int launcher_rank(const char *id)
 {
@@ -39,7 +87,8 @@ static bool launcher_tiles(unsigned count)
 {
     if(count>launcher.tile_capacity){
         lv_obj_t **tiles=ouse_psram_calloc(count,sizeof(*tiles));if(!tiles)return false;
-        free(launcher.tiles);launcher.tiles=tiles;launcher.tile_capacity=count;
+        lv_obj_t **badges=ouse_psram_calloc(count,sizeof(*badges));if(!badges){free(tiles);return false;}
+        free(launcher.tiles);free(launcher.badges);launcher.tiles=tiles;launcher.badges=badges;launcher.tile_capacity=count;
     }
     return true;
 }
@@ -138,6 +187,7 @@ static void launcher_touch(lv_event_t *event)
     lv_event_code_t code=lv_event_get_code(event);lv_obj_t *tile=lv_event_get_target_obj(event);
     if(code==LV_EVENT_PRESSED)launcher.suppress_click=false;
     if(code==LV_EVENT_LONG_PRESSED && !launcher.dragging && launcher.loaded && launcher.restored){
+        launcher_edit(true);
         unsigned index=0;while(index<core.app_count && launcher.tiles[index]!=tile)++index;
         lv_indev_t *pointer=lv_event_get_indev(event);if(index==core.app_count || !pointer)return;
         launcher.ghost=lv_obj_create(core.screen);lv_obj_remove_style_all(launcher.ghost);
@@ -157,6 +207,14 @@ static void launcher_touch(lv_event_t *event)
 static void launcher_tick(lv_timer_t *timer)
 {
     (void)timer;
+    if(launcher.remove_request){
+        ouse_manager_state_t state={0};ouse_manager_get(&state);
+        if(state.completed_id==launcher.remove_request){
+            launcher.remove_request=0;
+            if(state.error!=ESP_OK)ouse_dialog_show(ouse_ui_locale() ? "Uninstall failed. Try again in Settings." : "卸载失败，请在设置中重试。",NULL,NULL);
+        }
+        ouse_manager_release(&state);
+    }
     if(launcher.dragging){
         if(!lv_obj_is_visible(core.home)){launcher_cancel();return;}
         if(launcher.edge && lv_tick_elaps(launcher.edge_since)>=500){

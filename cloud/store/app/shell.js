@@ -1,0 +1,5 @@
+"use client";
+import {usePathname} from "next/navigation";
+import Link from "next/link";
+import {Icon} from "./components";
+export default function Shell({children}){const pathname=usePathname();return <div className="store-shell"><aside className="sidebar"><Link href="/" className="brand"><span className="brand-mark"><Icon name="box" size={26}/></span><span>Ouse<span className="brand-caption">应用商店</span></span></Link><div className="nav-caption">探索口袋世界</div><nav aria-label="主要导航"><Link href="/" className={pathname==="/"?"nav-link active":"nav-link"}><Icon name="grid"/>发现应用<Icon name="arrow" size={16}/></Link><Link href="/publish" className={pathname==="/publish"?"nav-link active":"nav-link"}><Icon name="upload"/>发布应用</Link><Link href="/about" className={pathname==="/about"?"nav-link active":"nav-link"}><Icon name="spark"/>关于</Link></nav></aside><div className="workspace">{pathname==="/publish"&&<header className="topbar"><span>开发者中心</span><Link href="/" className="topbar-link">返回商店<Icon name="arrow" size={16}/></Link></header>}{children}<footer className="site-footer"><span>OusePocket</span><span>让小设备，也有大用处。</span></footer></div></div>;}

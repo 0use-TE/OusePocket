@@ -60,6 +60,7 @@ esp_err_t ouse_storage_get_stats(ouse_storage_stats_t *out);
 // Includes queued/in-flight maintenance and purge, not just public task records.
 bool ouse_storage_idle(void);
 esp_err_t ouse_storage_launcher(bool write,const char *value,ouse_storage_complete_t complete,void *context);
+esp_err_t ouse_storage_file_defaults(bool write,const char *value,ouse_storage_complete_t complete,void *context);
 #ifdef __cplusplus
 }
 #endif

@@ -4,14 +4,14 @@ const vm=require("node:vm");
 function load(ready,permission="granted"){
  const state={active:false,stopping:false,busy:false,more:false,entries:[],durationMs:0,ended:1792300000,path:"",offset:0};
  const card={ready,present:ready},media={active:false},texts={},enabled={},shown=new Set(),handlers={},requests=[],intervals=[];
- let complete,identifier=100,stops=0;const permissions={microphone:permission,sharedDelete:permission},cleared=new Set();
+ let complete,identifier=100,stops=0,rowWrites=0;const permissions={microphone:permission,sharedDelete:permission},cleared=new Set();
  const request=(operation,...args)=>{requests.push([operation,...args]);return ++identifier;};
- const api={ui:{setText(key,value){texts[key]=value;},getText:key=>texts[key],setEnabled(key,value){enabled[key]=value;},show:key=>shown.add(key),hide:key=>shown.delete(key),on(key,event,handler){handlers[key]=handler;},scrollTo(){}},
+ const api={ui:{setText(key,value){texts[key]=value;if(key.startsWith("entry"))++rowWrites;},getText:key=>texts[key],setEnabled(key,value){enabled[key]=value;},show:key=>shown.add(key),hide:key=>shown.delete(key),on(key,event,handler){handlers[key]=handler;},scrollTo(){}},
  files:{get:()=>card},recorder:{get:()=>state,list:offset=>request("list",offset),start:()=>request("start"),stop(){++stops;state.stopping=true;return true;},rename:(...args)=>request("rename",...args),remove:path=>request("remove",path)},
  permissions:{get:name=>permissions[name],request:name=>permissions[name]},
  media:{get:()=>media,stop(){media.active=false;},play(value){requests.push(["play",value.path]);media.active=true;return 500;}},timers:{setInterval(fn){intervals.push(fn);return intervals.length;},clear(id){cleared.add(id);}},tasks:{onComplete(fn){complete=fn;}}};
  const context=vm.createContext({Ouse:api});vm.runInContext(fs.readFileSync("apps/recorder/app.js","utf8"),context);
- return {state,card,media,texts,enabled,shown,requests,permissions,timerCount:()=>intervals.length-cleared.size,lifecycle:context.app,stops:()=>stops,click:key=>handlers[key](),tick:()=>intervals.slice().forEach((fn,index)=>{if(!cleared.has(index+1))fn();}),finish(ok=true){complete({id:identifier,state:ok?"succeeded":"failed"});}};
+ return {state,card,media,texts,enabled,shown,requests,permissions,rowWrites:()=>rowWrites,timerCount:()=>intervals.length-cleared.size,lifecycle:context.app,stops:()=>stops,click:key=>handlers[key](),tick:()=>intervals.slice().forEach((fn,index)=>{if(!cleared.has(index+1))fn();}),finish(ok=true){complete({id:identifier,state:ok?"succeeded":"failed"});}};
 }
 {
  const app=load(false);assert(app.shown.has("dialog"));assert.equal(app.requests.length,0);assert.equal(app.enabled.record,false);
@@ -23,6 +23,7 @@ function load(ready,permission="granted"){
  app.state.active=false;app.state.stopping=false;app.state.path="Recordings/REC_1792300000_test.wav";app.finish();assert(app.shown.has("nameDialog"));
  app.texts.name="我的录音";app.click("saveName");assert.deepEqual(app.requests.at(-1),["rename",app.state.path,"我的录音"]);app.finish();assert(!app.shown.has("nameDialog"));assert.deepEqual(app.requests.at(-1),["list",0]);
  app.state.entries=[{path:"Recordings/我的录音.wav",durationMs:65000,ended:1792300000}];app.finish();assert(app.texts.entry0.includes("01:05"));assert(app.texts.entry0.includes("2026-"));
+ const rendered=app.rowWrites();for(let index=0;index<40;++index)app.tick();assert.equal(app.rowWrites(),rendered);
  app.click("entry0");app.click("play");assert.deepEqual(app.requests.at(-1),["play",app.state.entries[0].path]);
  app.click("remove");assert(app.shown.has("deleteDialog"));assert.notEqual(app.requests.at(-1)[0],"remove");app.click("confirmDelete");assert.deepEqual(app.requests.at(-1),["remove",app.state.entries[0].path]);app.finish();app.finish();
  app.lifecycle.onPause();app.lifecycle.onClose();assert(app.stops()>=3);assert(!app.media.active);

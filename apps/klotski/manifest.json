@@ -1,1 +1,32 @@
-{"runtime":"ouse-core","api":1,"id":"user.klotski","name":"Klotski","names":{"zh_CN":"华容道","en":"Klotski"},"icon":"icon.bin","capabilities":{"media":true},"assets":[{"id":"click","type":"binary","path":"assets/click.wav"},{"id":"win","type":"binary","path":"assets/win.wav"}]}
+{
+  "runtime": "ouse-core",
+  "api": 1,
+  "id": "user.klotski",
+  "name": "Klotski",
+  "names": {
+    "zh_CN": "华容道",
+    "en": "Klotski"
+  },
+  "icon": "icon.bin",
+  "capabilities": {
+    "media": true
+  },
+  "assets": [
+    {
+      "id": "click",
+      "type": "binary",
+      "path": "assets/click.wav"
+    },
+    {
+      "id": "win",
+      "type": "binary",
+      "path": "assets/win.wav"
+    }
+  ],
+  "versionCode": 1,
+  "versionName": "1.0.0",
+  "author": "OusePocket",
+  "releasedAt": "2026-10-19",
+  "description": "华容道：横刀立马。",
+  "minNativeApi": 1
+}

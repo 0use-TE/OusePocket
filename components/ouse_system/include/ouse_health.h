@@ -17,7 +17,7 @@ typedef struct {
     uint32_t task_id,instance_id;
     bool javascript,cancellable,stopping;
 } ouse_activity_t;
-typedef enum { OUSE_CONTROL_RESTART,OUSE_CONTROL_RESUME,OUSE_CONTROL_STOP } ouse_control_action_t;
+typedef enum { OUSE_CONTROL_RESTART,OUSE_CONTROL_RESUME,OUSE_CONTROL_STOP,OUSE_CONTROL_SHUTDOWN } ouse_control_action_t;
 typedef struct {ouse_control_action_t action;char app_id[48];uint32_t task_id,instance_id;} ouse_control_t;
 typedef struct {
     uint64_t sampled_ms;

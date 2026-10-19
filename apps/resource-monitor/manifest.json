@@ -7,5 +7,11 @@
     "zh_CN": "资源监视",
     "en": "Resources"
   },
-  "icon": "icon.bin"
+  "icon": "icon.bin",
+  "versionCode": 1,
+  "versionName": "1.0.0",
+  "author": "OusePocket",
+  "releasedAt": "2026-10-19",
+  "description": "查看系统资源占用。",
+  "minNativeApi": 1
 }

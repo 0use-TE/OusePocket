@@ -1,5 +1,24 @@
 {
-  "runtime":"ouse-core","api":1,"id":"user.gallery","name":"Gallery",
-  "names":{"zh_CN":"相册","en":"Gallery"},"icon":"icon.bin",
-  "capabilities":{"photos":true}
+  "runtime": "ouse-core",
+  "api": 1,
+  "id": "user.gallery",
+  "name": "Gallery",
+  "names": {
+    "zh_CN": "相册",
+    "en": "Gallery"
+  },
+  "icon": "icon.bin",
+  "minNativeApi": 38,
+  "versionCode": 1,
+  "versionName": "1.0.0",
+  "fileTypes": [
+    "image/jpeg",
+    "video/x-msvideo"
+  ],
+  "capabilities": {
+    "photos": true
+  },
+  "author": "OusePocket",
+  "releasedAt": "2026-10-19",
+  "description": "浏览相册照片与录像。"
 }

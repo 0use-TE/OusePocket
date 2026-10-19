@@ -84,7 +84,7 @@ def client(token=0x12345678):
 
 
 def package(app_id="user.counter", script=None, page=None, manifest=None, names=None, compression=0, icon=None):
-    source = ROOT/"examples/counter"
+    source = ROOT/"apps/counter"
     m = json.loads((source/"manifest.json").read_text(encoding="utf-8"))
     m["id"] = app_id
     if manifest:

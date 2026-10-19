@@ -15,6 +15,7 @@ parse=service[service.index('static bool address_parse('):service.index('static 
 for name,text in {'esp_err.h':'#pragma once\ntypedef int esp_err_t;\n','ouse_tasks.h':'#pragma once\n#include "esp_err.h"\n#include <stdint.h>\n#include <stddef.h>\n#include <stdbool.h>\ntypedef struct {char app_id[48];uint32_t instance;} ouse_task_owner_t;\n'}.items():(output/name).write_text(text,encoding='utf-8')
 fixture=r'''
 #include "ouse_ble_app.h"
+#include "ouse_ble.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -41,6 +42,8 @@ static uint16_t connection=BLE_HS_CONN_HANDLE_NONE;
 static uint32_t next_task=100,hid_release_at;
 static unsigned finishes,releases,disconnects,advertisements,submitted;
 static int lock;
+static ouse_ble_state_t state;
+static bool hid_subscribed[3],hid_suspended;
 static bool ouse_tasks_submission_begin(void){return !quiescing;}
 static void ouse_tasks_submission_end(void){}
 static int ouse_task_create(const ouse_task_owner_t *owner,int kind,const char *operation,int policy,bool cancellable,uint32_t *id){assert(owner->instance&&kind==6&&policy==1&&cancellable&&!strcmp(operation,"bluetooth.session"));*id=++next_task;return 0;}
@@ -60,6 +63,7 @@ tests=r'''
 int main(void){
  ouse_task_owner_t first={.app_id="user.first",.instance=1},second={.app_id="user.second",.instance=2},spoof={.app_id="user.spoof",.instance=1};uint32_t session=0,other=0;
  assert(!ouse_ble_app_open(&first,false,&session)&&session==101);
+ uint32_t reused=0;assert(!ouse_ble_app_open(&first,false,&reused)&&reused==session&&next_task==101);
  assert(ouse_ble_app_open(&second,false,&other)==ESP_ERR_INVALID_STATE);
  uint8_t data[65]={1,2,3};
  assert(ouse_ble_app_request(&second,session,OUSE_BLE_APP_READ,NULL,0,1,0,NULL,0)==ESP_ERR_INVALID_STATE);
@@ -73,10 +77,16 @@ int main(void){
  application.count=0;application.head=0;struct os_mbuf buffer={.size=100};memset(buffer.data,7,sizeof(buffer.data));app_event(session,"notification",0,9,0,0,NULL,&buffer);
  assert(ouse_ble_app_poll(&first,session,&event,&dropped)&&event.truncated&&event.size==64&&event.data[63]==7);
  ouse_ble_app_close(&second);assert(app_session()==session);ouse_ble_app_close(&first);assert(!app_session()&&application.retiring==session);
+ ouse_ble_app_close(&first);ouse_ble_app_close(&first);assert(application.retiring==session);
  assert(ouse_ble_app_request(&first,session,OUSE_BLE_APP_READ,NULL,0,1,0,NULL,0)==ESP_ERR_INVALID_STATE);
  application.attached=true;connection=7;app_tick();assert(disconnects==1&&application.retiring);
  application.attached=false;connection=65535;app_tick();assert(!application.retiring&&advertisements==1&&releases>=2);
  assert(!ouse_ble_app_open(&second,true,&other));assert(ouse_ble_app_request(&first,session,OUSE_BLE_APP_RELEASE,NULL,0,0,0,NULL,0)==ESP_ERR_INVALID_STATE);
+ ouse_ble_app_state_t snapshot;ouse_ble_app_get(&second,&snapshot);assert(snapshot.session==other&&!snapshot.consumer_ready&&!snapshot.busy);
+ state.connected=true;state.encrypted=true;hid_subscribed[1]=true;ouse_ble_app_get(&second,&snapshot);assert(!snapshot.consumer_ready);
+ state.authenticated=true;ouse_ble_app_get(&second,&snapshot);assert(snapshot.consumer_ready&&!snapshot.keyboard_ready);
+ ouse_ble_app_get(&first,&snapshot);assert(!snapshot.session&&snapshot.busy&&!snapshot.consumer_ready);
+ hid_suspended=true;ouse_ble_app_get(&second,&snapshot);assert(!snapshot.consumer_ready);hid_suspended=false;
  assert(!ouse_ble_app_request(&second,other,OUSE_BLE_APP_KEYBOARD,NULL,0,0,0,data,8));assert(ouse_ble_app_request(&second,other,OUSE_BLE_APP_READ,NULL,0,1,0,NULL,0)==ESP_ERR_INVALID_STATE);
  cancelled=true;app_tick();assert(!app_session()&&!application.retiring);quiescing=true;assert(ouse_ble_app_open(&first,false,&session)==ESP_ERR_INVALID_STATE);
  puts("PASS production BLE exclusive leases, cross-app/stale-token rejection, command copy bounds, event overflow/truncation, central-vs-HID isolation and cancellation/close release before lease reuse");

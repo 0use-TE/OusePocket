@@ -1,6 +1,7 @@
 "use strict";
 let directory="/",start=0,requestId=0,entries=[],more=false,waiting=false,lastReady=null,notice="",requestedPath="/",requestedOffset=0,kind="reset",settle=0,failed=false;
 const labels=Object.create(null),icons=Object.create(null);
+let installId=0,installPhase="";
 function short(value,limit=230){let text="",bytes=0;for(const char of String(value)){const point=char.codePointAt(0),size=point<128?1:point<2048?2:point<65536?3:4;if(bytes+size>limit)return text+"…";text+=char;bytes+=size;}return text;}
 function text(id,value){value=short(value);if(labels[id]!==value){labels[id]=value;Ouse.ui.setText(id,value);}}
 function size(bytes){if(bytes<1024)return bytes+" B";if(bytes<1024*1024)return (bytes/1024).toFixed(1)+" KiB";if(bytes<1024*1024*1024)return (bytes/1024/1024).toFixed(1)+" MiB";return (bytes/1024/1024/1024).toFixed(2)+" GiB";}
@@ -23,6 +24,7 @@ function browse(path,skip=0,action="reset"){
  requestedPath=path;requestedOffset=skip;kind=action;requestId=id;waiting=true;failed=false;if(!entries.length)status("正在读取…");controls();
 }
 function poll(){
+ if(installId){const state=Ouse.packages.state();if(state&&state.taskId===installId){if(installPhase!==state.phase){installPhase=state.phase;status(({queued:"等待安装",downloading:"正在读取安装包",confirmation:"请确认系统安装提示",installing:"正在安装",succeeded:"安装完成",cancelled:"已取消安装",failed:"安装失败："+state.error})[state.phase]||"");}if(!state.busy)installId=0;}else installId=0;}
  const card=Ouse.files.get();
  if(!card.ready){
   if(requestId)Ouse.tasks.cancel(requestId);requestId=0;waiting=false;entries=[];more=false;start=0;controls();
@@ -60,8 +62,10 @@ for(let index=0;index<24;++index)Ouse.ui.on("entry"+index,"click",()=>{
  const item=entries[index];if(!item||waiting)return;
  if(!item.accessible){popup("无法访问","文件信息不可用或路径过长。");return;}
  if(item.directory){browse(item.path);return;}
+ if(/\.bpk$/i.test(item.name)){if(installId){popup("请稍候","另一个安装正在进行。");return;}const id=Ouse.packages.installFromSD(item.path);if(!id){popup("无法安装","安装服务繁忙或 SD 卡不可用。");return;}installId=id;installPhase="";Ouse.ui.hide("dialog");return;}
+ if(/\.(jpe?g|wav|avi)$/i.test(item.name)){if(!Ouse.files.open(item.path))popup("无法打开","文件路径过长或打开服务不可用。");return;}
  popup("文件详情",short(item.name,100)+"\n大小："+size(item.bytes)+"\n路径："+short(item.path,100));
 });
 Ouse.timers.setInterval(poll,150);
-globalThis.app={onResume(){notice="";poll();},onClose(){if(requestId)Ouse.tasks.cancel(requestId);}};
+globalThis.app={onResume(){notice="";poll();},onClose(){if(requestId)Ouse.tasks.cancel(requestId);if(installId)Ouse.tasks.cancel(installId);}};
 controls();poll();

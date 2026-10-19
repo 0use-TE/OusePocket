@@ -156,7 +156,7 @@ esp_err_t ouse_media_play(const ouse_task_owner_t *owner,const char *url,const v
     if(!owner || !owner->app_id[0] || (url && (data || size)) || (!url && (!data || !size || size>OUSE_MEDIA_ASSET_MAX)))return ESP_ERR_INVALID_ARG;
     if(!sources)return ESP_ERR_INVALID_STATE;
     if(url){
-        if(!strncmp(url,"sd:",3)){char absolute[180];if(!ouse_files_path(url+3,absolute,sizeof(absolute)))return ESP_ERR_INVALID_ARG;}
+        if(!strncmp(url,"sd:",3)){char absolute[180];if(!ouse_files_read_path(url+3,absolute,sizeof(absolute)))return ESP_ERR_INVALID_ARG;}
         else{ouse_http_request_t request={.url=url,.method="GET",.timeout_ms=15000};if(ouse_http_validate(&request)!=ESP_OK)return ESP_ERR_INVALID_ARG;}
     }
     source_t *source=calloc(1,sizeof(*source));if(!source)return ESP_ERR_NO_MEM;

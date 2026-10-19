@@ -5,7 +5,7 @@
 #define OUSE_BLE_PEERS_MAX 16
 typedef struct {char name[49],address[18],service[37];uint8_t type;int8_t rssi;bool bonded;} ouse_ble_peer_t;
 typedef struct {
-    bool available,enabled,starting,ready,scanning,advertising,connected,encrypted,bonded,pair_pending;
+    bool available,enabled,starting,ready,scanning,advertising,connected,encrypted,authenticated,bonded,pair_pending;
     uint32_t revision,pair_id,number;
     int error;
     char address[18],peer[18];

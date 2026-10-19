@@ -84,9 +84,11 @@ unsigned ouse_files_list(unsigned offset,ouse_file_entry_t *out,unsigned capacit
     while(state.ready && count<capacity && offset+count<state.count){out[count]=entries[offset+count];++count;}
     unlock();return count;
 }
+bool ouse_files_read_path(const char *path,char *absolute,size_t capacity)
+{return path && path[0]=='/' ? ouse_sd_browser_path(path,absolute,capacity) : ouse_files_path(path,absolute,capacity);}
 FILE *ouse_files_open(const char *path)
 {
-    char absolute[180];if(!ouse_files_path(path,absolute,sizeof(absolute)))return NULL;
+    char absolute[180];if(!ouse_files_read_path(path,absolute,sizeof(absolute)))return NULL;
     ouse_files_state_t snapshot;ouse_files_get(&snapshot);if(!snapshot.ready)return NULL;
     if(!ouse_files_lease_begin())return NULL;
     FILE *file=fopen(absolute,"rb");if(!file)ouse_files_lease_end();return file;

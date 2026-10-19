@@ -3,6 +3,7 @@
 #include "ouse_protocol.h"
 #include "quickjs.h"
 #include "ouse_memory.h"
+#include "ouse_core.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -152,6 +153,21 @@ static bool valid_id(const char *id)
     for(const char *s=id;*s;++s)if(!((*s>='a' && *s<='z') || (*s>='0' && *s<='9') || *s=='.' || *s=='_' || *s=='-'))return false;
     return true;
 }
+static bool release_fields(JSContext *ctx,JSValue doc,ouse_bpk_t *p)
+{
+    const char *metadata_keys[]={"description","author","releasedAt"};char *metadata_values[]={p->description,p->author,p->released_at};const size_t capacities[]={sizeof(p->description),sizeof(p->author),sizeof(p->released_at)};
+    for(unsigned index=0;index<3;++index){JSValue value=JS_GetPropertyStr(ctx,doc,metadata_keys[index]);bool present=!JS_IsUndefined(value);bool valid=!present||field(ctx,doc,metadata_keys[index],metadata_values[index],capacities[index]);JS_FreeValue(ctx,value);if(!valid)return false;}
+    if(p->released_at[0]){
+        const char *date=p->released_at;if(strlen(date)!=10||date[4]!='-'||date[7]!='-')return false;
+        for(unsigned index=0;index<10;++index)if(index!=4&&index!=7&&(date[index]<'0'||date[index]>'9'))return false;
+        unsigned year=(date[0]-'0')*1000+(date[1]-'0')*100+(date[2]-'0')*10+date[3]-'0',month=(date[5]-'0')*10+date[6]-'0',day=(date[8]-'0')*10+date[9]-'0';
+        static const unsigned days[]={31,28,31,30,31,30,31,31,30,31,30,31};if(!year||month<1||month>12||day<1||day>days[month-1]+(month==2&&year%4==0&&(year%100!=0||year%400==0)))return false;
+    }
+    const char *keys[]={"versionCode","minNativeApi"};uint32_t *values[]={&p->version_code,&p->min_native_api};p->min_native_api=1;
+    for(unsigned index=0;index<2;++index){JSValue value=JS_GetPropertyStr(ctx,doc,keys[index]);double number=0;bool valid=JS_IsUndefined(value)||(JS_IsNumber(value)&&JS_ToFloat64(ctx,&number,value)==0&&number>=1&&number<=2147483647&&number==(uint32_t)number);if(!JS_IsUndefined(value)&&valid)*values[index]=(uint32_t)number;JS_FreeValue(ctx,value);if(!valid)return false;}
+    JSValue name=JS_GetPropertyStr(ctx,doc,"versionName");bool valid=JS_IsUndefined(name)||field(ctx,doc,"versionName",p->version_name,sizeof(p->version_name));JS_FreeValue(ctx,name);
+    return valid&&p->min_native_api<=OUSE_CORE_API_VERSION;
+}
 static bool capabilities(JSContext *ctx,JSValue doc,ouse_bpk_t *p)
 {
     JSValue caps=JS_GetPropertyStr(ctx,doc,"capabilities");
@@ -161,7 +177,7 @@ static bool capabilities(JSContext *ctx,JSValue doc,ouse_bpk_t *p)
     if(valid)valid=JS_GetOwnPropertyNames(ctx,&keys,&count,caps,JS_GPN_STRING_MASK|JS_GPN_ENUM_ONLY)==0;
     for(uint32_t i=0;valid && i<count;++i){
         const char *key=JS_AtomToCString(ctx,keys[i].atom);
-        valid=key && (!strcmp(key,"background") || !strcmp(key,"notifications") || !strcmp(key,"network") || !strcmp(key,"media") || !strcmp(key,"alarms") || !strcmp(key,"files") || !strcmp(key,"sdcard") || !strcmp(key,"camera") || !strcmp(key,"photos") || !strcmp(key,"bluetooth") || !strcmp(key,"hid"));
+        valid=key && (!strcmp(key,"background") || !strcmp(key,"notifications") || !strcmp(key,"network") || !strcmp(key,"media") || !strcmp(key,"alarms") || !strcmp(key,"files") || !strcmp(key,"sdcard") || !strcmp(key,"camera") || !strcmp(key,"photos") || !strcmp(key,"bluetooth") || !strcmp(key,"hid") || !strcmp(key,"packages"));
         if(key)JS_FreeCString(ctx,key);
     }
     JSValue background=JS_GetPropertyStr(ctx,caps,"background");
@@ -172,8 +188,8 @@ static bool capabilities(JSContext *ctx,JSValue doc,ouse_bpk_t *p)
     valid=valid && (JS_IsUndefined(notifications) || JS_IsBool(notifications));
     if(valid)p->package.notifications_allowed=JS_ToBool(ctx,notifications)>0;
     JS_FreeValue(ctx,notifications);
-    const char *services[]={"network","media","alarms","files","sdcard","camera","photos","bluetooth","hid"};
-    bool *allowed[]={&p->package.network_allowed,&p->package.media_allowed,&p->package.alarms_allowed,&p->package.files_allowed,&p->package.sdcard_allowed,&p->package.camera_allowed,&p->package.photos_allowed,&p->package.bluetooth_allowed,&p->package.hid_allowed};
+    const char *services[]={"network","media","alarms","files","sdcard","camera","photos","bluetooth","hid","packages"};
+    bool *allowed[]={&p->package.network_allowed,&p->package.media_allowed,&p->package.alarms_allowed,&p->package.files_allowed,&p->package.sdcard_allowed,&p->package.camera_allowed,&p->package.photos_allowed,&p->package.bluetooth_allowed,&p->package.hid_allowed,&p->package.packages_allowed};
     for(unsigned i=0;i<sizeof(services)/sizeof(services[0]);++i){JSValue value=JS_GetPropertyStr(ctx,caps,services[i]);
         valid=valid && (JS_IsUndefined(value) || JS_IsBool(value));
         if(valid)*allowed[i]=JS_ToBool(ctx,value)>0;
@@ -181,6 +197,24 @@ static bool capabilities(JSContext *ctx,JSValue doc,ouse_bpk_t *p)
     }
     for(uint32_t i=0;i<count;++i)JS_FreeAtom(ctx,keys[i].atom);
     js_free(ctx,keys);JS_FreeValue(ctx,caps);return valid;
+}
+static bool file_types(JSContext *context,JSValue document,ouse_bpk_t *package)
+{
+    JSValue values=JS_GetPropertyStr(context,document,"fileTypes");
+    if(JS_IsUndefined(values)){JS_FreeValue(context,values);return true;}
+    uint32_t count=0;bool valid=JS_IsArray(values);
+    JSValue length=JS_GetPropertyStr(context,values,"length");
+    if(JS_ToUint32(context,&count,length) || count>3)valid=false;
+    JS_FreeValue(context,length);
+    for(uint32_t index=0;valid && index<count;++index){
+        JSValue value=JS_GetPropertyUint32(context,values,index);const char *name=JS_IsString(value) ? JS_ToCString(context,value) : NULL;
+        unsigned type=name && !strcmp(name,"image/jpeg") ? OUSE_FILE_JPEG : name && !strcmp(name,"audio/wav") ? OUSE_FILE_WAVE : name && !strcmp(name,"video/x-msvideo") ? OUSE_FILE_AVI : 0;
+        valid=type && !(package->package.file_types&type) && (type==OUSE_FILE_WAVE ? package->package.media_allowed && package->package.files_allowed : package->package.photos_allowed);
+        if(valid)package->package.file_types|=type;
+        if(name)JS_FreeCString(context,name);
+        JS_FreeValue(context,value);
+    }
+    JS_FreeValue(context,values);return valid;
 }
 static bool asset_id(const char *id)
 {
@@ -263,7 +297,8 @@ static esp_err_t parse_package(const unsigned char *bytes,size_t length,ouse_bpk
         valid=!JS_IsException(doc) && JS_IsUndefined(format) && field(ctx,doc,"runtime",runtime,sizeof(runtime)) && !strcmp(runtime,"ouse-core") &&
             integer(ctx,doc,"api",1) && field(ctx,doc,"id",p->id,sizeof(p->id)) &&
             field(ctx,doc,"name",p->name,sizeof(p->name)) && field(ctx,doc,"icon",icon,sizeof(icon)) && valid_id(p->id);
-        if(valid)valid=!strcmp(icon,"icon.bin") && localized_names(ctx,doc,p) && capabilities(ctx,doc,p) && manifest_assets(ctx,doc,p);
+        if(valid)valid=!strcmp(icon,"icon.bin") && localized_names(ctx,doc,p) && capabilities(ctx,doc,p) && file_types(ctx,doc,p) && manifest_assets(ctx,doc,p) && release_fields(ctx,doc,p);
+        if(valid && p->package.file_types)valid=p->min_native_api>=38;
         p->package.icon=LV_SYMBOL_IMAGE;
         JS_FreeValue(ctx,format);JS_FreeValue(ctx,doc);JS_FreeContext(ctx);
     }

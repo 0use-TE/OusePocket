@@ -37,6 +37,7 @@ void ouse_dialog_init(lv_obj_t *screen)
     lv_obj_add_flag(overlay,LV_OBJ_FLAG_HIDDEN);
 }
 bool ouse_dialog_active(void) {return overlay && !lv_obj_has_flag(overlay,LV_OBJ_FLAG_HIDDEN);}
+bool ouse_dialog_action_is(ouse_dialog_action_t callback){return ouse_dialog_active()&&action==callback;}
 bool ouse_dialog_choice_active(void) {return ouse_dialog_active() && choice_action;}
 void ouse_dialog_dismiss(void)
 {

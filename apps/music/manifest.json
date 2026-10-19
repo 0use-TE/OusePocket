@@ -8,6 +8,12 @@
     "en": "Music"
   },
   "icon": "icon.bin",
+  "minNativeApi": 38,
+  "versionCode": 1,
+  "versionName": "1.0.0",
+  "fileTypes": [
+    "audio/wav"
+  ],
   "capabilities": {
     "media": true,
     "files": true,
@@ -26,5 +32,8 @@
       "type": "text",
       "path": "assets/license.txt"
     }
-  ]
+  ],
+  "author": "OusePocket",
+  "releasedAt": "2026-10-19",
+  "description": "播放 SD 卡与内置 WAV。"
 }

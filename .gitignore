@@ -2,15 +2,6 @@
 .reference/
 .tools/
 **/node_modules/
-examples/**/build/
-examples/**/build-rev*/
-examples/**/dist/
-examples/**/sign/
-examples/**/managed_components/
-examples/**/sdkconfig
-examples/**/sdkconfig.old
-examples/**/sdkconfig.rev*
-examples/**/littlefs/
 **/__pycache__/
 
 # Active root ESP-IDF project and portable firmware backups

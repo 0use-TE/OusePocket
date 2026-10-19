@@ -11,5 +11,11 @@
   "capabilities": {
     "background": true,
     "notifications": true
-  }
+  },
+  "versionCode": 1,
+  "versionName": "1.0.0",
+  "author": "OusePocket",
+  "releasedAt": "2026-10-19",
+  "description": "倒计时提醒。",
+  "minNativeApi": 1
 }

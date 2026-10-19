@@ -18,7 +18,7 @@ static const uint8_t hid_map[]={
     0x05,0x01,0x09,0x02,0xa1,0x01,0x85,0x03,0x09,0x01,0xa1,0x00,0x05,0x09,0x19,0x01,0x29,0x05,0x15,0x00,0x25,0x01,0x95,0x05,0x75,0x01,0x81,0x02,
     0x95,0x01,0x75,0x03,0x81,0x01,0x05,0x01,0x09,0x30,0x09,0x31,0x09,0x38,0x15,0x81,0x25,0x7f,0x75,0x08,0x95,0x03,0x81,0x06,0xc0,0xc0};
 static bool app_owned(const ouse_task_owner_t *owner,uint32_t session)
-{return owner && owner->instance && application.session==session && application.owner.instance==owner->instance && !strcmp(application.owner.app_id,owner->app_id);}
+{return session && owner && owner->instance && application.session==session && application.owner.instance==owner->instance && !strcmp(application.owner.app_id,owner->app_id);}
 static uint32_t app_session(void)
 {portENTER_CRITICAL(&lock);uint32_t value=application.session;portEXIT_CRITICAL(&lock);return value;}
 static bool app_central_active(void)
@@ -142,6 +142,10 @@ static void app_gap_event(struct ble_gap_event *event)
 esp_err_t ouse_ble_app_open(const ouse_task_owner_t *owner,bool hid,uint32_t *session)
 {
     if(!owner || !owner->instance || !session || !enabled || !synced || !ouse_tasks_submission_begin())return ESP_ERR_INVALID_STATE;
+    portENTER_CRITICAL(&lock);bool existing=app_owned(owner,application.session) && application.hid==hid;
+    if(existing)*session=application.session;
+    bool occupied=application.session || application.retiring;portEXIT_CRITICAL(&lock);
+    if(existing || occupied){ouse_tasks_submission_end();return existing ? ESP_OK : ESP_ERR_INVALID_STATE;}
     uint32_t id=0;esp_err_t error=ouse_task_create(owner,OUSE_TASK_NETWORK,"bluetooth.session",OUSE_TASK_STOP_ON_CLOSE,true,&id);
     if(!error && !ouse_task_start(id,true))error=ESP_ERR_INVALID_STATE;
     if(!error){
@@ -153,6 +157,15 @@ esp_err_t ouse_ble_app_open(const ouse_task_owner_t *owner,bool hid,uint32_t *se
     if(!error && !hid){(void)ble_gap_adv_stop();if(connection!=BLE_HS_CONN_HANDLE_NONE)(void)ble_gap_terminate(connection,BLE_ERR_REM_USER_CONN_TERM);}
     if(error && id)ouse_task_finish(id,error,false);
     ouse_tasks_submission_end();return error;
+}
+void ouse_ble_app_get(const ouse_task_owner_t *owner,ouse_ble_app_state_t *out)
+{
+    if(!out)return;
+    portENTER_CRITICAL(&lock);bool owned=app_owned(owner,application.session);
+    bool ready=owned && application.hid && state.connected && state.encrypted && state.authenticated && !hid_suspended;
+    *out=(ouse_ble_app_state_t){.session=owned ? application.session : 0,.busy=(application.session || application.retiring) && !owned,.closing=application.retiring!=0,
+        .keyboard_ready=ready && hid_subscribed[0],.consumer_ready=ready && hid_subscribed[1],.mouse_ready=ready && hid_subscribed[2]};
+    portEXIT_CRITICAL(&lock);
 }
 esp_err_t ouse_ble_app_request(const ouse_task_owner_t *owner,uint32_t session,ouse_ble_app_operation_t operation,const char *address,uint8_t type,uint16_t handle,uint16_t end,const void *data,size_t size)
 {

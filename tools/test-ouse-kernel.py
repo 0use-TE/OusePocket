@@ -132,6 +132,13 @@ static void device_tests(void){
     assert(ouse_task_cancel(&owner,first,"cancel")==ESP_ERR_NOT_SUPPORTED);
     ouse_task_owner_close(&owner);ouse_task_finish(first,ESP_OK,false);
     assert(ouse_task_get(NULL,first,&task) && task.detached && task.state==OUSE_TASK_SUCCEEDED);
+    ouse_device_config_t saved;uint32_t version,previous;
+    assert(ouse_audio_set_volume(41)==ESP_OK && ouse_devices_take_save(&saved,&version));
+    ouse_task_stats_t saves_before,saves_after;ouse_tasks_get_stats(&saves_before);
+    for(unsigned index=0;index<20;++index){previous=version;assert(ouse_audio_set_volume(42+index)==ESP_OK && ouse_devices_take_save(&saved,&version));ouse_devices_saved(previous,ESP_OK);}
+    ouse_tasks_get_stats(&saves_after);assert(saves_after.active==saves_before.active);
+    ouse_devices_saved(version,ESP_OK);ouse_tasks_get_stats(&saves_after);assert(saves_after.active+1==saves_before.active);
+    ouse_devices_saved(version,ESP_OK);ouse_tasks_get_stats(&saves_before);assert(saves_after.active==saves_before.active);
     puts("PASS devices: audio cooperative stop and close, Wi-Fi serialization and detached completion");
 }
 static void focus_tests(void){
@@ -185,18 +192,37 @@ static void budget_tests(void){
     wall+=150000; // another task/blocked time; no JS-worker allocation
     assert(!ouse_budget_exceeded(&budget) && budget.scheduled_us==1500);
     assert(ouse_budget_slice_done(&budget)); // defer more callbacks without fault
-    run(11000);assert(ouse_budget_exceeded(&budget) && !budget.wall_exceeded);
+    run(12247);assert(!ouse_budget_exceeded(&budget) && budget.scheduled_us==13747 && ouse_budget_slice_done(&budget));
+    run(37000);assert(ouse_budget_exceeded(&budget) && !budget.wall_exceeded);
     ouse_budget_begin(&budget,4000,false);
     for(unsigned i=0;i<3;++i){run(1000);assert(!ouse_budget_exceeded(&budget));}
-    run(1000);assert(ouse_budget_exceeded(&budget));
+    run(1000);assert(!ouse_budget_exceeded(&budget)&&ouse_budget_slice_done(&budget));
+    run(16000);assert(ouse_budget_exceeded(&budget));
     ouse_budget_begin(&budget,12000,false);wall+=1000001;
     assert(ouse_budget_exceeded(&budget) && budget.wall_exceeded);
     // Crossing the old 32-bit microsecond boundary must not reset protection.
     allocated=UINT64_C(0xffffffff)-2000;ouse_budget_begin(&budget,4000,false);run(4500);
-    assert(ouse_budget_exceeded(&budget) && budget.scheduled_us==4500);
+    assert(!ouse_budget_exceeded(&budget) && budget.scheduled_us==4500 && ouse_budget_slice_done(&budget));
+    ouse_budget_begin(&budget,100000,true);run(125000);assert(!ouse_budget_exceeded(&budget)&&ouse_budget_slice_done(&budget));run(126000);assert(ouse_budget_exceeded(&budget));
     puts("PASS budget: preemption/blocked-time exclusion, foreground/background allocation limits, wall fuse, 64-bit counter");
 }
-int main(void){ouse_tasks_set_notify(notified);registry_tests();device_tests();focus_tests();budget_tests();return 0;}
+#include "ouse_pointer.h"
+static void pointer_tests(void){
+ ouse_pointer_t pointer={0};ouse_pointer_event_t event;
+ assert(!ouse_pointer_push(&pointer,1,1,9,2,3,0));
+ assert(ouse_pointer_push(&pointer,0,1,9,0,0,1));
+ for(unsigned index=1;index<=1000;++index)assert(ouse_pointer_push(&pointer,1,1,9,index,index,2+index));
+ assert(pointer.count==2);assert(ouse_pointer_push(&pointer,2,1,9,1000,1000,1003));
+ assert(ouse_pointer_pop(&pointer,&event)&&event.type==0);
+ assert(ouse_pointer_pop(&pointer,&event)&&event.type==1&&event.dx==1000&&event.dy==1000);
+ assert(ouse_pointer_pop(&pointer,&event)&&event.type==2);assert(!ouse_pointer_pop(&pointer,&event));
+ for(unsigned index=0;index<4;++index){assert(ouse_pointer_push(&pointer,0,index,9,0,0,0));assert(!ouse_pointer_push(&pointer,1,index,8,1,1,1));assert(ouse_pointer_push(&pointer,3,index,9,0,0,2));}
+ assert(pointer.count==8&&!ouse_pointer_push(&pointer,0,1,9,0,0,3));
+ while(ouse_pointer_pop(&pointer,&event)){}
+ assert(ouse_pointer_push(&pointer,0,1,10,0,0,4));assert(ouse_pointer_push(&pointer,3,1,10,0,0,5));
+ puts("PASS pointer: bounded admission, move coalescing with total delta, reserved terminal capacity, generation isolation, cancel and reuse");
+}
+int main(void){ouse_tasks_set_notify(notified);registry_tests();device_tests();focus_tests();budget_tests();pointer_tests();return 0;}
 '''
 (OUT / "check.c").write_text(fixture, encoding="utf-8")
 includes = [OUT, ROOT/"components/ouse_tasks/include", ROOT/"components/ouse_devices/include", ROOT/"components/ouse_runtime"]

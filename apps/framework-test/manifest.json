@@ -3,7 +3,18 @@
   "api": 1,
   "id": "user.framework-test",
   "name": "Framework Test",
-  "names": {"zh_CN": "框架测试", "en": "Framework Test"},
+  "names": {
+    "zh_CN": "框架测试",
+    "en": "Framework Test"
+  },
   "icon": "icon.bin",
-  "capabilities": {"background": true}
+  "capabilities": {
+    "background": true
+  },
+  "versionCode": 1,
+  "versionName": "1.0.0",
+  "author": "OusePocket",
+  "releasedAt": "2026-10-19",
+  "description": "框架测试",
+  "minNativeApi": 1
 }

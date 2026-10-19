@@ -7,11 +7,29 @@
 #include "ouse_permissions.h"
 #include "ouse_notifications.h"
 #include "ouse_app_manager_ui.h"
+#include "ouse_app_manager.h"
 #include "ouse_health_ui.h"
+#include "ouse_health.h"
 #include <string.h>
 #include <stdlib.h>
 static char *host_launcher_order;
 static bool host_launcher_save_error;
+static char *host_file_defaults;
+static bool host_files_ready;
+static unsigned host_control_requests;
+static ouse_control_action_t host_control_action;
+esp_err_t ouse_control_request(ouse_control_action_t action,const char *id,uint32_t task,uint32_t instance)
+{(void)id;(void)task;(void)instance;++host_control_requests;host_control_action=action;return ESP_OK;}
+bool ouse_sd_browser_path(const char *path,char *absolute,size_t capacity)
+{if(!path || path[0]!='/' || strstr(path,"..") || strchr(path,'\\'))return false;int size=snprintf(absolute,capacity,"/sdcard%s",path);return size>0 && (size_t)size<capacity;}
+esp_err_t ouse_storage_file_defaults(bool write,const char *value,ouse_storage_complete_t complete,void *context)
+{if(write){free(host_file_defaults);host_file_defaults=_strdup(value);}complete(context,0,ESP_OK,write ? NULL : _strdup(host_file_defaults ? host_file_defaults : ""));return ESP_OK;}
+static unsigned host_uninstall_requests;
+static char host_uninstall_target[48];
+void ouse_manager_get(ouse_manager_state_t *out){out->completed_id=host_uninstall_requests;out->error=ESP_OK;}
+void ouse_manager_release(ouse_manager_state_t *snapshot){free(snapshot->apps);memset(snapshot,0,sizeof(*snapshot));}
+esp_err_t ouse_manager_request(ouse_manager_action_t action,const char *id,uint32_t *request_id)
+{if(action!=OUSE_MANAGER_UNINSTALL || !id || strncmp(id,"user.",5))return ESP_ERR_INVALID_ARG;strcpy(host_uninstall_target,id);*request_id=++host_uninstall_requests;return ESP_OK;}
 static ouse_ble_state_t host_ble={.available=true};
 void ouse_ble_get(ouse_ble_state_t *out){*out=host_ble;}
 esp_err_t ouse_ble_enable(bool enabled){host_ble.enabled=enabled;host_ble.ready=enabled;host_ble.advertising=enabled;++host_ble.revision;return ESP_OK;}
@@ -34,7 +52,9 @@ static bool host_take_wifi(ouse_wifi_request_t *request)
     (void)ouse_task_start(request->id,true);ouse_task_finish(request->id,ESP_OK,false);return true;
 }
 bool ouse_camera_media_active(void){return false;}
-void ouse_usb_get(ouse_usb_state_t *out){memset(out,0,sizeof(*out));}
+static ouse_usb_state_t host_usb;
+void ouse_usb_get(ouse_usb_state_t *out){*out=host_usb;}
+esp_err_t ouse_usb_set_enabled(bool enabled){host_usb.enabled=enabled;return ESP_OK;}
 esp_err_t ouse_usb_set_audio(bool enabled){(void)enabled;return ESP_OK;}
 esp_err_t ouse_usb_set_network(bool enabled){(void)enabled;return ESP_OK;}
 void ouse_clock_get(ouse_clock_state_t *out){memset(out,0,sizeof(*out));}
@@ -42,7 +62,7 @@ static bool host_debug;
 esp_err_t ouse_system_request_debug(bool enabled){host_debug=enabled;return ESP_OK;}
 bool ouse_system_debug_enabled(void){return host_debug;}
 esp_err_t ouse_system_request_navigation(uint8_t mode){(void)mode;return ESP_OK;}
-void ouse_files_get(ouse_files_state_t *out){memset(out,0,sizeof(*out));}
+void ouse_files_get(ouse_files_state_t *out){memset(out,0,sizeof(*out));out->ready=out->present=host_files_ready;}
 esp_err_t ouse_files_eject(void){return ESP_ERR_INVALID_STATE;}
 esp_err_t ouse_files_recover(void){return ESP_ERR_INVALID_STATE;}
 void ouse_health_ui_build(lv_obj_t *root){(void)root;}

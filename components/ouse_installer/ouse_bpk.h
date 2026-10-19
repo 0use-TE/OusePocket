@@ -25,6 +25,9 @@ typedef struct {
     ouse_script_image_t images[OUSE_RUNTIME_ASSETS_MAX];
     ouse_script_asset_t assets[OUSE_RUNTIME_ASSETS_MAX];
     unsigned asset_count;
+    uint32_t version_code,min_native_api;
+    char version_name[32];
+    char description[513],author[65],released_at[11];
 } ouse_bpk_t;
 esp_err_t ouse_bpk_parse(const unsigned char *bytes,size_t length,ouse_bpk_t **output);
 esp_err_t ouse_bpk_catalog(const unsigned char *bytes,size_t length,ouse_bpk_t **output);

@@ -38,6 +38,8 @@ typedef struct ouse_script_package {
     bool network_allowed; // manifest capabilities.network
     bool media_allowed, alarms_allowed, files_allowed, sdcard_allowed,camera_allowed,photos_allowed,bluetooth_allowed,hid_allowed;
     uint32_t source_version;
+    bool packages_allowed;
+    unsigned file_types;
     esp_err_t (*load)(const char *id,uint32_t version,const struct ouse_script_package **package,void **handle);
     void (*release)(void *handle);
 } ouse_script_package_t;

@@ -27,7 +27,8 @@ const char *ouse_budget_clock_name(void) {return "host-elapsed-us";}
 #endif
 void ouse_budget_begin(ouse_budget_t *budget,int64_t limit_us,bool startup)
 {
-    *budget=(ouse_budget_t){.baseline=counter(),.limit_us=limit_us,.wall_limit_us=startup ? 2000000 : 1000000};
+    int64_t hard_limit=startup ? 250000 : limit_us<=4000 ? 20000 : 50000;
+    *budget=(ouse_budget_t){.baseline=counter(),.limit_us=hard_limit,.slice_limit_us=limit_us,.wall_limit_us=startup ? 2000000 : 1000000};
     budget->observed_us=budget->started_us=budget->last_sample_us=esp_timer_get_time();
 }
 bool ouse_budget_exceeded(ouse_budget_t *budget)
@@ -46,5 +47,5 @@ bool ouse_budget_slice_done(ouse_budget_t *budget)
 {
     // Once a callback returns, defer additional callbacks after the ordinary
     // elapsed slice as well. Preemption is not itself a script exception.
-    return ouse_budget_exceeded(budget) || esp_timer_get_time()-budget->started_us>=budget->limit_us;
+    return ouse_budget_exceeded(budget) || budget->scheduled_us>=budget->slice_limit_us || esp_timer_get_time()-budget->started_us>=budget->slice_limit_us;
 }

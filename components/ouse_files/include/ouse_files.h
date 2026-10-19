@@ -21,6 +21,7 @@ esp_err_t ouse_files_format_unmounted(sdmmc_card_t *card);
 void ouse_files_get(ouse_files_state_t *state);
 unsigned ouse_files_list(unsigned offset,ouse_file_entry_t *out,unsigned capacity);
 bool ouse_files_path(const char *path,char *absolute,size_t capacity);
+bool ouse_files_read_path(const char *path,char *absolute,size_t capacity);
 FILE *ouse_files_open(const char *path);
 int ouse_files_close(FILE *file);
 bool ouse_files_lease_begin(void);

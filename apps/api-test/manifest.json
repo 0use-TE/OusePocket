@@ -33,5 +33,11 @@
       "type": "binary",
       "path": "assets/raw.bin"
     }
-  ]
+  ],
+  "versionCode": 1,
+  "versionName": "1.0.0",
+  "author": "OusePocket",
+  "releasedAt": "2026-10-19",
+  "description": "接口测试",
+  "minNativeApi": 1
 }

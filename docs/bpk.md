@@ -1,5 +1,15 @@
 # BPK：清单、控件与系统 API
 
+0.35.0 / native API 39 新增前台侧键 `Ouse.keys.on("boot"|"pwr", handler|null)`，只接管短按，不接管 PWR 系统长按。相机已使用 PWR 快门，见 [侧键与电源](0.35.0-side-keys-power.md)。
+
+0.34.0 / native API 38 新增 `fileTypes`、`Ouse.files.open(path)`、`Ouse.files.onOpen(handler)`，用于系统默认文件处理应用；支持的 MIME、权限、路径长度和偏好行为见 [文件关联](0.34.0-file-associations.md)。
+
+0.33.0 新增 `Ouse.ui.setImageData(imageWidgetId, oic1ArrayBuffer)`，有界更新包内 ARGB8888 图片槽，最大输入 96×96；PSRAM 暂存、UI 线程交换及缓存回收。详见 [P4 商店卡片](0.33.0-p4-store-cards.md)。
+
+0.32.0 增加包内 description（1..512 UTF-8 字节）、author（1..64 UTF-8 字节）、releasedAt（有效 YYYY-MM-DD 日期）。三个字段由打包工具、商店、内核共同校验，packages.list 返回；发布页自动读取并将修改结果写回下载包。作者不是身份认证。见 [商店元数据](0.32.0-store-metadata-usb-hid.md)。
+
+0.31.0 新增 packages 能力、网络/SD 安装任务、版本及最低内核 API 字段。接口与边界见 [应用商店与安装服务](0.31.0-store-install.md)。
+
 0.10.0 新增原生 HTTP/HTTPS、WAV 媒体会话、系统时间与持久闹钟，接口和限制见 [原生服务](0.10.0-services.md)。新增服务不授权后台 JS；GPIO/USB 外设接口未开放。验证状态以该文档的交付记录为准。
 
 当前 0.9.0 新增任务 ID/终态事件、后台原因与应用/系统诊断；异步音频和 Wi-Fi 接受请求返回任务 ID（拒绝 false），存储 Promise 增加 taskId。执行预算口径已改为任务获调度时间，以下历史说明中的 12/4 ms 不应解释为纯 JS CPU 时间。接口、取消/关闭策略和计时限制统一见 [0.9.0 系统机制](0.9.0-kernel.md)。

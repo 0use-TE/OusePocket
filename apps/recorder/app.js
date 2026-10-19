@@ -8,7 +8,7 @@ function ended(seconds){if(seconds<1577836800)return "结束时间未知";const 
 function name(path){return path.slice(path.lastIndexOf("/")+1).replace(/\.wav$/i,"");}
 function list(start=offset){if(pending||!ready())return;pending=Ouse.recorder.list(start);kind="list";if(!pending)popup("录音列表暂不可用。");}
 function rename(path,isNew){naming=path;namingNew=isNew;Ouse.ui.setText("name",isNew?"录音_"+ended(Ouse.recorder.get().ended).replace(/[- :]/g,""):name(path));Ouse.ui.show("nameDialog");}
-let permissionPending=false;
+let permissionPending=false,listRevision=0,renderedList="";
 function authorize(name,action){
  if(permissionPending)return;
  if(!Ouse.permissions){action();return;}
@@ -20,10 +20,13 @@ function start(){authorize("microphone",()=>{if(pending||paused||!ready())return
 function refresh(){
  const state=Ouse.recorder.get();if(!state)return;
  Ouse.ui.setText("record",state.active?"结束":"录音");Ouse.ui.setText("elapsed",duration(state.durationMs));
- Ouse.ui.setEnabled("record",!state.stopping&&(state.active||(!pending&&!startWanted&&!state.busy&&ready())));
+ const available=ready();
+ Ouse.ui.setEnabled("record",!state.stopping&&(state.active||(!pending&&!startWanted&&!state.busy&&available)));
+ const revision=[listRevision,offset,!!pending,state.active,state.more,available].join(":");
+ if(revision===renderedList)return;renderedList=revision;
  Ouse.ui.setEnabled("previous",!pending&&!state.active&&offset>0);Ouse.ui.setEnabled("next",!pending&&!state.active&&state.more);
- show("paging",offset>0||state.more);show("empty",!entries.length&&!state.active&&!pending&&ready());
- for(let index=0;index<12;++index){show("entry"+index,!!entries[index]);if(entries[index])Ouse.ui.setText("entry"+index,name(entries[index].path)+"\n"+duration(entries[index].durationMs)+"  "+ended(entries[index].ended));Ouse.ui.setEnabled("entry"+index,!pending&&!state.active&&ready());}
+ show("paging",offset>0||state.more);show("empty",!entries.length&&!state.active&&!pending&&available);
+ for(let index=0;index<12;++index){show("entry"+index,!!entries[index]);if(entries[index])Ouse.ui.setText("entry"+index,name(entries[index].path)+"\n"+duration(entries[index].durationMs)+"  "+ended(entries[index].ended));Ouse.ui.setEnabled("entry"+index,!pending&&!state.active&&available);}
 }
 Ouse.ui.on("record","click",()=>{
  const state=Ouse.recorder.get();if(state.active){Ouse.recorder.stop();refresh();return;}
@@ -44,7 +47,7 @@ Ouse.ui.on("dismiss","click",()=>Ouse.ui.hide("dialog"));
 Ouse.tasks.onComplete(event=>{
  if(event.id!==pending)return;pending=0;const state=Ouse.recorder.get();
  if(event.state!=="succeeded"){popup(kind==="record"?"录音未完成，请检查 SD 卡和可用空间。":"操作失败，请检查 SD 卡，名称不能重复。");refresh();return;}
- if(kind==="list"){entries=state.entries;offset=state.offset;Ouse.ui.scrollTo("recordings",0);}
+ if(kind==="list"){entries=state.entries;offset=state.offset;++listRevision;Ouse.ui.scrollTo("recordings",0);}
  else if(kind==="record"){if(state.path&&!paused)rename(state.path,true);else list(0);}
  else{Ouse.ui.hide("nameDialog");naming="";list(kind==="remove"?Math.max(0,offset-12):0);}
  refresh();

@@ -41,17 +41,6 @@
         "height": 128
       },
       {
-        "type": "label",
-        "id": "now",
-        "text": "等待播放",
-        "x": 0,
-        "y": 188,
-        "width": 296,
-        "height": 24,
-        "fontSize": 14,
-        "style": { "textColor": "$secondary", "textAlign": "center" }
-      },
-      {
         "type": "container",
         "id": "transport",
         "x": 0,
@@ -73,7 +62,7 @@
           {
             "type": "button",
             "id": "toggle",
-            "text": "暂停",
+            "text": "播放/暂停",
             "width": "fill",
             "height": 56,
             "fontSize": 16,

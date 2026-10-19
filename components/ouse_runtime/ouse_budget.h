@@ -3,7 +3,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 typedef struct {
-    int64_t started_us,last_sample_us,observed_us,scheduled_us,limit_us,wall_limit_us;
+    int64_t started_us,last_sample_us,observed_us,scheduled_us,limit_us,slice_limit_us,wall_limit_us;
     uint64_t baseline;
     unsigned samples;
     bool wall_exceeded;

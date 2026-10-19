@@ -5,6 +5,7 @@
 #include "ouse_storage.h"
 #include "ouse_devices.h"
 #include "ouse_notifications.h"
+#include "ouse_memory.h"
 #include "esp_timer.h"
 #include "esp_rom_crc.h"
 #include "freertos/FreeRTOS.h"
@@ -46,7 +47,7 @@ typedef struct {
 static QueueHandle_t commands;
 static portMUX_TYPE cache_lock=portMUX_INITIALIZER_UNLOCKED;
 static ouse_alarm_stats_t stats;
-static database_t db,cache;
+static OUSE_PSRAM_BSS database_t db,cache;
 static int64_t ringing_until[OUSE_ALARM_CAPACITY];
 static uint32_t ring_task;
 static bool any_ringing;

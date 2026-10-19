@@ -8,7 +8,13 @@
     "en": "Weather"
   },
   "icon": "icon.bin",
+  "versionCode": 1,
+  "versionName": "1.0.0",
+  "description": "查看当前天气与预报，支持搜索城市和自动定位。",
+  "author": "OusePocket",
+  "releasedAt": "2026-10-19",
   "capabilities": {
     "network": true
-  }
+  },
+  "minNativeApi": 1
 }

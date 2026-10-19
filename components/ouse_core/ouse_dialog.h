@@ -8,4 +8,5 @@ void ouse_dialog_select(const char *title,const char *const *items,unsigned coun
                         unsigned selected,ouse_dialog_choice_t callback);
 bool ouse_dialog_choice_active(void);
 bool ouse_dialog_active(void);
+bool ouse_dialog_action_is(ouse_dialog_action_t callback);
 void ouse_dialog_dismiss(void);

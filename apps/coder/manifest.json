@@ -3,7 +3,19 @@
   "api": 1,
   "id": "user.coder",
   "name": "Coder",
-  "names": { "zh_CN": "快捷键", "en": "Coder" },
+  "names": {
+    "zh_CN": "快捷键",
+    "en": "Coder"
+  },
   "icon": "icon.bin",
-  "capabilities": { "bluetooth": true, "hid": true }
+  "capabilities": {
+    "bluetooth": true,
+    "hid": true
+  },
+  "versionCode": 1,
+  "versionName": "1.0.0",
+  "author": "OusePocket",
+  "releasedAt": "2026-10-19",
+  "description": "蓝牙快捷键辅助输入。",
+  "minNativeApi": 1
 }

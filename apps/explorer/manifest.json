@@ -3,11 +3,31 @@
   "api": 1,
   "id": "user.explorer",
   "name": "Files",
-  "names": {"zh_CN": "资源管理器", "en": "Files"},
+  "names": {
+    "zh_CN": "资源管理器",
+    "en": "Files"
+  },
   "icon": "icon.bin",
-  "capabilities": {"sdcard": true},
+  "minNativeApi": 38,
+  "versionCode": 1,
+  "versionName": "1.0.0",
+  "description": "浏览 SD 卡中的文件与文件夹，点击 BPK 即可安装应用。",
+  "author": "OusePocket",
+  "releasedAt": "2026-10-19",
+  "capabilities": {
+    "sdcard": true,
+    "packages": true
+  },
   "assets": [
-    {"id": "folder", "type": "image", "path": "assets/folder.bin"},
-    {"id": "document", "type": "image", "path": "assets/document.bin"}
+    {
+      "id": "folder",
+      "type": "image",
+      "path": "assets/folder.bin"
+    },
+    {
+      "id": "document",
+      "type": "image",
+      "path": "assets/document.bin"
+    }
   ]
 }

@@ -3,7 +3,19 @@
   "api": 1,
   "id": "user.presenter",
   "name": "Presenter",
-  "names": { "zh_CN": "演示笔", "en": "Presenter" },
+  "names": {
+    "zh_CN": "演示笔",
+    "en": "Presenter"
+  },
   "icon": "icon.bin",
-  "capabilities": { "bluetooth": true, "hid": true }
+  "capabilities": {
+    "bluetooth": true,
+    "hid": true
+  },
+  "versionCode": 1,
+  "versionName": "1.0.0",
+  "author": "OusePocket",
+  "releasedAt": "2026-10-19",
+  "description": "蓝牙演示翻页。",
+  "minNativeApi": 1
 }

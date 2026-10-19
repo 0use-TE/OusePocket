@@ -4,6 +4,16 @@ let tracks=[],remote=[],selected=0,mode=0,page="player",loaded=false,libraryTab=
 let wanted=false,pending=-1,taskId=0,handled=0,saving=false,dirty=false,downloadId=0;
 let cache=Object.create(null),libraryRevision=-1,cardReady=false,lastResult="";
 let listStart=0,filterQuery="",settle=0;
+let externalPath="";
+function openExternal(){
+ if(!externalPath||!loaded)return;
+ const path=externalPath;externalPath="";
+ if(!filesGet().ready){lastResult="SD 卡不可用";refresh();return;}
+ syncLibrary();let index=tracks.findIndex(track=>track.path===path);
+ if(index<0){tracks.push({path,name:path.slice(path.lastIndexOf("/")+1)});index=tracks.length-1;}
+ play(index);if(page!=="player")Ouse.navigation.back();
+}
+Ouse.files.onOpen(event=>{externalPath=event.path;openExternal();});
 const titles={"fur-elise-30s.wav":"致爱丽丝 · 30 秒","mozart-allegro.wav":"莫扎特 · K545 快板","mozart-andante.wav":"莫扎特 · K545 行板","mozart-rondo.wav":"莫扎特 · K545 回旋曲"};
 function style(id,patch){if(Ouse.ui.setStyle)Ouse.ui.setStyle(id,patch);}
 function visible(id,show){if(show)Ouse.ui.show(id);else Ouse.ui.hide(id);}
@@ -160,11 +170,11 @@ Ouse.navigation.onChange(event=>{page=event.page;if(page==="library"){listStart=
 Ouse.tasks.onComplete(event=>{if(event.id===downloadId){downloadId=0;lastResult=event.state==="succeeded"?"下载完成":("下载未完成："+(event.error||event.state));}refresh();});
 Ouse.notifications.onOpen(()=>{if(page!=="player")Ouse.navigation.back();refresh();});
 Ouse.timers.setInterval(()=>{pollScroll();refresh();},200);
-globalThis.app={onResume(){libraryRevision=-1;refresh();},onClose(){pending=-1;endLease();Ouse.media.stop();}};
+globalThis.app={onResume(){libraryRevision=-1;refresh();openExternal();},onClose(){pending=-1;endLease();Ouse.media.stop();}};
 bindPage();
 Ouse.storage.get("library").then(value=>{
  if(value&&(value.version===1||value.version===2)&&Array.isArray(value.tracks)){
   remote=value.tracks.filter(track=>track&&typeof track.name==="string"&&typeof track.url==="string"&&/^https?:\/\/[^\s]+$/.test(track.url)&&track.url.length<=256).slice(0,8).map(track=>({name:track.name.slice(0,24),url:track.url}));
   mode=Number.isInteger(value.mode)&&value.mode>=0&&value.mode<=2?value.mode:0;
- }libraryRevision=-1;syncLibrary();if(value&&value.selectedPath){const index=tracks.findIndex(track=>(track.path||track.url)===value.selectedPath);if(index>=0)selected=index;}loaded=true;bindPage();
-},()=>{loaded=true;bindPage();});
+ }libraryRevision=-1;syncLibrary();if(value&&value.selectedPath){const index=tracks.findIndex(track=>(track.path||track.url)===value.selectedPath);if(index>=0)selected=index;}loaded=true;bindPage();openExternal();
+},()=>{loaded=true;bindPage();openExternal();});

@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OusePocket</title>
+  <meta name="description" content="ESP32-P4 口袋设备：桌面、手势、相机、应用商店。">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="#top">
+      <img src="favicon.svg" width="28" height="28" alt="">
+      <span>OusePocket</span>
+    </a>
+    <nav class="nav" aria-label="页面">
+      <a href="#system">系统</a>
+      <a href="#apps">应用</a>
+      <a href="#hardware">硬件</a>
+    </nav>
+    <a class="nav-store" href="http://store.0usecraft.cn:8888/">商店</a>
+  </header>
+
+  <main id="top">
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">ESP32-P4 · 3.5″</p>
+        <h1>OusePocket</h1>
+        <p class="lede">拍照、听歌、看天气、装应用。一块口袋里的小屏幕。</p>
+        <div class="actions">
+          <a class="button primary" href="http://store.0usecraft.cn:8888/">应用商店</a>
+          <a class="button" href="https://github.com/0use-TE/OusePocket">GitHub</a>
+        </div>
+      </div>
+      <figure class="device">
+        <img src="images/desktop.jpg" alt="桌面">
+      </figure>
+    </section>
+
+    <ul class="specs" aria-label="规格">
+      <li><strong>320×480</strong><span>触摸屏</span></li>
+      <li><strong>32 MB</strong><span>PSRAM</span></li>
+      <li><strong>16 MB</strong><span>Flash</span></li>
+      <li><strong>0.35.1</strong><span>固件</span></li>
+    </ul>
+
+    <section id="system" class="section">
+      <div class="section-head">
+        <h2>系统</h2>
+      </div>
+      <div class="shots">
+        <article>
+          <figure class="device"><img src="images/navigation.jpg" alt="导航设置"></figure>
+          <h3>手势 / 三键</h3>
+        </article>
+        <article>
+          <figure class="device"><img src="images/apps.jpg" alt="应用管理"></figure>
+          <h3>应用管理</h3>
+        </article>
+        <article>
+          <figure class="device"><img src="images/files.jpg" alt="SD 卡"></figure>
+          <h3>SD 卡</h3>
+        </article>
+      </div>
+    </section>
+
+    <section id="apps" class="section">
+      <div class="section-head">
+        <h2>应用</h2>
+      </div>
+      <ul class="app-grid">
+        <li><img src="images/icons/weather.png" alt=""><span>天气</span></li>
+        <li><img src="images/icons/calculator.png" alt=""><span>计算器</span></li>
+        <li><img src="images/icons/notepad.png" alt=""><span>记事本</span></li>
+        <li><img src="images/icons/todo.png" alt=""><span>待办</span></li>
+        <li><img src="images/icons/dice.png" alt=""><span>骰子</span></li>
+        <li><img src="images/icons/g2048.png" alt=""><span>2048</span></li>
+        <li><img src="images/icons/minesweeper.png" alt=""><span>扫雷</span></li>
+        <li><img src="images/icons/tictactoe.png" alt=""><span>井字棋</span></li>
+        <li><img src="images/icons/mole.png" alt=""><span>打地鼠</span></li>
+        <li><img src="images/icons/klotski.png" alt=""><span>华容道</span></li>
+        <li><img src="images/icons/point24.png" alt=""><span>24 点</span></li>
+        <li><img src="images/icons/reaction.png" alt=""><span>反应力</span></li>
+        <li><img src="images/icons/rps.png" alt=""><span>猜拳</span></li>
+        <li><img src="images/icons/guess.png" alt=""><span>猜数字</span></li>
+        <li><img src="images/icons/mouse.png" alt=""><span>鼠标</span></li>
+        <li><img src="images/icons/netease.png" alt=""><span>网易云</span></li>
+      </ul>
+      <p class="also">另有相机、相册、音乐、录音、闹钟、倒计时、秒表、资源管理器。</p>
+    </section>
+
+    <section id="store" class="store">
+      <div>
+        <h2>应用商店</h2>
+      </div>
+      <a class="button primary" href="http://store.0usecraft.cn:8888/">打开</a>
+    </section>
+
+    <section id="hardware" class="section">
+      <div class="section-head">
+        <h2>硬件</h2>
+      </div>
+      <dl class="hardware">
+        <div><dt>屏幕</dt><dd>3.5″ 320×480 · FT6336</dd></div>
+        <div><dt>主控</dt><dd>ESP32-P4 · 16 MB Flash · 32 MB PSRAM</dd></div>
+        <div><dt>音频</dt><dd>ES8311 · 扬声器 · 录音</dd></div>
+        <div><dt>相机</dt><dd>OV5647 500 万像素</dd></div>
+        <div><dt>电源</dt><dd>AXP2101 · 侧键音量</dd></div>
+        <div><dt>连接</dt><dd>Wi-Fi · 蓝牙 · USB</dd></div>
+      </dl>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <span>0.35.1</span>
+    <a href="https://github.com/0use-TE/OusePocket">GitHub</a>
+    <a href="http://store.0usecraft.cn:8888/">商店</a>
+  </footer>
+</body>
+</html>
