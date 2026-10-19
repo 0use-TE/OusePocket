@@ -44,6 +44,7 @@ const char *esp_err_to_name(esp_err_t error);
 write_if_changed(OUT / "lv_conf.h", """#pragma once
 #define LV_CONF_H
 #define LV_COLOR_DEPTH 16
+#define LV_DEF_REFR_PERIOD 16
 #define LV_USE_OS LV_OS_NONE
 #define LV_USE_STDLIB_MALLOC LV_STDLIB_CLIB
 #define LV_USE_STDLIB_STRING LV_STDLIB_CLIB
@@ -109,6 +110,7 @@ fixture = r'''
 #include "ouse_dialog.h"
 #include "ouse_device_ui.h"
 #include "ouse_widgets.h"
+#include "ouse_apps_internal.h"
 #include "display_flush_wait.h"
 #include "core-services.h"
 #include "ouse_memory_pressure.h"
@@ -179,6 +181,7 @@ void vTaskDelay(TickType_t ticks) {
 static void async_flush(lv_display_t *display,const lv_area_t *area,uint8_t *data) {
     assert(display==dma.display && display->flushing);
     assert(!dma.pending && dma.submitted==dma.completed);
+    if(dma.submitted && lv_display_is_double_buffered(display))assert(data!=dma.data);
     dma.data=data;
     dma.size=(size_t)(area->x2-area->x1+1)*(size_t)(area->y2-area->y1+1)*2;
     assert(dma.size && dma.size<=64*8*2);
@@ -188,12 +191,13 @@ static void async_flush(lv_display_t *display,const lv_area_t *area,uint8_t *dat
         ++dma.completed;lv_display_flush_ready(display);
     } else dma.pending=true;
 }
-static void test_async_flush_wait(void) {
-    uint8_t drawing[64*8*2];
+static void test_async_flush_wait_mode(bool double_buffered) {
+    uint8_t drawing[64*8*2],second[64*8*2];
     lv_display_t *display=lv_display_create(64,48);
     dma.display=display;
     lv_display_set_color_format(display,LV_COLOR_FORMAT_RGB565);
-    lv_display_set_buffers(display,drawing,NULL,sizeof(drawing),LV_DISPLAY_RENDER_MODE_PARTIAL);
+    lv_display_set_buffers(display,drawing,double_buffered ? second : NULL,sizeof(drawing),LV_DISPLAY_RENDER_MODE_PARTIAL);
+    assert(lv_display_is_double_buffered(display)==double_buffered);
     lv_display_set_flush_cb(display,async_flush);
     lv_display_set_flush_wait_cb(display,ouse_display_flush_wait);
     lv_obj_t *root=lv_display_get_screen_active(display);
@@ -221,7 +225,11 @@ static void test_async_flush_wait(void) {
     assert(!dma.pending && !display->flushing && dma.yields==yields);
     lv_display_delete(display);
     memset(&dma,0,sizeof(dma));
-    puts("PASS real LVGL asynchronous flush: DMA buffer unchanged until three yields complete; inline completion does not wait");
+}
+static void test_async_flush_wait(void) {
+    test_async_flush_wait_mode(false);
+    test_async_flush_wait_mode(true);
+    puts("PASS real LVGL single/double-buffer asynchronous flush: DMA buffer unchanged until three yields complete; inline completion does not wait");
 }
 static bool lock(void *ctx, uint32_t timeout) {
     (void)ctx; assert(timeout == 2000); ++locks; return allow_lock;
@@ -336,6 +344,7 @@ static void click(lv_obj_t *root, const char *value) {
     ouse_wifi_request_t completed;while(host_take_wifi(&completed)){}
     lv_obj_t *target = label(root, value);
     if(!target && !strcmp(value,"返回设置"))target=label(root,LV_SYMBOL_LEFT);
+    if(!target)fprintf(stderr,"Missing click label: %s; launching=%d\n",value,ouse_core_launch_active());
     assert(target);
     lv_obj_t *button=lv_obj_get_parent(target);
     while (button && !lv_obj_check_type(button,&lv_button_class)) button=lv_obj_get_parent(button);
@@ -412,6 +421,14 @@ static esp_err_t audit_save_ui(void *context,uint8_t locale,uint8_t percent) {
     return ESP_OK;
 }
 static void focused_native_ui(lv_obj_t *root) {
+    // Repeated state polling must not dirty an idle desktop. Exclude a real
+    // wall-clock minute change, which legitimately updates the clock label.
+    extern void ouse_navigation_clock(char *);
+    char clock_before[8],clock_after[8];
+    tick();tick();ouse_navigation_clock(clock_before);
+    unsigned idle_flushes=flushes;tick();ouse_navigation_clock(clock_after);
+    if(!strcmp(clock_before,clock_after))assert(flushes==idle_flushes);
+    puts("PASS idle desktop: unchanged status polls submit no LCD flushes");
     tick();unsigned baseline=count(root),baseline_timers=timers(),baseline_bindings=ouse_ui_binding_count();
     allow_ui_save=false;
     assert(ouse_core_set_ui(1,100)==ESP_FAIL && ouse_ui_locale()==1 && ouse_ui_font_percent()==100);
@@ -556,6 +573,16 @@ static bool host_app_key(void *context,unsigned key){(void)context;if(key!=1)ret
 static char file_open_path[128];
 static esp_err_t file_test_open(lv_obj_t *root,void *context){(void)root;(void)context;return ESP_OK;}
 static void file_test_close(void *context){(void)context;}
+static esp_err_t launch_slow_open(lv_obj_t *root,void *context){
+    (void)context;lv_obj_add_flag(root,OUSE_APP_LOADING_FLAG);
+    lv_label_set_text(lv_label_create(root),"Ready content");return ESP_OK;
+}
+static esp_err_t launch_blocking_open(lv_obj_t *root,void *context){
+    (void)context;lv_tick_inc(480);lv_label_set_text(lv_label_create(root),"Native ready");return ESP_OK;
+}
+static void advance_launch(unsigned ms){
+    for(unsigned elapsed=0;elapsed<ms;elapsed+=16){lv_tick_inc(16);lv_timer_handler();}
+}
 static esp_err_t file_test_receive(void *context,const char *path){file_open_target=(unsigned)(uintptr_t)context;++file_open_calls;snprintf(file_open_path,sizeof(file_open_path),"%s",path);return ESP_OK;}
 int main(int argc, char **argv) {
     setvbuf(stdout,NULL,_IONBF,0);
@@ -624,6 +651,56 @@ int main(int argc, char **argv) {
     assert(brightness == 45);
     assert(ouse_core_start(&config) == ESP_ERR_INVALID_STATE);
     lv_obj_t *root = lv_screen_active();
+    if(argc>1 && !strcmp(argv[1],"--launch-animation")){
+        uint32_t *icon_pixels=calloc(8*8,sizeof(uint32_t));assert(icon_pixels);
+        for(unsigned i=0;i<64;++i)icon_pixels[i]=0xff367bef;
+        lv_image_dsc_t icon={.header={.magic=LV_IMAGE_HEADER_MAGIC,.cf=LV_COLOR_FORMAT_ARGB8888,.w=8,.h=8,.stride=32},.data_size=256,.data=(uint8_t *)icon_pixels};
+        ouse_app_definition_t slow={.id="user.launch-slow",.name="Slow Launch",.icon=LV_SYMBOL_FILE,.icon_image=&icon,.open=launch_slow_open,.close=file_test_close};
+        assert(ouse_core_user_apply(&slow)==ESP_OK);tick();
+        unsigned objects=count(root),clock_count=timers(),bindings=ouse_ui_binding_count();
+        ouse_app_definition_t blocking={.id="user.launch-blocking",.name="Native Launch",.icon=LV_SYMBOL_FILE,.open=launch_blocking_open,.close=file_test_close};
+        assert(ouse_core_user_apply(&blocking)==ESP_OK);tick();click(root,"Native Launch");
+        advance_launch(100);assert(ouse_core_launch_active() && !label(root,"Native ready"));
+        advance_launch(200);assert(!ouse_core_launch_active() && label(root,"Native ready"));
+        assert(ouse_core_user_remove(blocking.id)==ESP_OK);tick();
+        assert(count(root)==objects && timers()==clock_count && ouse_ui_binding_count()==bindings);
+        lv_obj_t *tile=lv_obj_get_parent(lv_obj_get_parent(label(root,LV_SYMBOL_PLUS)));
+        click(root,LV_SYMBOL_PLUS);assert(ouse_core_launch_active() && !label(root,"+1"));
+        ouse_app_stats_t stats;ouse_app_get_stats(&stats);unsigned opened=stats.opened;
+        lv_obj_send_event(tile,LV_EVENT_CLICKED,NULL);ouse_app_get_stats(&stats);assert(stats.opened==opened);
+        advance_launch(64);assert(ouse_core_launch_active());screenshot("launch-expand.ppm");
+        advance_launch(240);assert(!ouse_core_launch_active() && label(root,"+1"));
+        assert(ouse_app_background()==ESP_OK);tick();click(root,LV_SYMBOL_PLUS);
+        advance_launch(176);assert(!ouse_core_launch_active() && label(root,"+1"));
+        assert(ouse_app_close()==ESP_OK);tick();
+        assert(count(root)==objects && timers()==clock_count && ouse_ui_binding_count()==bindings);
+        click(root,"Slow Launch");advance_launch(800);
+        assert(ouse_core_launch_active() && !label(root,"Ready content"));screenshot("launch-wait.ppm");
+        unsigned waiting_flushes=flushes;advance_launch(320);assert(flushes==waiting_flushes);
+        lv_obj_remove_flag(ouse_apps_root(slow.id),OUSE_APP_LOADING_FLAG);advance_launch(100);
+        assert(!ouse_core_launch_active() && label(root,"Ready content"));assert(ouse_app_close()==ESP_OK);tick();
+        click(root,"Slow Launch");advance_launch(48);ouse_core_launch_cancel();
+        assert(!ouse_core_launch_active());ouse_app_get_stats(&stats);assert(!stats.active_id[0]);
+        assert(ouse_app_close_id(slow.id)==ESP_OK);tick();
+        click(root,"Slow Launch");advance_launch(48);touch_step(4,240,true);touch_step(4,240,false);
+        assert(!ouse_core_launch_active());assert(ouse_app_close_id(slow.id)==ESP_OK);tick();
+        click(root,"Slow Launch");advance_launch(48);
+        assert(ouse_core_user_apply(&slow)==ESP_OK && !ouse_core_launch_active());
+        free(icon_pixels);slow.icon_image=NULL;assert(ouse_core_user_apply(&slow)==ESP_OK);tick();
+        assert(count(root)==objects && timers()==clock_count && ouse_ui_binding_count()==bindings);
+        click(root,LV_SYMBOL_WARNING);assert(!ouse_core_launch_active() && ouse_dialog_active());
+        ouse_dialog_dismiss();tick();assert(count(root)==objects && timers()==clock_count && ouse_ui_binding_count()==bindings);
+        click(root,"Slow Launch");advance_launch(8100);assert(!ouse_core_launch_active() && ouse_dialog_active());
+        ouse_dialog_dismiss();assert(ouse_app_close()==ESP_OK);tick();
+        click(root,"Slow Launch");advance_launch(48);assert(ouse_core_set_theme(OUSE_THEME_DARK)==ESP_OK);
+        assert(!ouse_core_launch_active());assert(ouse_app_close()==ESP_OK);tick();
+        ouse_test_memory_pressure=OUSE_MEMORY_WARNING;
+        click(root,LV_SYMBOL_PLUS);assert(!ouse_core_launch_active() && label(root,"+1"));
+        ouse_test_memory_pressure=OUSE_MEMORY_NORMAL;assert(ouse_app_close()==ESP_OK);tick();
+        assert(count(root)==objects && timers()==clock_count && ouse_ui_binding_count()==bindings);
+        puts("PASS launch animation: cold/resume, duplicate click, delayed first screen, cancel, icon replacement, timeout, theme interruption, low-memory fallback and complete cleanup");
+        return 0;
+    }
     if(argc>1 && !strncmp(argv[1],"--boot-animation",16)){
         if(!strcmp(argv[1],"--boot-animation-low-memory")){assert(!label(lv_layer_top(),"Ouse"));ouse_test_memory_pressure=OUSE_MEMORY_NORMAL;assert(ouse_app_open("ouse.settings")==ESP_OK);puts("PASS low memory skips optional boot animation");return 0;}
         assert(label(lv_layer_top(),"Ouse"));
@@ -949,13 +1026,13 @@ int main(int argc, char **argv) {
         (void)ouse_app_background();assert(ouse_app_close_id("ouse.counter")==ESP_OK && ouse_app_close_id("ouse.settings")==ESP_OK);
         tick();assert(count(root)==objects && timers()==baseline_timers && ouse_ui_binding_count()==baseline_bindings);
     }
-    click(root,LV_SYMBOL_PLUS);click(root,"+1");
+    click(root,LV_SYMBOL_PLUS);tick();click(root,"+1");
     // Back feedback follows the pointer, and a short drag cancels.
     touch_step(4,240,true);touch_step(24,240,true);ouse_shell_get_state(&shell);
     assert(shell.tracking && shell.back_progress>0);screenshot("back-follow.ppm");
     touch_step(24,240,false);tick();assert(label(root,"1"));
     swipe(4,240,84,240);assert(ouse_app_get_stats(&state)==ESP_OK && !state.active_id[0]);
-    click(root,LV_SYMBOL_PLUS);swipe(316,240,236,240);assert(ouse_app_get_stats(&state)==ESP_OK && !state.active_id[0]);
+    click(root,LV_SYMBOL_PLUS);tick();swipe(316,240,236,240);assert(ouse_app_get_stats(&state)==ESP_OK && !state.active_id[0]);
     // Pull down exposes an intermediate sheet position before release.
     touch_step(160,14,true);touch_step(160,180,true);ouse_shell_get_state(&shell);
     assert(shell.quick && shell.tracking && shell.quick_y<0 && shell.quick_y>-480);screenshot("quick-follow.ppm");
@@ -983,13 +1060,13 @@ int main(int argc, char **argv) {
     swipe(160,462,160,350);ouse_shell_get_state(&shell);assert(!shell.quick);
     // A short pull cancels; it must not leave an overlay that eats app input.
     swipe(160,14,160,42);ouse_shell_get_state(&shell);assert(!shell.quick);
-    click(root,LV_SYMBOL_PLUS);assert(label(root,"1"));
+    click(root,LV_SYMBOL_PLUS);tick();assert(label(root,"1"));
     touch_step(160,474,true);touch_step(160,400,true);ouse_shell_get_state(&shell);
     assert(shell.tracking && shell.bar_offset<0 && !shell.snapshot_bytes);screenshot("home-follow.ppm");
     touch_step(160,400,false);tick();ouse_shell_get_state(&shell);
     assert(!shell.recents && !shell.tracking && !shell.snapshot_bytes);
     assert(ouse_app_get_stats(&state)==ESP_OK && !state.active_id[0] && state.live_instances==1);
-    click(root,LV_SYMBOL_PLUS);assert(label(root,"1"));swipe(160,474,160,450);assert(label(root,"1"));
+    click(root,LV_SYMBOL_PLUS);tick();assert(label(root,"1"));swipe(160,474,160,450);assert(label(root,"1"));
     // Hold after the upward motion, then release without clicking a card.
     touch_step(160,474,true);touch_step(160,370,true);
     for(unsigned i=0;i<8;++i)touch_step(160,370,true);
@@ -1146,6 +1223,7 @@ focused=widget_only or current_ui or "--focused-native-ui" in sys.argv[1:]
 if not focused:
     subprocess.run([str(OUT / "check.exe")], check=True, cwd=OUT, timeout=180)
     subprocess.run([str(OUT / "check.exe"), "--lifecycle-errors"], check=True, cwd=OUT, timeout=60)
+    subprocess.run([str(OUT / "check.exe"), "--launch-animation"], check=True, cwd=OUT, timeout=60)
     subprocess.run([str(OUT / "check.exe"), "--launcher-pages"], check=True, cwd=OUT, timeout=60)
     subprocess.run([str(OUT / "check.exe"), "--launcher-order"], check=True, cwd=OUT, timeout=60)
     subprocess.run([str(OUT / "check.exe"), "--launcher-order-reload"], check=True, cwd=OUT, timeout=60)

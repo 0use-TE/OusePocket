@@ -61,7 +61,7 @@ esp_err_t ouse_board_debug_lcd_transfer(int enabled, bool *current_enabled, uint
             error = esp_lv_adapter_set_draw_bitmap_callbacks(debug_display, NULL, NULL);
         } else {
             // A synchronous panel command drains the previous DMA and its done
-            // ISR before a skipped flush can reuse the single drawing buffer.
+            // ISR before a skipped flush can reuse an in-flight drawing buffer.
             error = esp_lcd_panel_disp_on_off(bsp_display_get_panel_handle(), true);
             if (error != ESP_OK) return error;
             const esp_lv_adapter_draw_bitmap_callbacks_t callbacks = {
@@ -125,16 +125,21 @@ esp_err_t ouse_board_init(ouse_core_port_t *port)
     // JavaScript runs on its separate system-owned worker.
     cfg.lv_adapter_cfg.task_stack_size = 48 * 1024;
     cfg.lv_adapter_cfg.stack_in_psram = false;
-    cfg.lv_adapter_cfg.task_min_delay_ms = 5;
-    cfg.lv_adapter_cfg.task_max_delay_ms = 20;
+    cfg.lv_adapter_cfg.task_min_delay_ms = 1;
+    cfg.lv_adapter_cfg.task_max_delay_ms = 16;
     lv_display_t *display = bsp_display_start_with_config(&cfg);
     if (!display || !bsp_display_get_input_dev()) return ESP_FAIL;
     // The adapter has started the LVGL worker. Install the board's DMA wait
     // while holding that worker's lock, before creating the desktop/apps.
     if (!bsp_display_lock(2000)) return ESP_ERR_TIMEOUT;
+    // Input reads are independent of rendering. The FT6336 IRQ gates I2C
+    // access, so an 8 ms read timer consumes only pending touch samples.
+    lv_timer_set_period(lv_indev_get_read_timer(bsp_display_get_input_dev()), 8);
 #if CONFIG_OUSE_DEVICE_DEBUG
     debug_display = display;
     lv_display_set_flush_wait_cb(display, debug_flush_wait);
+    extern void ouse_board_display_timing_init(lv_display_t *);
+    ouse_board_display_timing_init(display);
 #else
     lv_display_set_flush_wait_cb(display, ouse_display_flush_wait);
 #endif

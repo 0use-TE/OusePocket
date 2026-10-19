@@ -33,6 +33,7 @@ static OUSE_PSRAM_BSS struct {
     bool bluetooth_connected;
     uint32_t banner_seen,notification_read,banner_serial,banner_until;
     int wifi_level;
+    uint32_t icon_generation;
     struct {char app_id[48];lv_image_dsc_t image;} notification_icons[OUSE_NOTIFICATION_CAPACITY];
     unsigned notification_icon_count;
     lv_obj_t *gear,*light,*clock,*battery,*status,*nav,*volume_box,*volume_slider,*volume_icon;
@@ -77,19 +78,30 @@ static void hide(lv_obj_t *obj) { lv_obj_add_flag(obj,LV_OBJ_FLAG_HIDDEN); }
 static void show(lv_obj_t *obj) { lv_obj_remove_flag(obj,LV_OBJ_FLAG_HIDDEN); }
 static void rect(lv_obj_t *obj,int x,int y,int w,int h)
 { lv_obj_set_pos(obj,x,y);lv_obj_set_size(obj,w,h); }
+static void label_changed(lv_obj_t *label,const char *value)
+{ if(strcmp(lv_label_get_text(label),value))lv_label_set_text(label,value); }
+static void background_changed(lv_obj_t *object,lv_color_t color)
+{ if(!lv_color_eq(lv_obj_get_style_bg_color(object,0),color))lv_obj_set_style_bg_color(object,color,0); }
+static void text_color_changed(lv_obj_t *object,lv_color_t color)
+{ if(!lv_color_eq(lv_obj_get_style_text_color(object,0),color))lv_obj_set_style_text_color(object,color,0); }
 static bool contains(lv_obj_t *obj,lv_point_t p)
 {
     if(!obj || !lv_obj_is_visible(obj))return false;
     lv_area_t a;lv_obj_get_coords(obj,&a);
     return p.x>=a.x1 && p.x<=a.x2 && p.y>=a.y1 && p.y<=a.y2;
 }
-static void overlay_status(bool overlay)
+static void status_colors(bool overlay)
 {
-    lv_obj_set_style_bg_opa(shell.status,overlay ? (lv_opa_t)96 : LV_OPA_COVER,0);
+    lv_opa_t opacity=overlay ? (lv_opa_t)96 : LV_OPA_COVER;
+    if(lv_obj_get_style_bg_opa(shell.status,0)!=opacity)lv_obj_set_style_bg_opa(shell.status,opacity,0);
     ouse_app_stats_t apps;bool in_app=ouse_app_get_stats(&apps)==ESP_OK && apps.active_id[0];
     lv_color_t color=lv_color_hex(in_app ? ouse_theme_colors().background : ouse_theme_colors().desktop);
-    lv_obj_set_style_bg_color(shell.status,color,0);
-    if(shell.nav)lv_obj_set_style_bg_color(shell.nav,color,0);
+    background_changed(shell.status,color);
+    if(shell.nav)background_changed(shell.nav,color);
+}
+static void overlay_status(bool overlay)
+{
+    status_colors(overlay);
     lv_obj_move_foreground(shell.status);
     if(shell.nav && !visible(shell.quick_layer)) {
         if(shell.bottom_guard && !shell.navigation)lv_obj_move_foreground(shell.bottom_guard);
@@ -555,8 +567,8 @@ static void quick_tile_create(quick_tile_t *tile,lv_obj_t *parent,const char *sy
 static void quick_control_color(lv_obj_t *object,bool active)
 {
     ouse_theme_colors_t colors=ouse_theme_colors();
-    lv_obj_set_style_bg_color(object,lv_color_hex(active ? colors.accent : colors.surface),0);
-    lv_obj_set_style_text_color(object,lv_color_hex(active ? (ouse_theme_get()==OUSE_THEME_DARK ? 0x122D3B : 0xffffff) : colors.text),0);
+    background_changed(object,lv_color_hex(active ? colors.accent : colors.surface));
+    text_color_changed(object,lv_color_hex(active ? (ouse_theme_get()==OUSE_THEME_DARK ? 0x122D3B : 0xffffff) : colors.text));
 }
 static void quick_status_pair(lv_obj_t *label,const char *zh,const char *en)
 {
@@ -609,25 +621,29 @@ static void layout_quick(void)
 }
 static void refresh(lv_timer_t *timer)
 {
-    (void)timer;char time[8],date[64];ouse_navigation_clock(time);
+    (void)timer;char time[8],date[64],battery[32];ouse_navigation_clock(time);
     if(shell.navigation && !shell.g.claimed && !shell.card_animating)lv_obj_move_foreground(shell.nav);
     lv_color_t navigation_color=lv_color_hex(ouse_theme_colors().text);
     for(unsigned index=0;index<3;++index)if(shell.navigation_icons[index]) {
-        if(index==0)lv_obj_set_style_line_color(shell.navigation_icons[index],navigation_color,0);
-        else lv_obj_set_style_border_color(shell.navigation_icons[index],navigation_color,0);
+        lv_obj_t *icon=shell.navigation_icons[index];
+        if(index==0){if(!lv_color_eq(lv_obj_get_style_line_color(icon,0),navigation_color))lv_obj_set_style_line_color(icon,navigation_color,0);}
+        else if(!lv_color_eq(lv_obj_get_style_border_color(icon,0),navigation_color))lv_obj_set_style_border_color(icon,navigation_color,0);
     }
     // Keep foreground chrome consistent even for apps without theme callbacks.
-    if(!visible(shell.recents) && !visible(shell.flight) && !visible(shell.quick_layer))overlay_status(false);
-    lv_label_set_text(shell.clock,time);
+    if(!visible(shell.recents) && !visible(shell.flight) && !visible(shell.quick_layer))status_colors(false);
+    label_changed(shell.clock,time);
     ouse_power_state_t power={0};ouse_power_get(&power);
     const char *symbol=power.charging ? LV_SYMBOL_CHARGE : power.percent>80 ? LV_SYMBOL_BATTERY_FULL : power.percent>40 ? LV_SYMBOL_BATTERY_2 : power.percent>15 ? LV_SYMBOL_BATTERY_1 : LV_SYMBOL_BATTERY_EMPTY;
-    if(power.valid && power.percent>=0)lv_label_set_text_fmt(shell.battery,"%s %d%%",symbol,power.percent);
-    else lv_label_set_text(shell.battery,LV_SYMBOL_BATTERY_EMPTY " --");
+    if(power.valid && power.percent>=0)snprintf(battery,sizeof(battery),"%s %d%%",symbol,power.percent);
+    else snprintf(battery,sizeof(battery),"%s --",LV_SYMBOL_BATTERY_EMPTY);
+    label_changed(shell.battery,battery);
     ouse_wifi_state_t wifi={0};ouse_wifi_get(&wifi);int level=!wifi.connected ? 0 : wifi.rssi>=-60 ? 3 : wifi.rssi>=-75 ? 2 : 1;
-    if(level!=shell.wifi_level){shell.wifi_level=level;lv_obj_invalidate(shell.wifi_icon);}
-    lv_obj_invalidate(shell.wifi_icon);
-    ouse_ble_state_t bluetooth;ouse_ble_get(&bluetooth);shell.bluetooth_connected=bluetooth.connected;
-    if(bluetooth.enabled)show(shell.bluetooth_icon);else hide(shell.bluetooth_icon);lv_obj_invalidate(shell.bluetooth_icon);
+    bool colors_changed=shell.icon_generation!=ouse_ui_generation();
+    if(level!=shell.wifi_level || colors_changed){shell.wifi_level=level;lv_obj_invalidate(shell.wifi_icon);}
+    ouse_ble_state_t bluetooth;ouse_ble_get(&bluetooth);
+    if(shell.bluetooth_connected!=bluetooth.connected || colors_changed)lv_obj_invalidate(shell.bluetooth_icon);
+    shell.bluetooth_connected=bluetooth.connected;shell.icon_generation=ouse_ui_generation();
+    if(bluetooth.enabled)show(shell.bluetooth_icon);else hide(shell.bluetooth_icon);
     refresh_notification_banner(power.asleep);
     // Quick settings can change text size while overview stays open beneath
     // it. Text bindings update the font; resize its explicit line box too.
@@ -644,14 +660,14 @@ static void refresh(lv_timer_t *timer)
         return;
     }
     if(shell.notifications_selected) {
-        lv_label_set_text(shell.notification_clock,time);
+        label_changed(shell.notification_clock,time);
         if((shell.notification_generation!=ouse_notifications_generation() ||
             shell.notification_ui_generation!=ouse_ui_generation() ||
             shell.notification_age_minute!=(uint32_t)((uint64_t)esp_timer_get_time()/60000000)) &&
             lv_indev_get_state(shell.config.touch)==LV_INDEV_STATE_RELEASED)rebuild_notifications();
         return;
     }
-    lv_label_set_text(shell.quick_clock,time);ouse_navigation_date(date,sizeof(date),!ouse_ui_locale());
+    label_changed(shell.quick_clock,time);ouse_navigation_date(date,sizeof(date),!ouse_ui_locale());
     ouse_ui_text(shell.date,date);
     if(shell.generation!=ouse_ui_generation()) {shell.generation=ouse_ui_generation();layout_quick();}
     quick_control_color(shell.theme_tile.button,ouse_theme_get()==OUSE_THEME_DARK);
@@ -668,22 +684,22 @@ static void refresh(lv_timer_t *timer)
     if(!lv_obj_has_state(shell.slider,LV_STATE_PRESSED))lv_slider_set_value(shell.slider,shell.config.brightness(),LV_ANIM_OFF);
     ouse_wifi_state_t w={0};ouse_wifi_get(&w);
     quick_control_color(shell.wifi_tile.button,w.connected);
-    if(w.connected){ouse_ui_unbind_text(shell.wifi_tile.status);lv_label_set_text(shell.wifi_tile.status,w.ssid);}
+    if(w.connected){ouse_ui_unbind_text(shell.wifi_tile.status);label_changed(shell.wifi_tile.status,w.ssid);}
     else if(w.connecting)quick_status_pair(shell.wifi_tile.status,"连接中","Connecting");
     else if(w.enabled)quick_status_pair(shell.wifi_tile.status,"未连接","Disconnected");
     else quick_status_pair(shell.wifi_tile.status,"已关闭","Off");
     quick_control_color(shell.power_tile.button,power.charging);
-    lv_label_set_text(shell.power_tile.icon,symbol);
+    label_changed(shell.power_tile.icon,symbol);
     if(power.charging)quick_status_pair(shell.power_tile.status,"充电中","Charging");
     else if(power.external)quick_status_pair(shell.power_tile.status,"外部供电","External power");
     else if(power.present)quick_status_pair(shell.power_tile.status,"电池供电","On battery");
     else quick_status_pair(shell.power_tile.status,"未连接","Disconnected");
     ouse_audio_state_t audio={0};ouse_audio_get(&audio);
     if(!lv_obj_has_state(shell.volume_slider,LV_STATE_PRESSED))lv_slider_set_value(shell.volume_slider,audio.volume,LV_ANIM_OFF);
-    lv_label_set_text(shell.volume_icon,audio.muted || !audio.volume ? LV_SYMBOL_MUTE : LV_SYMBOL_VOLUME_MAX);
+    label_changed(shell.volume_icon,audio.muted || !audio.volume ? LV_SYMBOL_MUTE : LV_SYMBOL_VOLUME_MAX);
     quick_control_color(shell.sound_tile.button,!audio.muted&&audio.volume>0);
     quick_status_pair(shell.sound_tile.status,audio.muted ? "静音" : audio.volume ? "已开启" : "已关闭",audio.muted ? "Muted" : audio.volume ? "On" : "Off");
-    lv_label_set_text(shell.sound_tile.icon,audio.muted ? LV_SYMBOL_MUTE : LV_SYMBOL_VOLUME_MAX);
+    label_changed(shell.sound_tile.icon,audio.muted ? LV_SYMBOL_MUTE : LV_SYMBOL_VOLUME_MAX);
 
 }
 static void back_action(void)
@@ -856,6 +872,13 @@ static void pointer_event(lv_event_t *event)
     lv_event_code_t code=lv_event_get_code(event);
     if(code==LV_EVENT_RELEASED){finish_gesture(false);return;}
     if(code!=LV_EVENT_PRESSED)return;
+    if(ouse_core_launch_active()){
+        lv_point_t point;lv_indev_get_point(shell.config.touch,&point);
+        if(point.x<D(16) || point.x>=shell.width-D(16) || point.y>=shell.height-D(40)){
+            ouse_core_launch_cancel();lv_indev_reset(shell.config.touch,NULL);
+        }
+        return;
+    }
     if(shell.g.claimed)finish_gesture(true);
     lv_anim_delete(shell.back_indicator,back_motion);hide(shell.back_indicator);
     memset(&shell.g,0,sizeof(shell.g));shell.g.card=-1;

@@ -137,6 +137,11 @@ static void free_preview(entry_t *entry)
     if (entry->preview) lv_draw_buf_destroy(entry->preview);
     entry->preview=NULL; memset(&entry->image,0,sizeof(entry->image));
 }
+lv_obj_t *ouse_apps_root(const char *id)
+{
+    int index=find(id);
+    return index>=0 ? apps.entries[index].root : NULL;
+}
 esp_err_t ouse_app_find_info(const char *id,ouse_app_info_t *info)
 {
     if(!id || !info)return ESP_ERR_INVALID_ARG;

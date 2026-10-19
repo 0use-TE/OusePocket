@@ -7,7 +7,7 @@ export const validId=id=>typeof id==="string"&&/^user\.[a-z0-9._-]{1,42}$/.test(
 const file=name=>path.join(dataDirectory(),name);
 export const categories={tools:"实用工具",life:"生活日常",media:"影音娱乐",games:"游戏",development:"开发工具",other:"其他"};
 export async function list({cursor="0",limit="12",q="",category="all",sort="name"}={}){
- if(!/^\d{1,8}$/.test(cursor)||!/^\d{1,2}$/.test(limit)||+limit<1||+limit>12||q.length>64)throw new Error("Invalid pagination");
+ if(!/^\d{1,8}$/.test(cursor)||!/^\d{1,3}$/.test(limit)||+limit<1||+limit>100||q.length>64)throw new Error("Invalid pagination");
  if(category!=="all"&&!Object.hasOwn(categories,category)||!["name","newest","size"].includes(sort))throw new Error("Invalid filter");
  const db=await database();try{
   const where="instr(lower(name||' '||id||' '||author||' '||description),lower(?))>0 AND (?='all' OR category=?)",args=[q,category,category],order={newest:"updatedAt DESC,id",size:"size,id",name:"name COLLATE NOCASE,id"}[sort];

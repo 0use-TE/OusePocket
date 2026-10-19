@@ -73,6 +73,7 @@ static void rebuild_launcher(void);
 #include "ouse_file_open.inc"
 #include "ouse_keys.inc"
 #include "ouse_boot.inc"
+#include "ouse_launch.inc"
 extern void ouse_navigation_grid(int,int,unsigned,int *,int *,int *,int *);
 
 static lv_obj_t *text(lv_obj_t *parent, const char *value, int x, int y, int width)
@@ -100,17 +101,33 @@ static void app_changed(bool active)
 {
     if(active)launcher_edit(false);
     if(active)launcher_cancel();
-    if (active) { lv_obj_add_flag(core.home, LV_OBJ_FLAG_HIDDEN); ouse_shell_foreground(); }
-    else lv_obj_remove_flag(core.home, LV_OBJ_FLAG_HIDDEN);
+    if (active) {
+        ouse_app_stats_t state={0};ouse_app_get_stats(&state);
+        if(ouse_core_launch_active() && !strcmp(state.active_id,launch_animation.id)){
+            lv_obj_remove_flag(core.home,LV_OBJ_FLAG_HIDDEN);lv_obj_add_flag(core.app_host,LV_OBJ_FLAG_HIDDEN);
+        }else {if(ouse_core_launch_active())launch_animation_end();lv_obj_add_flag(core.home,LV_OBJ_FLAG_HIDDEN);}
+        ouse_shell_foreground();
+    }else {
+        if(ouse_core_launch_active())launch_animation_end();
+        lv_obj_remove_flag(core.home,LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 static void launch_app(lv_event_t *event)
 {
     if(launcher.suppress_click)return;
+    if(ouse_core_launch_active())return;
     if(launcher.editing){launcher_edit(false);return;}
     const char *id = lv_event_get_user_data(event);
+    lv_obj_t *tile=lv_event_get_current_target_obj(event);
+    (void)launch_animation_begin(id,lv_obj_get_child(tile,0));
     esp_err_t error = ouse_app_open(id);
-    if (error!=ESP_OK) LV_LOG_WARN("Application open failed");
+    // Native open callbacks may construct a whole settings tree on the UI
+    // task. No animation frame can render inside that callback. Start the
+    // visible timeline when it returns, so loading cannot skip the expansion.
+    if(error==ESP_OK && ouse_core_launch_active())launch_animation.started=lv_tick_get();
+    if (error!=ESP_OK){launch_animation_end();LV_LOG_WARN("Application open failed");
+        if(!ouse_dialog_active())ouse_dialog_show(ouse_ui_locale() ? "Unable to open app. Please retry." : "无法打开应用，请重试。",NULL,NULL);}
 }
 
 static void manager_settings_back(void);
@@ -169,6 +186,7 @@ esp_err_t ouse_core_set_theme(ouse_theme_t theme)
 {
     if (theme!=OUSE_THEME_LIGHT && theme!=OUSE_THEME_DARK) return ESP_ERR_INVALID_ARG;
     if (!core.started) return ESP_ERR_INVALID_STATE;
+    if(ouse_core_launch_active())launch_animation_end();
     ouse_theme_set(theme); theme_label();
     esp_err_t error=core.port.save_theme ? core.port.save_theme(core.port.context,(uint8_t)theme,core.brightness) : ESP_OK;
     if(error!=ESP_OK)settings_error("设置未能保存，请重试");
@@ -277,6 +295,7 @@ static esp_err_t shell_settings_state(ouse_settings_state_t *state)
 }
 static void shell_back(void)
 {
+    if(ouse_core_launch_active()){ouse_core_launch_cancel();return;}
     if(launcher.editing){launcher_cancel();launcher_edit(false);return;}
     if (ouse_ime_active()) { ouse_ime_hide(); return; }
     if (ouse_app_back()) return;
@@ -555,6 +574,7 @@ void ouse_core_launcher_state(unsigned *page,unsigned *pages)
 static void rebuild_launcher(void)
 {
     if (!core.grid) return;
+    if(ouse_core_launch_active())launch_animation_end();
     launcher_cancel();
     unsigned wanted_pages=(core.app_count+11)/12;
     if(core.app_count>core.icon_capacity){

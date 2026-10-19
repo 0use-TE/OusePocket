@@ -73,6 +73,8 @@ OusePocket 是 ESP32-P4 上的轻量多媒体应用框架。仓库根目录就�
 
 ## BPK 开发和安装
 
+扩展板的 2×16 接口映射、GPIO 占用、ADC 能力及软件规划见 [32 针扩展接口记录](docs/expansion-32pin.md)。
+
 当前只有一种 BPK 格式。容器包含四个必备文件 `manifest.json`、`page.json`、`app.js`、`icon.bin`，以及清单 `assets` 声明的最多 16 项资源，使用 ZIP_STORED；清单不包含包格式版本字段。
 
 清单提供默认 `name`、可选 `names.zh_CN/en` 和图标；语言缺项回退 `name`。桌面和最近应用读取包内名称并即时切换语言，不执行应用 JS。PNG 设计图在电脑上转为带尺寸头的 BGRA8888 `icon.bin`，板上直接显示，保留 alpha。应用内部通过 JSON `translations/textKey` 或 JS `Ouse.locale` 管理自己的文案，无需加入系统词表；没有 XML 页面解析器。

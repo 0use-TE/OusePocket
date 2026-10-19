@@ -3,6 +3,7 @@
 #include "ouse_runtime.h"
 #include "ouse_budget.h"
 #include "ouse_core.h"
+#include "ouse_apps_internal.h"
 #include "ouse_devices.h"
 #include "ouse_ime.h"
 #include "ouse_notifications.h"
@@ -2470,6 +2471,7 @@ static void ui_pump(lv_timer_t *timer)
             model_lock(app);node->shown_scroll=revision;node->scroll_y=position;node->scroll_bottom=bottom;node->scroll_height=height;model_unlock(app);
         }
     }
+    if(app->built || app->fault_shown)lv_obj_remove_flag(app->root,OUSE_APP_LOADING_FLAG);
     if(file[0] && visible && !faulted){esp_err_t error=ouse_core_open_file(app->id,file);if(error!=ESP_OK && error!=ESP_ERR_NOT_SUPPORTED && !ouse_dialog_active())ouse_dialog_show("无法打开文件，请稍后重试。",NULL,NULL);}
     else if(launch[0] && visible && !faulted)(void)ouse_app_open(launch);
     else if(home && visible)(void)ouse_app_background();
@@ -2842,6 +2844,7 @@ static esp_err_t open_app(lv_obj_t *root,void *opaque)
     ouse_script_app_t *state=opaque;esp_err_t error=ensure_worker();if(error!=ESP_OK)return error;
     instance_t *app=allocate_instance(state->package);if(!app)return ESP_ERR_NO_MEM;
     state->instance=app;app->root=root;app->visible=true;app->generation=1;
+    lv_obj_add_flag(root,OUSE_APP_LOADING_FLAG);
     app->viewport=lv_obj_create(root);lv_obj_remove_style_all(app->viewport);lv_obj_set_size(app->viewport,LV_PCT(100),LV_PCT(100));lv_obj_remove_flag(app->viewport,LV_OBJ_FLAG_SCROLLABLE);
     app->pump=lv_timer_create(ui_pump,20,app);if(!app->pump)return ESP_ERR_NO_MEM;
     if(!enqueue_instance(app))return ESP_ERR_NO_MEM;
