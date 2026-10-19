@@ -1,5 +1,14 @@
 # Executed by the real QuickJS/LVGL host harness, sharing ROOT and OUT.
 # Only board transport, RTOS notification and partition APIs are doubles.
+import subprocess as _bundle_subprocess
+import sys as _bundle_sys
+(OUT/"identity-services.h").write_text((ROOT/"tools/fixtures/identity-services.h").read_text(encoding="utf-8"),encoding="utf-8")
+_bundle_path=OUT/"builtin-store.bpk"
+_bundle_subprocess.run([_bundle_sys.executable,str(ROOT/"tools/bpk.py"),"pack",str(ROOT/"apps/store"),str(_bundle_path)],check=True)
+_bundle_bytes=_bundle_path.read_bytes()
+(OUT/"builtin-store-fixture.h").write_text(
+    "static const unsigned char test_builtin_store[]={"+','.join(str(b) for b in _bundle_bytes)+"};\n"
+    "#define OUSE_BUILTIN_STORE_DATA test_builtin_store\n#define OUSE_BUILTIN_STORE_SIZE sizeof(test_builtin_store)\n",encoding="utf-8")
 headers = r'''
 #pragma once
 #include <windows.h>
@@ -79,6 +88,8 @@ for name in ["driver/uart.h", "esp_littlefs.h", "esp_partition.h", "esp_heap_cap
 host = r'''
 #include <assert.h>
 #define BASE "usb-storage"
+#include "identity-services.h"
+#include "builtin-store-fixture.h"
 #include "ouse_installer.c"
 static void usb_server(void) {
     _setmode(_fileno(stdin),_O_BINARY);_setmode(_fileno(stdout),_O_BINARY);

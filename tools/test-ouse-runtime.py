@@ -372,7 +372,7 @@ if not qjs_library.exists() or qjs_library.stat().st_mtime < max(p.stat().st_mti
         qjs_objects=list(workers.map(lambda p: compile_one(p, OUT/(p.stem+".obj")), qjs_files))
     subprocess.run([str(compiler.parent/"lib.exe"), "/nologo", "/OUT:"+str(qjs_library), *map(str,qjs_objects)], cwd=OUT, env=env, check=True)
 sources = [OUT/"check.c", OUT/"script_packages.c", RUNTIME/"ouse_runtime.c", ROOT/"components/ouse_installer/ouse_bpk.c", ROOT/"components/ouse_installer/ouse_protocol.c"]
-sources += [CORE/name for name in ["ouse_core.c", "ouse_apps.c", "ouse_shell.c", "ouse_theme.c", "ouse_navigation.cpp", "ouse_ui.c", "ouse_widgets.c", "ouse_dialog.c", "ouse_screen.c", "ouse_device_ui.c"]]
+sources += [CORE/name for name in ["ouse_setup.c", "ouse_core.c", "ouse_apps.c", "ouse_shell.c", "ouse_theme.c", "ouse_navigation.cpp", "ouse_ui.c", "ouse_widgets.c", "ouse_dialog.c", "ouse_screen.c", "ouse_device_ui.c"]]
 sources += [ROOT/"components/ouse_devices/ouse_devices.c"]
 sources += sorted(CORE.glob("ouse_font_ui_*.c"))
 with ThreadPoolExecutor(max_workers=6) as workers:

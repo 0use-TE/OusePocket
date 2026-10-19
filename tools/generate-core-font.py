@@ -112,7 +112,7 @@ def gb2312_codepoints():
 
 
 def source_copy():
-    names = ['ouse_core.c', 'ouse_launcher.inc', 'ouse_file_open.inc', 'ouse_keys.inc', 'ouse_boot.inc', 'ouse_bluetooth_ui.inc', 'ouse_shell.c', 'ouse_widgets.c', 'ouse_device_ui.c',
+    names = ['ouse_setup.c', 'ouse_core.c', 'ouse_launcher.inc', 'ouse_file_open.inc', 'ouse_keys.inc', 'ouse_boot.inc', 'ouse_bluetooth_ui.inc', 'ouse_shell.c', 'ouse_widgets.c', 'ouse_device_ui.c',
              'ouse_dialog.c', 'ouse_screen.c', 'ouse_navigation.cpp', 'ouse_health_ui.c', 'ouse_app_manager_ui.c']
     paths = [DEST.parent / name for name in names]
     paths += sorted(path for path in (ROOT / 'apps').rglob('*') if path.suffix in {'.js', '.json'})
@@ -218,6 +218,7 @@ def generate_font(size, letters, bpp, name, fallback, source_sha, minimum_bounds
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--coverage', action='store_true', help='print coverage and fallback estimates; write nothing')
+    parser.add_argument('--allow-missing', action='store_true', help='omit unsupported app glyphs with an explicit report')
     args = parser.parse_args()
     coverage = unicode_cmap(SOURCE)
     letters = sorted(set(range(32, 127)) | {ord(char) for char in re.findall(r'[^\x00-\x7f]', source_copy())})
@@ -239,8 +240,11 @@ def main():
                           'gb2312_missing': len(gb - coverage), 'fallbacks': estimates,
                           'missing_ui_codepoints': [f'U+{cp:04X}' for cp in sorted(missing)]}, indent=2))
         return
-    if missing:
+    if missing and not args.allow_missing:
         raise ValueError('Missing source glyphs: ' + ', '.join(f'U+{cp:04X}' for cp in sorted(missing)))
+    if missing:
+        print('Unsupported glyphs omitted: '+', '.join(f'U+{cp:04X}' for cp in sorted(missing)))
+        letters = sorted(set(letters) - missing)
     fallback_estimate = sum(item['bitmap_bytes'] + item['table_bytes'] for item in estimates.values())
     if fallback_estimate > 1_500_000:
         raise ValueError(f'Shared CJK bitmap/table budget exceeded: {fallback_estimate} bytes')

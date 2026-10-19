@@ -14,7 +14,7 @@
 extern "C" {
 #endif
 
-#define OUSE_CORE_VERSION "0.35.1"
+#define OUSE_CORE_VERSION "0.36.0"
 #define OUSE_CORE_API_VERSION 39
 
 // Immutable board specifications; these describe hardware, not current usage.
@@ -52,6 +52,7 @@ typedef struct {
     uint8_t initial_locale, initial_font_percent; // zh_CN=0 / en=1; font is 0(default) or 100 only
     size_t app_count;
     bool boot_animation;
+    bool device_setup; // Native first-run setup and PIN gate; production enables it.
 } ouse_core_config_t;
 
 // Creates the default desktop and the built-in display settings. No runtime,
@@ -59,6 +60,9 @@ typedef struct {
 // do not start concurrently. The caller must not already hold the UI lock.
 esp_err_t ouse_core_start(const ouse_core_config_t *config);
 bool ouse_core_is_started(void);
+bool ouse_core_access_blocked(void); // UI task/lock only; setup, PIN or security dialog.
+bool ouse_core_locked(void);
+unsigned ouse_core_setup_step(void);
 // UI task only. Dynamically installed apps use the reserved user.* namespace.
 esp_err_t ouse_core_user_check(const char *id);
 esp_err_t ouse_core_user_apply(const ouse_app_definition_t *definition);

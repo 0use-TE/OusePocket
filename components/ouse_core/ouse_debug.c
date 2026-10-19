@@ -33,7 +33,7 @@ esp_err_t ouse_debug_state(char *out,size_t cap)
         used+=(size_t)w;first=false;
     }
     if(used+3>cap)return ESP_ERR_NO_MEM;
-    int tail=snprintf(out+used,cap-used,"],\"page\":%u,\"pages\":%u,\"per_page\":12,\"bar_offset\":%d,\"navigation\":%u,\"boot_down\":%s,\"pwr_down\":%s,\"launching\":%s}",page+1,pages,shell.bar_offset,ouse_shell_navigation(),ouse_core_key_down(0) ? "true" : "false",ouse_core_key_down(1) ? "true" : "false",ouse_core_launch_active() ? "true" : "false");
+    int tail=snprintf(out+used,cap-used,"],\"page\":%u,\"pages\":%u,\"per_page\":12,\"bar_offset\":%d,\"navigation\":%u,\"boot_down\":%s,\"pwr_down\":%s,\"launching\":%s,\"locked\":%s,\"setup_step\":%u}",page+1,pages,shell.bar_offset,ouse_shell_navigation(),ouse_core_key_down(0) ? "true" : "false",ouse_core_key_down(1) ? "true" : "false",ouse_core_launch_active() ? "true" : "false",ouse_core_locked()?"true":"false",ouse_core_setup_step());
     if(tail<0 || (size_t)tail>=cap-used)return ESP_ERR_NO_MEM;
     return ESP_OK;
 }

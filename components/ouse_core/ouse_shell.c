@@ -102,6 +102,7 @@ static void status_colors(bool overlay)
 static void overlay_status(bool overlay)
 {
     status_colors(overlay);
+    if(ouse_core_access_blocked())return;
     lv_obj_move_foreground(shell.status);
     if(shell.nav && !visible(shell.quick_layer)) {
         if(shell.bottom_guard && !shell.navigation)lv_obj_move_foreground(shell.bottom_guard);
@@ -408,6 +409,7 @@ static void wifi_draw(lv_event_t *event)
 }
 static void refresh_notification_banner(bool asleep)
 {
+    if(ouse_core_access_blocked()){hide(shell.banner);return;}
     ouse_notification_t latest={0};bool found=ouse_notifications_latest(&latest);
     ouse_app_stats_t active={0};
     bool suppress=found && ((latest.ongoing && !strcmp(latest.id,"ouse.media")) || (ouse_app_get_stats(&active)==ESP_OK && !strcmp(active.active_id,latest.app_id)));
@@ -622,7 +624,7 @@ static void layout_quick(void)
 static void refresh(lv_timer_t *timer)
 {
     (void)timer;char time[8],date[64],battery[32];ouse_navigation_clock(time);
-    if(shell.navigation && !shell.g.claimed && !shell.card_animating)lv_obj_move_foreground(shell.nav);
+    if(!ouse_core_access_blocked() && shell.navigation && !shell.g.claimed && !shell.card_animating)lv_obj_move_foreground(shell.nav);
     lv_color_t navigation_color=lv_color_hex(ouse_theme_colors().text);
     for(unsigned index=0;index<3;++index)if(shell.navigation_icons[index]) {
         lv_obj_t *icon=shell.navigation_icons[index];
@@ -722,6 +724,7 @@ static void home_tap(lv_event_t *event)
 }
 static void navigation_clicked(lv_event_t *event)
 {
+    if(ouse_core_access_blocked())return;
     lv_event_code_t code=lv_event_get_code(event);
     if(code==LV_EVENT_PRESSED){lv_indev_get_point(shell.config.touch,&shell.navigation_start);shell.navigation_cancelled=false;return;}
     if(code==LV_EVENT_PRESSING || code==LV_EVENT_RELEASED) {
@@ -868,6 +871,7 @@ static void finish_gesture(bool cancel)
 }
 static void pointer_event(lv_event_t *event)
 {
+    if(ouse_core_access_blocked())return;
     if(shell.card_animating)return;
     lv_event_code_t code=lv_event_get_code(event);
     if(code==LV_EVENT_RELEASED){finish_gesture(false);return;}

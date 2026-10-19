@@ -107,6 +107,24 @@ static int free_slot(void)
     free(installed);installed=entries;unsigned slot=installed_capacity;installed_capacity=capacity;return (int)slot;
 }
 static void path_for(const char *id,char path[128]){snprintf(path,128,DIRECTORY "/%s.bpk",id);}
+#ifndef OUSE_BUILTIN_STORE_DATA
+extern const unsigned char _binary_ouse_builtin_store_start[];
+extern const unsigned char _binary_ouse_builtin_store_end[];
+#define OUSE_BUILTIN_STORE_DATA _binary_ouse_builtin_store_start
+#define OUSE_BUILTIN_STORE_SIZE ((size_t)(_binary_ouse_builtin_store_end-_binary_ouse_builtin_store_start))
+#endif
+static esp_err_t seed_store(void)
+{
+    char path[128];path_for("user.store",path);struct stat info;
+    if(stat(path,&info)==0 && info.st_size>0 && info.st_size<=OUSE_BPK_MAX){
+        unsigned char *data=heap_caps_malloc(info.st_size,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);if(!data)return ESP_ERR_NO_MEM;
+        FILE *f=fopen(path,"rb");ouse_bpk_t *p=NULL;bool good=f && fread(data,1,info.st_size,f)==(size_t)info.st_size && ouse_bpk_catalog(data,info.st_size,&p)==ESP_OK && !strcmp(p->id,"user.store");
+        if(f){fclose(f);}ouse_bpk_free(p);free(data);if(good)return ESP_OK;
+    }
+    size_t size=OUSE_BUILTIN_STORE_SIZE;FILE *f=fopen(STAGING,"wb");if(!f)return ESP_FAIL;
+    bool ok=fwrite(OUSE_BUILTIN_STORE_DATA,1,size,f)==size;if(fflush(f)!=0)ok=false;if(fsync(fileno(f))!=0)ok=false;if(fclose(f)!=0)ok=false;
+    if(!ok||rename(STAGING,path)!=0){unlink(STAGING);return ESP_FAIL;}return ESP_OK;
+}
 static bool valid_id(const char *id)
 {
     if(strncmp(id,"user.",5) || !id[5] || strlen(id)>=48)return false;
@@ -224,6 +242,7 @@ static esp_err_t refresh_manager(void)
     esp_err_t error=ouse_storage_refresh();
     for(unsigned index=0;index<installed_capacity;++index)if(installed[index]){
         ouse_bpk_t *package=installed[index];ouse_managed_app_t *app=&snapshot->apps[snapshot->count++];
+        app->system=!strcmp(package->id,"user.store");
         app->permissions=(package->package.media_allowed ? 1u : 0u)|(package->package.camera_allowed ? 2u : 0u)|((package->package.files_allowed || package->package.photos_allowed) ? 4u : 0u)|(package->package.bluetooth_allowed ? 8u : 0u)|(package->package.hid_allowed ? 16u : 0u);
         strcpy(app->id,package->id);strcpy(app->name,package->name);strcpy(app->name_zh,package->name_zh);strcpy(app->name_en,package->name_en);
         app->version_code=package->version_code;strcpy(app->version_name,package->version_name);
@@ -240,6 +259,7 @@ static esp_err_t refresh_manager(void)
 }
 static esp_err_t begin_uninstall(const char *id)
 {
+    if(!strcmp(id,"user.store"))return ESP_ERR_NOT_SUPPORTED;
     if(!valid_id(id) || (find_package(id)<0 && strcmp(id,pending_remove)))return ESP_ERR_NOT_FOUND;
     esp_err_t error=ouse_uninstall_intent_write(id);
     if(error==ESP_OK){strcpy(pending_remove,id);error=finish_uninstall(id);}
@@ -521,6 +541,7 @@ static void worker(void *context)
         if(recovery_error==ESP_OK){esp_err_t reset=ouse_reset_intent_read(pending_reset);if(reset!=ESP_OK && reset!=ESP_ERR_NOT_FOUND)recovery_error=reset;}
         // An unreadable intent cannot identify the retiring app. Preserve all
         // files and defer package activation until explicitly repaired.
+        if(recovery_error==ESP_OK)recovery_error=seed_store();
         if(recovery_error==ESP_OK)restore_packages();
         const char **alarm_apps=heap_caps_calloc(installed_capacity ? installed_capacity : 1,sizeof(*alarm_apps),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);unsigned count=0;
         if(alarm_apps)for(unsigned i=0;i<installed_capacity;++i)if(installed[i] && installed[i]->package.alarms_allowed && strcmp(installed[i]->id,pending_reset))alarm_apps[count++]=installed[i]->id;

@@ -112,6 +112,7 @@ fixture = r'''
 #include "ouse_widgets.h"
 #include "ouse_apps_internal.h"
 #include "display_flush_wait.h"
+#include "ouse_setup.h"
 #include "core-services.h"
 #include "ouse_memory_pressure.h"
 ouse_memory_pressure_t ouse_test_memory_pressure=OUSE_MEMORY_NORMAL;
@@ -626,6 +627,8 @@ int main(int argc, char **argv) {
     if(argc>1 && !strcmp(argv[1],"--focused-native-ui"))config.port.save_ui=audit_save_ui;
     if(argc>1 && !strcmp(argv[1],"--hardware-keys")){config.port.read_key=host_read_key;host_side_keys[0]=true;}
     if(argc>1 && !strncmp(argv[1],"--boot-animation",16))config.boot_animation=true;
+    if(argc>1 && !strncmp(argv[1],"--device-setup",14))config.device_setup=true;
+    if(argc>1 && !strcmp(argv[1],"--device-setup-resume")){strcpy(host_identity.name,"Pocket");host_identity.setup_step=3;host_identity.pin_enabled=true;strcpy(host_pin,"222222");}
     if(argc>1 && !strcmp(argv[1],"--boot-animation-low-memory"))ouse_test_memory_pressure=OUSE_MEMORY_WARNING;
     assert(!ouse_core_is_started() && strcmp(ouse_core_version(), "CORE_VERSION_EXPECTED") == 0);
     assert(ouse_core_sleep_display()==ESP_ERR_INVALID_STATE && ouse_core_wake_display()==ESP_ERR_INVALID_STATE);
@@ -655,6 +658,64 @@ int main(int argc, char **argv) {
     assert(brightness == 45);
     assert(ouse_core_start(&config) == ESP_ERR_INVALID_STATE);
     lv_obj_t *root = lv_screen_active();
+    if(argc>1 && !strcmp(argv[1],"--device-setup-resume")){
+        assert(ouse_core_locked() && ouse_app_open("ouse.settings")==ESP_ERR_INVALID_STATE);
+        for(unsigned i=0;i<6;++i)click(root,"2");tick();assert(!ouse_core_locked() && label(root,"简单使用"));
+        click(root,"进入桌面");tick();assert(host_identity.setup_done && !ouse_core_access_blocked());
+        puts("PASS configured PIN protects interrupted setup after reboot");return 0;
+    }
+    if(argc>1 && !strcmp(argv[1],"--device-setup-skip")){
+        click(root,"开始使用");lv_textarea_set_text(find_type(root,&lv_textarea_class),"Pocket");click(root,"下一步");tick();
+        click(root,"跳过");tick();click(root,"稍后设置");tick();click(root,"进入桌面");tick();
+        assert(host_identity.setup_done && !host_identity.pin_enabled && !ouse_core_access_blocked());
+        assert(ouse_core_sleep_display()==ESP_OK && !ouse_core_locked());puts("PASS Wi-Fi and PIN optional; no lock when PIN disabled");return 0;
+    }
+    if(argc>1 && !strcmp(argv[1],"--device-setup")){
+        assert(ouse_core_access_blocked() && !ouse_core_locked());
+        assert(ouse_app_open("ouse.settings")==ESP_ERR_INVALID_STATE);
+        click(root,"开始使用");tick();screenshot("setup-name.ppm");
+        click(root,"下一步");tick();assert(!host_identity.name[0]);
+        lv_textarea_set_text(find_type(root,&lv_textarea_class),"Pocket Test");
+        click(root,"下一步");tick();assert(!strcmp(host_identity.name,"Pocket Test"));
+        assert(!find_type(root,&lv_textarea_class));
+        ouse_wifi_request_t setup_wifi;assert(ouse_devices_take_wifi(&setup_wifi) && setup_wifi.action==OUSE_WIFI_ENABLE && setup_wifi.enabled);
+        ouse_wifi_state_t setup_network={.available=true,.enabled=true,.ready=true,.completed_id=setup_wifi.id};
+        ouse_devices_publish_wifi(&setup_network,setup_wifi.id);tick();assert(ouse_devices_take_wifi(&setup_wifi) && setup_wifi.action==OUSE_WIFI_SCAN);
+        setup_network.completed_id=setup_wifi.id;setup_network.count=2;strcpy(setup_network.aps[0].ssid,"Office");setup_network.aps[0].secured=true;strcpy(setup_network.aps[1].ssid,"OpenNet");
+        ouse_devices_publish_wifi(&setup_network,setup_wifi.id);tick();screenshot("setup-wifi.ppm");
+        click(root,"Office");tick();assert(label(root,"输入网络密码") && !label(root,"网络名称"));
+        assert(find_type(root,&lv_textarea_class) && find_type(root,&lv_keyboard_class));
+        screenshot("setup-wifi-password.ppm");click(root,"返回");tick();
+        click(root,"Office");tick();lv_obj_t *setup_password=find_type(root,&lv_textarea_class),*setup_keyboard=find_type(root,&lv_keyboard_class);assert(setup_password && setup_keyboard);
+        lv_textarea_set_text(setup_password,"abcdefgh");press_keyboard(setup_keyboard,LV_SYMBOL_OK);
+        assert(ouse_devices_take_wifi(&setup_wifi) && setup_wifi.action==OUSE_WIFI_CONNECT && !strcmp(setup_wifi.ssid,"Office") && !strcmp(setup_wifi.password,"abcdefgh"));
+        tick();assert(label(root,"连接 Wi-Fi") && !find_type(root,&lv_textarea_class));
+        click(root,"OpenNet");assert(ouse_devices_take_wifi(&setup_wifi) && setup_wifi.action==OUSE_WIFI_CONNECT && !strcmp(setup_wifi.ssid,"OpenNet") && !setup_wifi.password[0]);
+        click(root,"跳过");tick();click(root,"设置密码");tick();
+        lv_obj_update_layout(root);lv_area_t pin_top,pin_bottom;lv_obj_get_coords(lv_obj_get_parent(label(root,"1")),&pin_top);lv_obj_get_coords(lv_obj_get_parent(label(root,"0")),&pin_bottom);
+        assert(pin_top.y1>=220 && pin_bottom.y2>=450 && pin_bottom.y2<480);screenshot("setup-pin-bottom.ppm");
+        for(unsigned i=0;i<5;++i)click(root,"1");assert(!host_identity.pin_enabled);click(root,"1");
+        for(unsigned i=0;i<6;++i)click(root,"2");tick();assert(label(root,"设置六位数字密码") && !host_identity.pin_enabled);
+        for(unsigned pass=0;pass<2;++pass)for(unsigned i=0;i<6;++i)click(root,"2");
+        tick();assert(host_identity.pin_enabled);tick();assert(label(root,"简单使用"));screenshot("setup-guide.ppm");
+        click(root,"进入桌面");tick();assert(host_identity.setup_done && !ouse_core_access_blocked());
+        assert(ouse_app_open("ouse.settings")==ESP_OK);tick();click(root,"密钥");tick();
+        click(root,"修改密码");tick();for(unsigned i=0;i<6;++i)click(root,"1");tick();assert(label(root,"验证原密码"));
+        for(unsigned i=0;i<6;++i)click(root,"2");tick();
+        for(unsigned pass=0;pass<2;++pass)for(unsigned i=0;i<6;++i)click(root,"3");tick();
+        assert(!strcmp(host_pin,"333333"));click(root,"返回");tick();
+        assert(ouse_core_sleep_display()==ESP_OK && ouse_core_locked());
+        assert(ouse_app_open("ouse.counter")==ESP_ERR_INVALID_STATE);
+        assert(ouse_core_wake_display()==ESP_OK);tick();screenshot("setup-locked.ppm");
+        assert(ouse_debug_open("ouse.counter")==ESP_ERR_INVALID_STATE);
+        lv_obj_t *lock_layer=lv_obj_get_parent(label(root,"输入锁屏密码"));assert(lv_obj_get_parent(lock_layer)==root && lv_obj_get_index(lock_layer)==(int32_t)lv_obj_get_child_count(root)-1);
+        swipe(160,1,160,250);assert(ouse_core_locked());
+        for(unsigned i=0;i<6;++i)click(root,"2");tick();assert(ouse_core_locked());
+        for(unsigned i=0;i<6;++i)click(root,"3");tick();assert(!ouse_core_locked() && !ouse_core_access_blocked());
+        click(root,"密钥");click(root,"关闭密码");for(unsigned i=0;i<6;++i)click(root,"3");tick();
+        assert(!host_identity.pin_enabled);click(root,"返回");tick();assert(ouse_core_sleep_display()==ESP_OK && !ouse_core_locked());
+        puts("PASS first-run required name, optional Wi-Fi, six-digit confirmation, change/disable authentication, lock on sleep, gesture/app-open gate");return 0;
+    }
     if(argc>1 && !strcmp(argv[1],"--launch-animation")){
         uint32_t *icon_pixels=calloc(8*8,sizeof(uint32_t));assert(icon_pixels);
         for(unsigned i=0;i<64;++i)icon_pixels[i]=0xff367bef;
@@ -1130,7 +1191,7 @@ int main(int argc, char **argv) {
     }
     ouse_shell_get_state(&shell);assert(shell.recents && shell.tracking);
     assert(ouse_debug_touch(160,430,false)==ESP_OK);tick();ouse_shell_get_state(&shell);assert(shell.recents);
-    char debug_state[400],debug_tree[32768];
+    char debug_state[1024],debug_tree[32768];
     assert(ouse_debug_state(debug_state,sizeof(debug_state))==ESP_OK && strstr(debug_state,"\"recents\":true"));
     assert(ouse_debug_tree(debug_tree,sizeof(debug_tree))==ESP_OK && strstr(debug_tree,"全部清除"));
     ouse_debug_image_t image;
@@ -1161,7 +1222,7 @@ add_subdirectory("LVGL" lvgl)
 target_compile_options(lvgl PRIVATE /utf-8 "$<$<COMPILE_LANGUAGE:C>:/std:c11>")
 target_compile_definitions(lvgl PRIVATE _CRT_SECURE_NO_WARNINGS)
 file(GLOB UI_FONTS "CORE/ouse_font_ui_*.c")
-add_executable(check check.c ${UI_FONTS} "CORE/ouse_ui.c" "CORE/ouse_widgets.c" "CORE/ouse_dialog.c" "CORE/ouse_screen.c" "CORE/ouse_debug.c" "CORE/ouse_device_ui.c" "CORE/ouse_ime.c" "DEVICES/ouse_devices.c" "DEVICES/../ouse_tasks/ouse_tasks.c" "CORE/ouse_core.c" "CORE/ouse_apps.c" "CORE/ouse_shell.c" "CORE/ouse_theme.c" "CORE/ouse_navigation.cpp" "MAIN/counter_app.c")
+add_executable(check check.c ${UI_FONTS} "CORE/ouse_setup.c" "CORE/ouse_ui.c" "CORE/ouse_widgets.c" "CORE/ouse_dialog.c" "CORE/ouse_screen.c" "CORE/ouse_debug.c" "CORE/ouse_device_ui.c" "CORE/ouse_ime.c" "DEVICES/ouse_devices.c" "DEVICES/../ouse_tasks/ouse_tasks.c" "CORE/ouse_core.c" "CORE/ouse_apps.c" "CORE/ouse_shell.c" "CORE/ouse_theme.c" "CORE/ouse_navigation.cpp" "MAIN/counter_app.c")
 target_include_directories(check PRIVATE "DEVICES/include" "CORE/include" "CORE" "MAIN" "SYSTEM_INCLUDE" "OUT" "BOARD")
 target_compile_options(check PRIVATE /utf-8 /UNDEBUG)
 target_link_libraries(check PRIVATE lvgl)
@@ -1228,6 +1289,9 @@ if not focused:
     subprocess.run([str(OUT / "check.exe")], check=True, cwd=OUT, timeout=180)
     subprocess.run([str(OUT / "check.exe"), "--lifecycle-errors"], check=True, cwd=OUT, timeout=60)
     subprocess.run([str(OUT / "check.exe"), "--launch-animation"], check=True, cwd=OUT, timeout=60)
+    subprocess.run([str(OUT / "check.exe"), "--device-setup"], check=True, cwd=OUT, timeout=60)
+    subprocess.run([str(OUT / "check.exe"), "--device-setup-skip"], check=True, cwd=OUT, timeout=60)
+    subprocess.run([str(OUT / "check.exe"), "--device-setup-resume"], check=True, cwd=OUT, timeout=60)
     subprocess.run([str(OUT / "check.exe"), "--launcher-pages"], check=True, cwd=OUT, timeout=60)
     subprocess.run([str(OUT / "check.exe"), "--launcher-order"], check=True, cwd=OUT, timeout=60)
     subprocess.run([str(OUT / "check.exe"), "--launcher-order-reload"], check=True, cwd=OUT, timeout=60)

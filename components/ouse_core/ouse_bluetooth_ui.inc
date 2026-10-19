@@ -60,7 +60,8 @@ static void bluetooth_refresh(void)
     if(!state.available)lv_obj_add_state(bluetooth_ui.toggle,LV_STATE_DISABLED);else lv_obj_remove_state(bluetooth_ui.toggle,LV_STATE_DISABLED);
     const char *status=state.starting ? "正在启动" : !state.available ? "蓝牙不可用" : !state.enabled ? "已关闭" : state.error ? "操作失败，请重试" : state.connected ? (state.bonded ? "已配对" : "已连接") : state.scanning ? "正在搜索" : state.advertising ? "可被发现" : "已开启";
     ouse_ui_text(bluetooth_ui.status,status);
-    lv_label_set_text(bluetooth_ui.address,state.connected ? state.peer : "OusePocket");
+    ouse_identity_state_t identity;ouse_identity_get(&identity);
+    lv_label_set_text(bluetooth_ui.address,state.connected ? state.peer : identity.name[0]?identity.name:"OusePocket");
     lv_obj_t *actions[]={bluetooth_ui.scan,bluetooth_ui.discover};
     for(unsigned index=0;index<2;++index)if(!state.enabled || !state.ready || state.scanning)lv_obj_add_state(actions[index],LV_STATE_DISABLED);else lv_obj_remove_state(actions[index],LV_STATE_DISABLED);
     if(state.connected)lv_obj_remove_flag(bluetooth_ui.disconnect,LV_OBJ_FLAG_HIDDEN);else lv_obj_add_flag(bluetooth_ui.disconnect,LV_OBJ_FLAG_HIDDEN);

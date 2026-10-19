@@ -21,6 +21,8 @@
 #include "ouse_permissions.h"
 #include "ouse_storage.h"
 #include "ouse_ble.h"
+#include "ouse_setup.h"
+#include "ouse_identity.h"
 #include <stdatomic.h>
 #include "src/misc/cache/instance/lv_image_cache.h"
 #include <stdint.h>
@@ -62,6 +64,7 @@ typedef struct {
     unsigned launcher_page,launcher_pages;
     lv_obj_t *slider;
     lv_obj_t *brightness_text;
+    lv_obj_t *account_names[2];
     lv_obj_t *info;
     unsigned pending_ui;
     bool brightness_failed;
@@ -215,6 +218,8 @@ static void refresh_status(lv_timer_t *timer)
     if(core.display_value){ouse_ui_unbind_text(core.display_value);lv_label_set_text_fmt(core.display_value,"%u%%",core.brightness);}
     ouse_device_ui_refresh();
     bluetooth_refresh();
+    ouse_identity_state_t identity;ouse_identity_get(&identity);
+    for(unsigned i=0;i<2;++i)if(core.account_names[i] && strcmp(lv_label_get_text(core.account_names[i]),identity.name[0]?identity.name:"Ouse"))lv_label_set_text(core.account_names[i],identity.name[0]?identity.name:"Ouse");
     ouse_health_ui_refresh();
     if(core.sd_value) {
         ouse_sd_state_t sd={0};ouse_sd_get(&sd);
@@ -384,7 +389,9 @@ static void account_header(lv_obj_t *parent,bool navigation)
     lv_obj_t *copy=ouse_widget_box(card,OUSE_STYLE_PANEL,0);
     lv_obj_set_width(copy,0);lv_obj_set_flex_grow(copy,1);lv_obj_set_height(copy,LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(copy,LV_FLEX_FLOW_COLUMN);lv_obj_set_style_pad_row(copy,ouse_ui_dp(3),0);
-    lv_obj_t *name=ouse_widget_text(copy,"",20);lv_label_set_text(name,"Ouse");lv_obj_set_width(name,LV_PCT(100));
+    ouse_identity_state_t identity;ouse_identity_get(&identity);
+    lv_obj_t *name=ouse_widget_text(copy,"",20);lv_label_set_text(name,identity.name[0]?identity.name:"Ouse");lv_obj_set_width(name,LV_PCT(100));
+    core.account_names[navigation?0:1]=name;
     lv_obj_t *kind=ouse_widget_text(copy,"本地账号",13);lv_obj_set_width(kind,LV_PCT(100));ouse_theme_apply(kind,OUSE_STYLE_MUTED,0);
     if(navigation){
         lv_obj_t *arrow=lv_label_create(card);lv_label_set_text(arrow,LV_SYMBOL_RIGHT);
@@ -454,11 +461,15 @@ static void choose_navigation(lv_event_t *event)
     preference_labels();
 }
 #include "ouse_bluetooth_ui.inc"
+static void security_settings(lv_event_t *e){(void)e;ouse_setup_settings();}
+static void rename_settings(lv_event_t *e){(void)e;ouse_setup_rename();}
 static esp_err_t settings_open(lv_obj_t *root,void *context)
 {
     (void)context;
     core.settings=settings_column(root);page_heading(core.settings,"设置",false);
     account_header(core.settings,true);
+    ouse_widget_row(core.settings,LV_SYMBOL_EDIT,"设备名称",NULL,rename_settings,NULL,NULL);
+    ouse_widget_row(core.settings,LV_SYMBOL_KEYBOARD,"密钥","锁屏密码",security_settings,NULL,NULL);
     section(core.settings,"显示与个性化");
     ouse_widget_row(core.settings,LV_SYMBOL_IMAGE,"显示","",open_settings_page,(void *)(uintptr_t)1,&core.display_value);
     ouse_widget_row(core.settings,LV_SYMBOL_TINT,"外观","明暗主题",open_settings_page,(void *)(uintptr_t)2,NULL);
@@ -525,6 +536,7 @@ static void settings_close(void *context)
     if (core.status_timer) lv_timer_delete(core.status_timer);
     core.status_timer=NULL;core.theme_value=NULL;core.theme_switch=NULL;core.display_value=NULL;core.language_value=NULL;
     core.display_page=core.appearance_page=core.language_page=core.account_page=NULL;
+    core.account_names[0]=core.account_names[1]=NULL;
     core.health_page=core.usb_page=NULL;ouse_health_ui_close();
     core.developer_page=core.debug_switch=NULL;
     bluetooth_close();core.bluetooth_page=NULL;
@@ -657,6 +669,7 @@ static void permission_dialog(void)
 static void monitor_errors(lv_timer_t *timer)
 {
     (void)timer;
+    if(ouse_core_access_blocked())return;
     permission_dialog();
     bluetooth_pair_prompt();
     static bool settings_failed;
@@ -756,6 +769,7 @@ esp_err_t ouse_core_start(const ouse_core_config_t *config)
     lv_timer_create(file_preferences_tick,250,NULL);
     if(core.port.read_key)lv_timer_create(side_keys_tick,20,NULL);
     if(config->boot_animation)boot_animation_start();
+    ouse_setup_init(config->device_setup);
     port->unlock(port->context);
     return ESP_OK;
 }

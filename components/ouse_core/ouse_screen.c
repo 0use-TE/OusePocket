@@ -3,6 +3,7 @@
 #include "ouse_devices.h"
 #include "ouse_dialog.h"
 #include "ouse_camera.h"
+#include "ouse_setup.h"
 #include "esp_log.h"
 static struct {
     ouse_core_port_t port;
@@ -24,11 +25,12 @@ esp_err_t ouse_screen_sleep(void)
 {
     if(screen.asleep)return ESP_OK;
     esp_err_t e=screen.port.set_brightness(screen.port.context,0);
-    if(e==ESP_OK){screen.asleep=true;ouse_power_set_asleep(true);ESP_LOGI("OuseScreen","Display asleep");}return e;
+    if(e==ESP_OK){screen.asleep=true;ouse_setup_lock();ouse_power_set_asleep(true);ESP_LOGI("OuseScreen","Display asleep");}return e;
 }
 esp_err_t ouse_screen_wake(void)
 {
     screen.activity=lv_tick_get();if(!screen.asleep)return ESP_OK;
+    ouse_setup_lock();
     esp_err_t e=screen.port.set_brightness(screen.port.context,screen.brightness);
     if(e==ESP_OK){screen.asleep=false;ouse_power_set_asleep(false);ESP_LOGI("OuseScreen","Display awake");}return e;
 }
@@ -42,7 +44,7 @@ static void read_touch(lv_indev_t *input,lv_indev_data_t *data)
 #if CONFIG_OUSE_DEVICE_DEBUG
     static bool physical_down;
     bool physical=!screen.injecting && !screen.remote_down && pressed;
-    if(physical && !physical_down)ESP_LOGI("OuseTouch","Physical down: %d,%d",(int)data->point.x,(int)data->point.y);
+    if(physical && !physical_down && !ouse_core_access_blocked())ESP_LOGI("OuseTouch","Physical down: %d,%d",(int)data->point.x,(int)data->point.y);
     physical_down=physical;
 #endif
     if(pressed)screen.activity=lv_tick_get();
@@ -56,7 +58,7 @@ esp_err_t ouse_screen_inject(int x,int y,bool pressed)
     if(x<0 || y<0 || x>=lv_display_get_horizontal_resolution(screen.port.display) ||
        y>=lv_display_get_vertical_resolution(screen.port.display))return ESP_ERR_INVALID_ARG;
 #if CONFIG_OUSE_DEVICE_DEBUG
-    ESP_LOGI("OuseTouch","Remote %s: %d,%d",pressed ? "down" : "up",x,y);
+    if(!ouse_core_access_blocked())ESP_LOGI("OuseTouch","Remote %s: %d,%d",pressed ? "down" : "up",x,y);
 #endif
     screen.remote_point=(lv_point_t){x,y};screen.remote_down=pressed;
     screen.remote_activity=lv_tick_get();screen.injecting=true;

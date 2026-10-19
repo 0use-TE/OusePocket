@@ -1,6 +1,7 @@
 #include "ouse_ble.h"
 #include "ouse_ble_app.h"
 #include "ouse_tasks.h"
+#include "ouse_identity.h"
 #include "esp_hosted.h"
 #include "esp_timer.h"
 #include "esp_heap_caps.h"
@@ -36,6 +37,7 @@ static atomic_uint_least16_t connection=BLE_HS_CONN_HANDLE_NONE;
 static atomic_uint_least32_t pair_until,prompt_until,connection_since;
 static uint32_t next_pair_id;
 static char echo[33]="OusePocket";
+static char device_name[25]="OusePocket";
 static int gap_event(struct ble_gap_event *event,void *context);
 static void app_gap_event(struct ble_gap_event *event);
 static void app_process(command_t *command);
@@ -98,8 +100,12 @@ static int advertise(void)
 {
     if(!enabled || !synced || connection!=BLE_HS_CONN_HANDLE_NONE || ble_gap_adv_active() || app_central_active())return 0;
     static const ble_uuid16_t hid_uuid=BLE_UUID16_INIT(0x1812);
-    struct ble_hs_adv_fields fields={.flags=BLE_HS_ADV_F_DISC_GEN|BLE_HS_ADV_F_BREDR_UNSUP,.name=(uint8_t *)"OusePocket",.name_len=10,.name_is_complete=1,.uuids16=(ble_uuid16_t *)&hid_uuid,.num_uuids16=1,.uuids16_is_complete=0,.appearance=0x03c1,.appearance_is_present=1};
+    struct ble_hs_adv_fields fields={.flags=BLE_HS_ADV_F_DISC_GEN|BLE_HS_ADV_F_BREDR_UNSUP,.uuids16=(ble_uuid16_t *)&hid_uuid,.num_uuids16=1,.uuids16_is_complete=0,.appearance=0x03c1,.appearance_is_present=1};
     int error=ble_gap_adv_set_fields(&fields);
+    ouse_identity_state_t identity;ouse_identity_get(&identity);
+    const char *name=identity.name[0]?identity.name:"OusePocket";
+    struct ble_hs_adv_fields response={.name=(uint8_t *)name,.name_len=strlen(name),.name_is_complete=1};
+    if(!error)error=ble_gap_adv_rsp_set_fields(&response);
     if(!error){struct ble_gap_adv_params parameters={.conn_mode=BLE_GAP_CONN_MODE_UND,.disc_mode=BLE_GAP_DISC_MODE_GEN};error=ble_gap_adv_start(own_type,NULL,BLE_HS_FOREVER,&parameters,gap_event,NULL);}
     portENTER_CRITICAL(&lock);state.advertising=!error;state.error=error;changed();portEXIT_CRITICAL(&lock);return error;
 }
@@ -200,7 +206,7 @@ static int initialize(void)
     ble_hs_cfg.sm_io_cap=BLE_SM_IO_CAP_DISP_YES_NO;ble_hs_cfg.sm_bonding=1;ble_hs_cfg.sm_mitm=1;ble_hs_cfg.sm_sc=1;ble_hs_cfg.sm_sc_only=1;
     ble_hs_cfg.sm_our_key_dist=BLE_SM_PAIR_KEY_DIST_ENC|BLE_SM_PAIR_KEY_DIST_ID;
     ble_hs_cfg.sm_their_key_dist=BLE_SM_PAIR_KEY_DIST_ENC|BLE_SM_PAIR_KEY_DIST_ID;
-    ble_svc_gap_init();ble_svc_gatt_init();error=ble_svc_gap_device_name_set("OusePocket");
+    ble_svc_gap_init();ble_svc_gatt_init();error=ble_svc_gap_device_name_set(device_name);
     if(!error)error=ble_gatts_count_cfg(services);
     if(!error)error=ble_gatts_add_svcs(services);
     if(!error)error=hid_register();
@@ -262,6 +268,11 @@ static void worker(void *unused)
     if(saved==1){command_t command={.operation=ENABLE,.enabled=true,.temporary=true};process(&command);}
     int64_t refresh_at=0;
     for(;;){
+        ouse_identity_state_t identity;ouse_identity_get(&identity);
+        if(identity.ready && identity.name[0] && strcmp(device_name,identity.name)){
+            strcpy(device_name,identity.name);
+            if(initialized){(void)ble_svc_gap_device_name_set(device_name);if(ble_gap_adv_active()){(void)ble_gap_adv_stop();(void)advertise();}}
+        }
         command_t command;if(xQueueReceive(commands,&command,pdMS_TO_TICKS(200))==pdTRUE)process(&command);
         int64_t now=esp_timer_get_time();
         if(initialized && synced && now>=refresh_at){bonds_refresh();if(connection!=BLE_HS_CONN_HANDLE_NONE)connected_refresh(connection);refresh_at=now+2000000;}

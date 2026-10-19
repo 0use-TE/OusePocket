@@ -49,7 +49,7 @@ static void launcher_remove_clicked(lv_event_t *event)
 static void launcher_badge(unsigned index,int cell_width)
 {
     launcher.badges[index]=NULL;
-    if(strncmp(core.icons[index].id,"user.",5))return;
+    if(strncmp(core.icons[index].id,"user.",5)||!strcmp(core.icons[index].id,"user.store"))return;
     lv_obj_t *badge=lv_button_create(launcher.tiles[index]);lv_obj_remove_style_all(badge);
     lv_obj_set_size(badge,ouse_ui_dp(28),ouse_ui_dp(28));
     lv_obj_set_pos(badge,(cell_width+ouse_ui_dp(40))/2-ouse_ui_dp(18),0);

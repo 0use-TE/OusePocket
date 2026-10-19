@@ -141,7 +141,7 @@ void ouse_manager_ui_update(void)
     format_size(app->data_bytes,size);snprintf(value,sizeof(value),local("本地数据：%s","Local data: %s"),app->system ? "--" : app->measured ? size : "--");lv_label_set_text(data_size,value);
     format_size(app->package_bytes+app->data_bytes,size);snprintf(value,sizeof(value),local("合计：%s","Total: %s"),app->system ? "--" : app->measured ? size : "--");lv_label_set_text(total_size,value);
     snprintf(value,sizeof(value),local("原生闹钟：%u","Native alarms: %u"),app->alarms);lv_label_set_text(alarm_count,value);hidden(alarm_count,!app->alarms);
-    disabled(open_button,snapshot.busy || app->system);disabled(clear_button,snapshot.busy || snapshot.recovery_pending || app->system);disabled(remove_button,snapshot.busy || snapshot.recovery_pending || app->system);
+    disabled(open_button,snapshot.busy || !strcmp(app->id,"ouse.settings"));disabled(clear_button,snapshot.busy || snapshot.recovery_pending || app->system);disabled(remove_button,snapshot.busy || snapshot.recovery_pending || app->system);
 }
 void ouse_manager_ui_close(void)
 {

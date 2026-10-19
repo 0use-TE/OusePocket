@@ -59,7 +59,7 @@ static void side_keys_tick(lv_timer_t *timer)
             }else if(!key->consumed && !key->long_sent){
                 ouse_app_stats_t app;if(ouse_app_get_stats(&app)!=ESP_OK || strcmp(key->origin,app.active_id))continue;
                 ouse_shell_state_t shell;ouse_shell_get_state(&shell);
-                bool intercepted=!ouse_dialog_active() && !ouse_ime_active() && !shell.quick && !shell.recents && !shell.notifications && ouse_app_key(index);
+                bool intercepted=!ouse_core_access_blocked() && !ouse_dialog_active() && !ouse_ime_active() && !shell.quick && !shell.recents && !shell.notifications && ouse_app_key(index);
                 if(!intercepted)side_volume(index);
             }
         }

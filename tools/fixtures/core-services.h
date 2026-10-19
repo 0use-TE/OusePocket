@@ -12,6 +12,7 @@
 #include "ouse_health.h"
 #include <string.h>
 #include <stdlib.h>
+#include "identity-services.h"
 static char *host_launcher_order;
 static bool host_launcher_save_error;
 static char *host_file_defaults;
