@@ -130,10 +130,20 @@ function storageAction(task){
   results.storage={zh:'操作成功',en:'Completed',detail:''};if(visible(page,token))refresh();
  },e=>{storageBusy=false;results.storage={zh:'错误',en:'Error',detail:String(e&&e.code||e&&e.message||e)};if(visible(page,token))refresh();});
 }
+let multiPoints={},multiPeak=0;
+function clearMulti(){multiPoints={};multiPeak=0;}
+function multiPaint(){
+ const ids=Object.keys(multiPoints);multiPeak=Math.max(multiPeak,ids.length);
+ Ouse.ui.setText('multiCount',ids.length+' / 2 · max '+multiPeak);
+ for(let i=0;i<2;i++){const entries=ids.filter(id=>multiPoints[id].pad===i);Ouse.ui.setText('pad'+i,entries.length?entries.map(id=>'ID '+id+'\n'+multiPoints[id].x+', '+multiPoints[id].y).join('\n'):i?'右区 / Right':'左区 / Left');}
+}
+function multiLayout(){if(current!=='multi')return;const d=Ouse.display.get(),w=Math.floor(d.contentWidthDp),h=Math.floor(d.contentHeightDp),pad=Math.floor((w-24)/2);Ouse.ui.layout([{id:'pad0',x:8,y:48,width:pad,height:h-56},{id:'pad1',x:16+pad,y:48,width:pad,height:h-56}]);}
 function bindPage(){
  if(current!=='home')bind('back','click',back);
  if(current==='home'){
   for(const page of ['display','audio','wifi','power','controls','messages','resources'])bind('go_'+page,'click',()=>go(page));
+ }else if(current==='multi'){
+  clearMulti();multiLayout();multiPaint();for(let i=0;i<2;i++)for(const e of ['pointerdown','pointermove','pointerup','pointercancel'])bind('pad'+i,e,p=>{if(e==='pointerup'||e==='pointercancel')delete multiPoints[p.pointerId];else multiPoints[p.pointerId]={pad:i,x:p.x,y:p.y};multiPaint();});
  }else if(current==='display'){
   bind('theme','click',()=>{const v=Ouse.theme.get().mode==='light'?'dark':'light';changed('display',Ouse.theme.set(v),()=>Ouse.theme.get().mode===v,'Theme '+v);});
   bind('language','click',()=>{const v=Ouse.locale.get()==='en'?'zh_CN':'en';changed('display',Ouse.locale.set(v),()=>Ouse.locale.get()===v,'Locale '+v);});
@@ -162,6 +172,7 @@ function bindPage(){
   bind('sleep','click',()=>changed('power',Ouse.power.sleep(),()=>Ouse.power.get().asleep===true,T('熄屏','Screen off')));
   bind('wake','click',()=>changed('power',Ouse.power.wake(),()=>Ouse.power.get().asleep===false,T('唤醒','Wake')));bind('refresh','click',refresh);
  }else if(current==='controls'){
+  bind('go_multi','click',()=>go('multi'));
   for(const page of ['widgets','styles','inputResize','inputPan','inputOverlay'])bind('go_'+page,'click',()=>go(page));
  }else if(current==='messages'){
   bind('publish','click',()=>{const ok=Ouse.notifications.publish({id:'api-demo',title:T('接口测试','API Test'),body:T('点击返回通知测试页','Tap to open notification tests'),payload:'messages'});result('messages',ok?'通知已发送':'发送失败',ok?'Published':'Publish failed');refresh();});
@@ -233,7 +244,7 @@ Ouse.navigation.onChange(event=>{
 });
 Ouse.theme.onChange(()=>{counts.theme++;settle('display',false);refresh();});
 Ouse.locale.onChange(()=>{counts.locale++;settle('display',false);refresh();});
-Ouse.display.onChange(()=>{counts.display++;settle('display',false);refresh();});
+Ouse.display.onChange(()=>{if(current==='multi'){clearMulti();multiLayout();multiPaint();}counts.display++;settle('display',false);refresh();});
 Ouse.power.onChange(()=>{settle('power',false);if(current==='power')refresh();});
 Ouse.audio.onChange(()=>{settle('audio',false);settle('messages',false);if(current==='audio'||current==='messages')refresh();});
 Ouse.wifi.onChange(()=>{settle('wifi',false);if(current==='wifi')refresh();});
@@ -252,7 +263,7 @@ Ouse.timers.setInterval(()=>{
  if(current==='audio'||current==='power'||current==='messages')refresh();
 },500);
 globalThis.app={
- onPause(){cancelWifiRows();wifiNetworks=null;if(brightnessDraft!==undefined)flushBrightness();stopOwned('audio');},
- onResume(){refresh();},
+ onPause(){clearMulti();cancelWifiRows();wifiNetworks=null;if(brightnessDraft!==undefined)flushBrightness();stopOwned('audio');},
+ onResume(){if(current==='multi')multiPaint();refresh();},
  onClose(){cancelWifiRows();Ouse.background.end();if(audioOwned)Ouse.audio.stop();}
 };

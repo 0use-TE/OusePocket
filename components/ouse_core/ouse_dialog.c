@@ -79,3 +79,15 @@ void ouse_dialog_select(const char *title,const char *const *items,unsigned coun
     lv_obj_align(card,LV_ALIGN_BOTTOM_MID,0,-ouse_ui_dp(12));
     lv_obj_remove_flag(overlay,LV_OBJ_FLAG_HIDDEN);lv_obj_move_foreground(overlay);
 }
+
+void ouse_dialog_resize(void)
+{
+    if(!card)return;
+    lv_obj_set_width(card,LV_PCT(94));lv_obj_set_style_max_height(card,LV_PCT(90),0);
+    lv_obj_add_flag(card,LV_OBJ_FLAG_SCROLLABLE);lv_obj_set_scroll_dir(card,LV_DIR_VER);
+    if(ouse_dialog_choice_active()){
+        int height=lv_display_get_vertical_resolution(NULL)-ouse_ui_dp(148);
+        lv_obj_set_style_max_height(choices,height>ouse_ui_dp(44)?height:ouse_ui_dp(44),0);
+        lv_obj_align(card,LV_ALIGN_BOTTOM_MID,0,-ouse_ui_dp(12));
+    }else lv_obj_center(card);
+}

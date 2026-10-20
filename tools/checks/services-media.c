@@ -34,6 +34,8 @@ static void drain(uint32_t id)
 {int16_t samples[256];bool done=false;esp_err_t error;while(!done){unsigned n=ouse_media_read(id,samples,256,&done,&error);assert(error==ESP_OK);ouse_media_consumed(id,n);}ouse_media_consumer_done(id,ESP_OK,false);}
 static void expire_full_buffer(void)
 {ouse_media_state_t s;if(ouse_media_get(NULL,&s)&&s.buffered_bytes==8192){platform_hook=NULL;test_clock+=4LL*60*60*1000000+1;}}
+static void stop_loop_buffer(void)
+{ouse_media_state_t s;if(ouse_media_get(NULL,&s)&&s.buffered_bytes==8192){platform_hook=NULL;assert(ouse_media_stop(s.app_id)==ESP_OK);ouse_media_consumer_done(s.task_id,ESP_OK,true);}}
 int main(void)
 {
     ouse_device_port_t port={0};ouse_device_config_t config={.volume=40,.sleep_seconds=60};assert(ouse_devices_init(&port,&config)==ESP_OK);ouse_devices_set_available(1,true,ESP_OK);
@@ -75,5 +77,31 @@ int main(void)
     assert(ouse_media_play(&owner,NULL,clip,large_size,&id)==ESP_OK&&notice_active);
     free(clip); // native session owns a copy of the 30-second-size package asset
     assert(ouse_media_stop(owner.app_id)==ESP_OK);ouse_media_consumer_done(id,ESP_OK,true);pump();
-    assert(!notice_active);free(data);puts("PASS media: real source copies/PCM buffer, single session/owner controls, pause/interruption, close survival, producer+codec cleanup join, late transport cancel, cleanup failure and queued no-I/O");
+    assert(!notice_active);
+    // Five copied effects mix with a real active media session, clamp after
+    // summation, reject foreign owners and freeze while paused/interrupted.
+    ouse_task_owner_t owner2,foreign;assert(ouse_task_owner_open("user.effects",&owner2)==ESP_OK);assert(ouse_task_owner_open("user.foreign",&foreign)==ESP_OK);
+    assert(ouse_media_play(&owner2,NULL,data,size,&id)==ESP_OK);claim(id);pump();
+    int16_t effect[]={10000,-10000};
+    assert(ouse_media_effect(&foreign,effect,sizeof(effect),100)==ESP_ERR_INVALID_STATE);
+    for(unsigned i=0;i<5;i++)assert(ouse_media_effect(&owner2,effect,sizeof(effect),100)==ESP_OK);
+    assert(ouse_media_effect(&owner2,effect,sizeof(effect),100)==ESP_ERR_INVALID_STATE);
+    effect[0]=0;effect[1]=0; // production engine owns copies
+    assert(ouse_media_pause(owner2.app_id,true)==ESP_OK);
+    assert(ouse_media_effect(&owner2,effect,sizeof(effect),100)==ESP_ERR_INVALID_STATE);
+    assert(!ouse_media_read(id,samples,2,&done,&error));assert(effects.voices[0].offset==0);
+    assert(ouse_media_pause(owner2.app_id,false)==ESP_OK);
+    assert(ouse_media_read(id,samples,2,&done,&error)==2);assert(samples[0]==32767&&samples[1]==-32768);
+    assert(!effects.voices[0].pcm);drain(id);
+    assert(ouse_media_effect(&owner2,effect,3,100)==ESP_ERR_INVALID_ARG);
+    assert(ouse_media_effect(&owner2,effect,sizeof(effect),101)==ESP_ERR_INVALID_ARG);
+    assert(ouse_media_play_loop(&owner2,"https://example.test/loop.wav",NULL,0,true,&id)==ESP_ERR_INVALID_ARG);
+    // This 1000-sample clip cannot fill the 8192-byte buffer in one pass.
+    // Reaching the hook proves multiple complete decodes, then cancellation
+    // joins producer and codec cleanup without leaking the loop session.
+    assert(ouse_media_play_loop(&owner2,NULL,data,size,true,&id)==ESP_OK);claim(id);
+    platform_hook=stop_loop_buffer;pump();assert(!platform_hook);
+    assert(ouse_media_get(owner2.app_id,&state)&&!state.active);
+    assert(!effects.voices[0].pcm);free(data);
+    puts("PASS media and game audio: five copied voices, clipping/ownership/pause/bounds/cleanup; repeated WAV loop and cancellation; existing source/focus/timeout paths");
 }

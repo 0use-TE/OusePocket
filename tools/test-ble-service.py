@@ -29,7 +29,7 @@ typedef struct {uint8_t type,val[6];} ble_addr_t;
 struct ble_gap_disc_params {int passive,itvl,window,filter_duplicates;};
 struct ble_sm_io {int action,numcmp_accept;};
 static ouse_ble_state_t state;
-static bool initialized,synced,enabled,initiating,discovering,secure_connect;
+static bool initialized,synced,enabled,initiating,discovering,secure_connect,reconnect_paused;
 static uint8_t own_type;
 static uint16_t connection=BLE_HS_CONN_HANDLE_NONE;
 static uint32_t pair_until,prompt_until,test_clock;
@@ -40,7 +40,7 @@ static void hid_release(void){}
 static int64_t esp_timer_get_time(void){return (int64_t)test_clock*1000;}
 static void changed(void){++state.revision;}
 static int initialize(void){if(!init_error){initialized=true;synced=true;state.ready=true;state.starting=false;}return init_error;}
-static int advertise(void){advertising=true;++advertisements;return 0;}
+static int advertise(void){if(reconnect_paused)return 0;advertising=true;++advertisements;return 0;}
 static void save_enabled(bool value){saved=value;++saves;}
 static void error_set(int error){state.error=error;}
 static void bonds_refresh(void){++refreshes;}
@@ -72,7 +72,17 @@ int main(void){
     state.pair_pending=true;state.pair_id=11;prompt_until=200;command.pair_id=11;command.enabled=false;process(&command);assert(!accepted&&confirmations==3);
     command=(command_t){.operation=ENABLE,.temporary=true};process(&command);assert(!enabled&&!state.enabled&&!state.scanning&&!state.advertising&&disconnects==1&&saves==1);
     connection=65535;command=(command_t){.operation=ENABLE,.enabled=true,.temporary=true};process(&command);assert(enabled&&!pair_until&&saves==1);
-    command=(command_t){.operation=ENABLE};process(&command);assert(!enabled&&!saved&&saves==2);
+    connection=7;state.pair_pending=true;command=(command_t){.operation=DISCONNECT};process(&command);
+    assert(reconnect_paused&&!advertising&&!state.advertising&&!state.pair_pending&&!pair_until&&!prompt_until&&disconnects==2);
+    connection=65535;unsigned prior_ads=advertisements;
+    for(unsigned n=0;n<10;n++)advertise();assert(advertisements==prior_ads&&!advertising);
+    command=(command_t){.operation=SCAN};process(&command);assert(reconnect_paused);
+    command=(command_t){.operation=DISCOVER};process(&command);assert(!reconnect_paused&&advertising&&before(pair_until));
+    command=(command_t){.operation=DISCONNECT};process(&command);assert(reconnect_paused);
+    command=(command_t){.operation=CONNECT};process(&command);assert(!reconnect_paused&&initiating);
+    command=(command_t){.operation=DISCONNECT};process(&command);
+    command=(command_t){.operation=ENABLE,.enabled=true};process(&command);assert(!reconnect_paused&&saves==2);
+    command=(command_t){.operation=ENABLE};process(&command);assert(!enabled&&!saved&&saves==3);
     initialized=false;synced=false;init_error=0x101;command.enabled=true;process(&command);assert(!enabled&&!state.enabled&&!state.starting&&state.error==0x101&&!saved);
     puts("PASS real BLE command policy: explicit enable, bounded scan, stale pairing ID isolation, accept/reject/expiry, temporary shutdown keeps saved preference, failed init disables safely, address and wrap-safe deadlines");return 0;
 }
@@ -84,6 +94,7 @@ assert 'sm_sc_only=1' in source and 'sm_mitm=1' in source
 assert 'BLE_GATT_CHR_F_READ_AUTHEN' in source and 'BLE_GATT_CHR_F_WRITE_AUTHEN' in source
 assert 'CONFIG_BT_NIMBLE_CRYPTO_STACK_MBEDTLS=y' in (root/'sdkconfig.defaults').read_text(encoding='utf-8')
 assert 'nvs_flash_erase' not in source and 'ota' not in source.lower()
+assert 'if(reconnect_paused || !enabled' in source
 environment=dict(os.environ)
 for line in subprocess.check_output(['cmd.exe','/d','/c',str(root/'.tools/ouse-kernel-check/environment.cmd')],encoding='mbcs').splitlines():
     if '=' in line and not line.startswith('='):

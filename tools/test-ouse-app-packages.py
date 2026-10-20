@@ -86,6 +86,16 @@ int main(int argc,char **argv){
    if(!valid)fprintf(stderr,"invalid %s page %u at node %u (%s)\n",package->id,page,app->node_count,app->node_count?app->nodes[app->node_count-1].model.id:"");
    assert(valid);
    if(package->package.camera_allowed || package->package.photos_allowed){app->node_count=0;app->camera_allowed=app->photos_allowed=false;assert(!parse_node(app,root,-1,0));}
+   if(!strcmp(package->id,"user.benchmark-canvas")){
+    const char *cases[]={
+     "{\"type\":\"canvas\",\"id\":\"canvas\",\"width\":64,\"height\":64,\"children\":[]}",
+     "{\"type\":\"container\",\"id\":\"root\",\"width\":64,\"height\":64,\"children\":[{\"type\":\"canvas\",\"id\":\"a\",\"width\":8,\"height\":8},{\"type\":\"canvas\",\"id\":\"b\",\"width\":8,\"height\":8},{\"type\":\"canvas\",\"id\":\"c\",\"width\":8,\"height\":8}]}"
+    };
+    for(unsigned c=0;c<2;++c){memset(app->nodes,0,sizeof(app->nodes));app->node_count=0;
+     JSValue test=JS_ParseJSON(ctx,cases[c],strlen(cases[c]),"canvas-schema");assert(!JS_IsException(test));
+     assert(!parse_node(app,test,-1,0));JS_FreeValue(ctx,test);
+    }
+   }
    free(app);JS_FreeValue(ctx,root);JS_FreeValue(ctx,entry);
   }
   JS_FreeValue(ctx,pages);JS_FreeValue(ctx,doc);JS_FreeContext(ctx);JS_FreeRuntime(rt);

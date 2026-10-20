@@ -8,9 +8,9 @@
     "en": "Music"
   },
   "icon": "icon.bin",
-  "minNativeApi": 38,
-  "versionCode": 1,
-  "versionName": "1.0.0",
+  "minNativeApi": 41,
+  "versionCode": 2,
+  "versionName": "1.1.0",
   "fileTypes": [
     "audio/wav"
   ],
@@ -34,6 +34,6 @@
     }
   ],
   "author": "OusePocket",
-  "releasedAt": "2026-10-19",
+  "releasedAt": "2026-10-20",
   "description": "播放 SD 卡与内置 WAV。"
 }

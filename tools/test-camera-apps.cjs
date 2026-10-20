@@ -2,16 +2,18 @@ const assert=require("node:assert/strict");
 const fs=require("node:fs");
 const path=require("node:path");
 const vm=require("node:vm");
-function load(name,ready){
+function load(name,ready,permission="granted"){
  const state={ready,present:ready,running:false,busy:false,inUse:false,error:"ESP_OK",recording:false,recordedMs:0,playing:false,entries:[],offset:0,more:false,path:""};
  const texts={},styles={},enabled={},shown=new Set(),handlers={},intervals=[],requests=[],launches=[],scroll={y:0,bottom:200,height:300,pending:false};let complete,navigate,id=100,stopped=0,photoStops=0;
- const ui={setText(key,value){texts[key]=value;},setStyle(key,value){styles[key]=value;},setEnabled(key,value){enabled[key]=value;},show(key){shown.add(key);},hide(key){shown.delete(key);},on(key,event,fn){handlers[key]=fn;},getScroll(){return scroll;},scrollTo(key,value){scroll.y=value;}};
+ const schema=JSON.parse(fs.readFileSync(path.join(__dirname,"../apps",name,"page.json"),"utf8")),pages=schema.pages||[{id:"root",root:schema.root}];let current=pages[0];const ids=()=>{const out=new Set();function walk(n){out.add(n.id);for(const c of n.children||[])walk(c);}walk(current.root);return out;};const valid=id=>assert(ids().has(id),`unknown current-page widget ${name}/${current.id}/${id}`);
+ const ui={setText(key,value){texts[key]=value;},setStyle(key,value){styles[key]=value;},setEnabled(key,value){enabled[key]=value;},show(key){valid(key);shown.add(key);},hide(key){valid(key);shown.delete(key);},on(key,event,fn){valid(key);handlers[key]=fn;},getScroll(){return scroll;},scrollTo(key,value){scroll.y=value;}};
  const request=(operation,value)=>{requests.push([operation,value]);if(state.inUse&&operation==="start")return false;state.busy=true;return ++id;};
- const api={ui,power:{get:()=>state},files:{get:()=>state},camera:{get:()=>state,start:()=>request("start"),capture:()=>request("capture"),record:()=>request("record"),recordStop:()=>request("recordStop"),stop(){++stopped;state.running=false;state.recording=false;}},
+ const permissionValues={camera:permission,sharedDelete:permission},settings=[];
+ const api={ui,keys:{on(){}},permissions:{get:key=>permissionValues[key],request:key=>permissionValues[key]},system:{openSettings:key=>settings.push(key)},power:{get:()=>state},files:{get:()=>state,onOpen(){}},camera:{get:()=>state,start:()=>request("start"),capture:()=>request("capture"),record:()=>request("record"),recordStop:()=>request("recordStop"),stop(){++stopped;state.running=false;state.recording=false;}},
   photos:{get:()=>state,list:offset=>request("list",offset),open:value=>request("open",value),remove:value=>request("remove",value),stop(){++photoStops;state.playing=false;}},tasks:{onComplete(fn){complete=fn;},cancel(value){requests.push(["cancel",value]);}},
-  timers:{setInterval(fn){intervals.push(fn);}},openApp(value){launches.push(value);return true;},navigation:{onChange(fn){navigate=fn;},push(value){navigate({page:value});},back(){navigate({page:"album"});}}};
+  timers:{setInterval(fn){intervals.push(fn);}},openApp(value){launches.push(value);return true;},navigation:{onChange(fn){navigate=fn;},push(value){current=pages.find(p=>p.id===value);navigate({page:value});},back(){current=pages.find(p=>p.id==="album");navigate({page:"album"});}}};
  const context=vm.createContext({Ouse:api});vm.runInContext(fs.readFileSync(path.join(__dirname,"../apps",name,"app.js"),"utf8"),context);
- return {state,texts,styles,enabled,shown,requests,launches,scroll,click:key=>handlers[key](),tick:()=>intervals.forEach(fn=>fn()),
+ return {permissionValues,settings,state,texts,styles,enabled,shown,requests,launches,scroll,click:key=>handlers[key](),tick:()=>intervals.forEach(fn=>fn()),
   finish(ok=true){const operation=requests.at(-1)[0];state.busy=false;state.error=ok?"ESP_OK":"ESP_FAIL";
    if(ok){if(operation==="start")state.running=true;if(operation==="record")state.recording=true;if(operation==="recordStop")state.recording=false;}
    complete({id,state:ok?"succeeded":"failed",error:state.error});},
@@ -61,5 +63,11 @@ function load(name,ready){
  app.state.ready=app.state.present=false;app.tick();assert(app.shown.has("dialog"));assert(app.texts.detail.includes("SD 卡"));
  app.lifecycle.onPause();app.lifecycle.onClose();assert(app.photoStops()>=3);
  const page=fs.readFileSync(path.join(__dirname,"../apps/gallery/page.json"),"utf8");assert(!page.includes('"title"'));assert(!page.includes('"refresh"'));assert(!page.includes('查看'));assert(!page.includes('"name"'));assert(page.includes('"text": "相册"'));assert(!page.includes('"paging"'));
+}
+{
+ const app=load("camera",true,"denied");assert(app.shown.has("permissionSettings"));assert.equal(app.requests.length,0);for(let i=0;i<10;i++)app.tick();assert.equal(app.requests.length,0);app.click("permissionSettings");assert.equal(app.settings.at(-1),"permissions");app.permissionValues.camera="granted";app.lifecycle.onResume();assert.equal(app.requests.at(-1)[0],"start");
+}
+{
+ const app=load("gallery",true,"denied");app.state.entries=[{path:"Pictures/IMG_test.jpg",bytes:42,image:"@thumb0",video:false}];app.finish();app.click("tile0");app.finish();app.click("delete");app.click("confirmDelete");assert(app.shown.has("viewerPermissionSettings"));assert(!app.requests.some(item=>item[0]==="remove"));app.click("viewerPermissionSettings");assert.equal(app.settings.at(-1),"permissions");
 }
 console.log("PASS mobile camera/gallery: photo-only camera, SD gate, centered round shutter, thumbnail launch, direct tile preview, video replay, lifecycle, no headings/status/retry/view buttons");

@@ -377,3 +377,32 @@ Ouse.storage.get("minesweeper").then(function (value) {
     paintAll();
   } else restart();
 }, function () { restart(); });
+
+// BEGIN responsive board
+// Embedded in each BPK; layout uses the active page and actual content viewport.
+function installResponsiveBoard(config){
+ function resize(){
+  const page=Ouse.navigation.get().page,c=config[page]||config.main;if(!c)return;
+  const d=Ouse.display.get(),w=Math.floor(d.contentWidthDp),h=Math.floor(d.contentHeightDp),land=w>h,a=[];
+  function f(id,x,y,width,height){a.push({id,x,y,width:Math.max(1,Math.floor(width)),height:Math.max(1,Math.floor(height))});}
+  const before=c.before,after=c.after,top=before.reduce((sum,n)=>sum+n.height+6,8),bottom=after.reduce((sum,n)=>sum+n.height+6,8);
+  // Compute each axis separately for rectangular boards such as Klotski.
+  const size=Math.max(1,Math.floor(Math.min(((land?w-244:w-16)-2*c.padding-(c.cols-1)*c.gap)/c.cols,((land?h-16:h-top-bottom)-2*c.padding-(c.rows-1)*c.gap)/c.rows)));
+  const bw=2*c.padding+c.cols*size+(c.cols-1)*c.gap,bh=2*c.padding+c.rows*size+(c.rows-1)*c.gap,bx=land?8:Math.floor((w-bw)/2),by=land?8:top;
+  f(c.board,bx,by,bw,bh);
+  let y=8;for(const n of before){f(n.id,land?bw+20:8,y,land?w-bw-28:w-16,n.height);y+=n.height+6;}
+  y=land?y+6:by+bh+6;for(const n of after){f(n.id,land?bw+20:8,y,land?w-bw-28:w-16,n.height);y+=n.height+6;}
+  for(let r=0;r<c.rows;r++){
+   f(c.rowIds[r],c.padding,c.padding+r*(size+c.gap),bw-2*c.padding,size);
+   for(let col=0;col<c.cols;col++)f(c.cells[r][col],col*(size+c.gap),0,size,size);
+  }
+  for(let i=0;i<a.length;i+=64)Ouse.ui.layout(a.slice(i,i+64));
+ }
+ Ouse.display.onChange(resize);
+ const previous=globalThis.app||{},resume=previous.onResume;
+ previous.onResume=function(){if(resume)resume();resize();};globalThis.app=previous;
+ resize();return resize;
+}
+
+const resizeBoard=installResponsiveBoard({"main":{"board":"board","rows":8,"cols":8,"padding":6,"gap":3,"rowIds":["r0","r1","r2","r3","r4","r5","r6","r7"],"cells":[["c0","c1","c2","c3","c4","c5","c6","c7"],["c8","c9","c10","c11","c12","c13","c14","c15"],["c16","c17","c18","c19","c20","c21","c22","c23"],["c24","c25","c26","c27","c28","c29","c30","c31"],["c32","c33","c34","c35","c36","c37","c38","c39"],["c40","c41","c42","c43","c44","c45","c46","c47"],["c48","c49","c50","c51","c52","c53","c54","c55"],["c56","c57","c58","c59","c60","c61","c62","c63"]],"before":[{"id":"heading","height":40},{"id":"info","height":28}],"after":[{"id":"status","height":24}]}});
+// END responsive board

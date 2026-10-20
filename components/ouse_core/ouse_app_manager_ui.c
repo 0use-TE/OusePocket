@@ -9,7 +9,7 @@
 static lv_obj_t *page,*list,*detail,*rows,*heading,*message,*retry,*open_button,*clear_button,*remove_button;
 static lv_obj_t *identity,*package_size,*data_size,*total_size,*alarm_count;
 static OUSE_PSRAM_BSS ouse_manager_state_t snapshot;
-static char selected[48],confirmed[48];
+static char selected[48],confirmed[48],return_app[48];
 static ouse_manager_action_t confirmed_action;
 static uint32_t catalog,completed,own_request;
 static bool confirming;
@@ -84,14 +84,21 @@ static void select_event(lv_event_t *event)
 bool ouse_manager_ui_back(void)
 {
     if(!page || !selected[0])return false;
+    if(return_app[0]){char id[48];strcpy(id,return_app);return_app[0]=0;if(ouse_app_open(id)==ESP_OK)return true;}
     selected[0]=0;hidden(detail,true);hidden(list,false);ouse_ui_text(heading,"应用管理");return true;
+}
+void ouse_manager_ui_select(const char *id)
+{
+    if(!page || !id || strlen(id)>=sizeof(selected))return;
+    snprintf(selected,sizeof(selected),"%s",id);snprintf(return_app,sizeof(return_app),"%s",id);
+    hidden(list,true);hidden(detail,false);ouse_manager_ui_update();
 }
 static void back_event(lv_event_t *event){(void)event;if(!ouse_manager_ui_back() && leave)leave();}
 void ouse_manager_ui_release_icons(void)
 {if(rows){lv_obj_clean(rows);catalog=UINT32_MAX;}}
 void ouse_manager_ui_build(lv_obj_t *root,void (*back)(void))
 {
-    page=root;leave=back;selected[0]=0;confirming=false;own_request=0;catalog=UINT32_MAX;language=ouse_ui_locale();
+    page=root;leave=back;selected[0]=return_app[0]=0;confirming=false;own_request=0;catalog=UINT32_MAX;language=ouse_ui_locale();
     lv_obj_remove_flag(root,LV_OBJ_FLAG_SCROLLABLE);
     ouse_manager_get(&snapshot);completed=snapshot.completed_id;
     lv_obj_t *header=ouse_widget_box(root,OUSE_STYLE_APP,0);lv_obj_set_width(header,LV_PCT(100));lv_obj_set_height(header,LV_SIZE_CONTENT);lv_obj_set_flex_flow(header,LV_FLEX_FLOW_ROW);lv_obj_set_style_pad_column(header,ouse_ui_dp(8),0);
@@ -105,10 +112,12 @@ void ouse_manager_ui_build(lv_obj_t *root,void (*back)(void))
     identity=ouse_widget_text(information,"",14);lv_obj_set_width(identity,LV_PCT(100));
     package_size=ouse_widget_text(information,"",18);data_size=ouse_widget_text(information,"",18);total_size=ouse_widget_text(information,"",18);alarm_count=ouse_widget_text(information,"",14);
     for(unsigned index=0;index<OUSE_PERMISSION_COUNT;++index){permission_rows[index]=ouse_widget_button(information,"",permission_event,(void *)(uintptr_t)index);ouse_widget_button_expand(permission_rows[index]);}
-    lv_obj_t *actions=column(detail);
-    open_button=ouse_widget_button(actions,"打开应用",open_event,NULL);ouse_widget_button_expand(open_button);
-    clear_button=ouse_widget_button(actions,"清除数据",destructive,(void *)(uintptr_t)OUSE_MANAGER_CLEAR);ouse_widget_button_expand(clear_button);
-    remove_button=ouse_widget_button(actions,"卸载",destructive,(void *)(uintptr_t)OUSE_MANAGER_UNINSTALL);ouse_widget_button_expand(remove_button);
+    lv_obj_t *actions=column(detail);lv_obj_set_flex_flow(actions,LV_FLEX_FLOW_ROW);lv_obj_set_style_pad_column(actions,ouse_ui_dp(6),0);
+    open_button=ouse_widget_button(actions,"打开",open_event,NULL);
+    clear_button=ouse_widget_button(actions,"清除数据",destructive,(void *)(uintptr_t)OUSE_MANAGER_CLEAR);
+    remove_button=ouse_widget_button(actions,"卸载",destructive,(void *)(uintptr_t)OUSE_MANAGER_UNINSTALL);
+    lv_obj_t *buttons[]={open_button,clear_button,remove_button};
+    for(unsigned i=0;i<3;i++){lv_obj_set_width(buttons[i],0);lv_obj_set_flex_grow(buttons[i],1);lv_obj_set_style_pad_hor(buttons[i],ouse_ui_dp(6),0);}
     hidden(detail,true);ouse_manager_ui_update();ouse_manager_ui_refresh();
 }
 void ouse_manager_ui_update(void)
@@ -129,7 +138,8 @@ void ouse_manager_ui_update(void)
         }
     }
     if(!selected[0])return;
-    const ouse_managed_app_t *app=find_selected();if(!app){(void)ouse_manager_ui_back();return;}
+    const ouse_managed_app_t *app=find_selected();if(!app){if(snapshot.busy || !snapshot.ready)return;(void)ouse_manager_ui_back();return;}
+    lv_label_set_text(heading,app_name(app));
     const char *permission_names[]={"麦克风","摄像头","删除共享文件","蓝牙","键盘与鼠标控制"},*permission_states[]={"询问","允许","拒绝"};
     for(unsigned index=0;index<OUSE_PERMISSION_COUNT;++index){
         hidden(permission_rows[index],app->system || !(app->permissions&(1u<<index)));
@@ -147,6 +157,6 @@ void ouse_manager_ui_close(void)
 {
     if(confirming)ouse_dialog_dismiss();
     page=list=detail=rows=heading=message=retry=open_button=clear_button=remove_button=NULL;
-    selected[0]=0;confirming=false;
+    selected[0]=return_app[0]=0;confirming=false;
     ouse_manager_release(&snapshot);
 }

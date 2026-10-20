@@ -1,3 +1,4 @@
+#include "ouse_journal.h"
 // SPDX-License-Identifier: MIT
 #include "ouse_debug_transport.h"
 #include "ouse_debug.h"
@@ -37,7 +38,7 @@ extern esp_err_t ouse_board_debug_flush_wait(int enabled, bool *current_enabled,
 // Exclusively owned by the existing serial worker. UI callbacks never outlive
 // this static context, including when the caller times out on the PC.
 enum { U_STATE,U_TOUCH,U_HOME,U_OPEN,U_TREE,U_SNAPSHOT,U_FREE,U_UNIT,U_LCD,U_FLUSH,U_REPAINT,U_RUNTIME,U_IME,U_CLOSE,U_RESET };
-static struct {int action,x,y,down;const char *id;char text[1024];
+static struct {int action,x,y,down;unsigned contact;const char *id;char text[1024];
     esp_err_t error;ouse_debug_image_t image;int dpi,dp;bool lcd_enabled,flush_enabled;
     uint32_t lcd_skipped,flush_waits; } request;
 static SemaphoreHandle_t done;
@@ -72,12 +73,12 @@ static void run_ui(void *unused)
     if(request.action!=U_RESET && !ouse_system_debug_enabled()){request.error=ESP_ERR_INVALID_STATE;xSemaphoreGive(done);return;}
     switch(request.action){
     case U_RESET:
-        (void)ouse_debug_touch(0,0,false);
+        (void)ouse_debug_touch(0,0,false);(void)ouse_debug_touch_contact(1,0,0,false);
         if(ouse_board_debug_lcd_transfer)(void)ouse_board_debug_lcd_transfer(1,&request.lcd_enabled,&request.lcd_skipped);
         if(ouse_board_debug_flush_wait)(void)ouse_board_debug_flush_wait(1,&request.flush_enabled,&request.flush_waits);
         break;
     case U_STATE:request.error=ouse_debug_state(request.text,sizeof(request.text));break;
-    case U_TOUCH:request.error=ouse_debug_touch(request.x,request.y,request.down!=0);break;
+    case U_TOUCH:request.error=ouse_debug_touch_contact(request.contact,request.x,request.y,request.down!=0);break;
     case U_HOME:request.error=ouse_debug_home();break;
     case U_OPEN:request.error=ouse_debug_open(request.id);break;
     case U_CLOSE:request.error=ouse_app_close_id(request.id);break;
@@ -379,6 +380,20 @@ esp_err_t ouse_debug_command(const char *verb,const char *payload,char *out,size
     if(!strcmp(verb,"DBG_BLEADV"))return ouse_ble_discoverable();
     if(!strcmp(verb,"DBG_BLEPAIR")){const char *cursor=payload;unsigned id,accept;if(!decimal(&cursor,&id,':') || !decimal(&cursor,&accept,0) || accept>1)return ESP_ERR_INVALID_ARG;return ouse_ble_confirm(id,accept!=0);}
 #endif
+    if(!strcmp(verb,"DBG_LOG") || !strcmp(verb,"DBG_LOGSTATE")){
+        ouse_journal_view_t *view=heap_caps_malloc(sizeof(*view),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
+        if(!view)return ESP_ERR_NO_MEM;
+        ouse_journal_get(view);
+        if(!strcmp(verb,"DBG_LOGSTATE")){
+            snprintf(out,cap,"ready=%u,busy=%u,page=%u,pages=%u,bytes=%zu,dropped=%u,error=%d,exporting=%u,export_error=%d",view->ready,view->busy,view->page,view->pages,view->bytes,view->dropped,view->error,view->exporting,view->export_error);free(view);return ESP_OK;
+        }
+        free(resource);resource=NULL;resource_size=0;
+        const char *text=*view->text?view->text:"No logs\n";resource_size=strlen(text);
+        resource=heap_caps_malloc(resource_size,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
+        if(!resource){free(view);resource_size=0;return ESP_ERR_NO_MEM;}
+        memcpy(resource,text,resource_size);free(view);
+        snprintf(out,cap,"%u:%08lx",(unsigned)resource_size,(unsigned long)ouse_crc32(resource,resource_size));return ESP_OK;
+    }
     if(!strcmp(verb,"DBG_ERROR")){
         free(resource);resource=heap_caps_calloc(1,2048,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);if(!resource)return ESP_ERR_NO_MEM;
         ouse_runtime_get_error((char *)resource,2048);resource_size=strlen((char *)resource);
@@ -417,8 +432,9 @@ esp_err_t ouse_debug_command(const char *verb,const char *payload,char *out,size
         esp_err_t e=call_ui(U_STATE);if(e!=ESP_OK)return e;
         size_t n=strlen(request.text);if(n*2+1>cap)return ESP_ERR_NO_MEM;hex((unsigned char *)request.text,n,out);return ESP_OK;
     }
-    if(!strcmp(verb,"DBG_TOUCH")){
-        const char *p=payload;unsigned x,y,down;
+    if(!strcmp(verb,"DBG_TOUCH")||!strcmp(verb,"DBG_TOUCHES")){
+        const char *p=payload;unsigned x,y,down;request.contact=0;
+        if(!strcmp(verb,"DBG_TOUCHES")&&(!decimal(&p,&request.contact,':')||request.contact>1))return ESP_ERR_INVALID_ARG;
         if(!decimal(&p,&x,':')||!decimal(&p,&y,':')||!decimal(&p,&down,0)||x>INT_MAX||y>INT_MAX||down>1)return ESP_ERR_INVALID_ARG;
         request.x=(int)x;request.y=(int)y;request.down=(int)down;return call_ui(U_TOUCH);
     }

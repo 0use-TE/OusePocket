@@ -3,6 +3,7 @@
 #include "esp_lv_adapter.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "display_flush_wait.h"
 #include <inttypes.h>
 
 // Keep the published BSP's panel/touch lifecycle and buffer ownership. The
@@ -24,6 +25,12 @@ lv_display_t *__wrap_esp_lv_adapter_register_display(const esp_lv_adapter_displa
     // The board's LCD connector has no TE signal. Double drawing buffers
     // overlap CPU/DMA work; they do not synchronize the panel's scanout.
     lv_display_t *display = __real_esp_lv_adapter_register_display(&tuned);
+    // Install before the BSP starts the LVGL worker. Waiting until the BSP
+    // returns leaves its initial screen flush using LVGL's tight polling loop.
+    if (display) {
+        (void)ouse_display_flush_wake_init(display);
+        lv_display_set_flush_wait_cb(display, ouse_display_flush_wait);
+    }
     if (display) ESP_LOGI("OuseDisplay", "SPI partial rendering: 2 x 40 lines, internal DMA buffers");
     return display;
 }
@@ -92,3 +99,14 @@ void ouse_board_display_timing_init(lv_display_t *display)
     lv_timer_create(report_timing, 5000, NULL);
 }
 #endif
+
+// FT6336 supports two tracked contacts. Give each contact its own LVGL indev.
+lv_indev_t *__real_esp_lv_adapter_register_touch(const esp_lv_adapter_touch_config_t *config);
+lv_indev_t *__wrap_esp_lv_adapter_register_touch(const esp_lv_adapter_touch_config_t *config)
+{
+    if(!config)return __real_esp_lv_adapter_register_touch(config);
+    esp_lv_adapter_touch_config_t tuned=*config;
+    tuned.multi_touch.mode=ESP_LV_ADAPTER_TOUCH_MODE_MULTI_CONTROL;
+    tuned.multi_touch.pointers=2;
+    return __real_esp_lv_adapter_register_touch(&tuned);
+}

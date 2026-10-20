@@ -6,3 +6,5 @@ esp_err_t ouse_screen_sleep(void);
 esp_err_t ouse_screen_wake(void);
 // UI task only: feed the same input device as physical touch.
 esp_err_t ouse_screen_inject(int x,int y,bool pressed);
+
+esp_err_t ouse_screen_inject_contact(unsigned slot,int x,int y,bool pressed);

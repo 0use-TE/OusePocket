@@ -1,1 +1,21 @@
-{"name":"ouse-pocket-store","version":"1.1.0","private":true,"type":"module","engines":{"node":">=24.0.0"},"scripts":{"dev":"next dev -H 0.0.0.0","build":"next build","start":"next start -H 0.0.0.0","test":"node --test tests/*.test.js","import-catalog":"node scripts/import-catalog.mjs"},"dependencies":{"next":"16.4.2","react":"19.3.1","react-dom":"19.3.1"}}
+{
+  "name": "ouse-pocket-store",
+  "version": "1.2.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "dev": "next dev -H 0.0.0.0",
+    "build": "next build",
+    "start": "next start -H 0.0.0.0",
+    "test": "node --test tests/*.test.js",
+    "import-catalog": "node scripts/import-catalog.mjs"
+  },
+  "dependencies": {
+    "next": "16.4.2",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  }
+}

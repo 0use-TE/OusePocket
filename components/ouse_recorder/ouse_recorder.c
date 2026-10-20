@@ -1,4 +1,5 @@
 #include "ouse_recorder.h"
+#include "ouse_app_files.h"
 #include "ouse_devices.h"
 #include "ouse_files.h"
 #include "esp_heap_caps.h"
@@ -31,13 +32,39 @@ static bool producer_done;
 static void lock(void){xSemaphoreTake(mutex,portMAX_DELAY);}
 static void unlock(void){xSemaphoreGive(mutex);}
 static bool card_ready(void){ouse_files_state_t card;ouse_files_get(&card);return card.ready && card.present;}
-static bool same(const ouse_task_owner_t *candidate){return candidate && owner.instance==candidate->instance && !strcmp(owner.app_id,candidate->app_id);}
-static bool recording_path(const char *path,char absolute[180])
-{
-    if(!path || strncmp(path,"Recordings/",11) || !ouse_files_path(path,absolute,180))return false;
-    const char *extension=strrchr(path,'.');return extension && !strcasecmp(extension,".wav");
+static bool same(const ouse_task_owner_t *candidate) {
+  return candidate && owner.instance == candidate->instance &&
+         !strcmp(owner.app_id, candidate->app_id);
 }
-static void u32(unsigned char *target,uint32_t value){for(unsigned index=0;index<4;++index)target[index]=(unsigned char)(value>>(index*8));}
+static bool recording_path(const char *id, const char *path,
+                           char absolute[180]) {
+  char prefix[96];
+  int n = snprintf(prefix, sizeof(prefix), "/Ouse/Apps/%s/Recordings/", id);
+  if (!path || n < 0 || strncmp(path, prefix, n))
+    return false;
+  const char *name = path + n, *extension = strrchr(name, '.');
+  if (strchr(name, '/') || !extension || strcasecmp(extension, ".wav"))
+    return false;
+  char relative[128];
+  if (snprintf(relative, sizeof(relative), "Recordings/%s", name) >=
+      (int)sizeof(relative))
+    return false;
+  return ouse_app_files_path(id, relative, absolute, 180);
+}
+static bool prepare_recordings(const char *id) {
+  char absolute[180];
+  if (ouse_app_files_prepare(id) != ESP_OK ||
+      !ouse_app_files_path(id, "Recordings", absolute, sizeof(absolute)))
+    return false;
+  if (!mkdir(absolute, 0755))
+    return true;
+  struct stat st;
+  return !stat(absolute, &st) && S_ISDIR(st.st_mode);
+}
+static void u32(unsigned char *target, uint32_t value) {
+  for (unsigned index = 0; index < 4; ++index)
+    target[index] = (unsigned char)(value >> (index * 8));
+}
 static bool wave_header(FILE *file,uint32_t bytes)
 {
     unsigned char header[44]={0};memcpy(header,"RIFF",4);u32(header+4,bytes+36);memcpy(header+8,"WAVEfmt ",8);u32(header+16,16);
@@ -82,7 +109,7 @@ static void save_recording(void)
     char path[128],absolute[180],temporary[192];uint32_t id;
     lock();strcpy(path,state->path);id=state->task_id;unlock();
     bool leased=ouse_files_lease_begin();
-    bool valid=leased && recording_path(path,absolute);snprintf(temporary,sizeof(temporary),"%s.part",valid ? absolute : "");
+    bool valid=leased && prepare_recordings(owner.app_id) && recording_path(owner.app_id,path,absolute);snprintf(temporary,sizeof(temporary),"%s.part",valid ? absolute : "");
     int descriptor=valid && card_ready() ? open(temporary,O_CREAT|O_EXCL|O_WRONLY,0600) : -1;
     FILE *file=descriptor>=0 ? fdopen(descriptor,"wb") : NULL;
     if(!file && descriptor>=0)close(descriptor);
@@ -122,7 +149,7 @@ static int newest(const void *first,const void *second)
 }
 static esp_err_t scan(const job_t *job)
 {
-    char directory[180];if(!recording_path("Recordings/placeholder.wav",directory))return ESP_FAIL;*strrchr(directory,'/')=0;
+    char directory[180];if(!prepare_recordings(job->owner.app_id)||!ouse_app_files_path(job->owner.app_id,"Recordings",directory,sizeof(directory)))return ESP_FAIL;
     DIR *handle=opendir(directory);if(!handle)return ESP_FAIL;
     unsigned capacity=job->offset+OUSE_RECORDER_PAGE+1,count=0;
     ouse_recording_entry_t *entries=heap_caps_calloc(capacity,sizeof(*entries),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
@@ -130,7 +157,7 @@ static esp_err_t scan(const job_t *job)
     esp_err_t error=ESP_OK;struct dirent *entry;int64_t deadline=esp_timer_get_time()+3000000;
     while((entry=readdir(handle))){
         if(esp_timer_get_time()>deadline || ouse_task_cancel_requested(job->id)){error=ESP_ERR_TIMEOUT;break;}
-        char path[128],absolute[180];if(snprintf(path,sizeof(path),"Recordings/%s",entry->d_name)>=sizeof(path) || !recording_path(path,absolute))continue;
+        char path[128],absolute[180];if(snprintf(path,sizeof(path),"/Ouse/Apps/%s/Recordings/%s",job->owner.app_id,entry->d_name)>=sizeof(path) || !recording_path(job->owner.app_id,path,absolute))continue;
         struct stat info;if(stat(absolute,&info) || !S_ISREG(info.st_mode) || info.st_size<44)continue;
         ouse_recording_entry_t candidate={.bytes=info.st_size,.duration_ms=(info.st_size-44)/32,.ended=info.st_mtime};strcpy(candidate.path,path);
         if(count<capacity){entries[count++]=candidate;qsort(entries,count,sizeof(*entries),newest);}
@@ -152,10 +179,10 @@ static void worker(void *unused)
         bool leased=claimed && ouse_files_lease_begin();
         if(leased && card_ready() && !ouse_task_cancel_requested(job->id)){
             if(job->operation==0)error=scan(job);
-            else{char absolute[180];if(!recording_path(job->path,absolute))error=ESP_ERR_INVALID_ARG;
+            else{char absolute[180];if(!recording_path(job->owner.app_id,job->path,absolute))error=ESP_ERR_INVALID_ARG;
                 else if(job->operation==2)error=unlink(absolute) ? ESP_FAIL : ESP_OK;
-                else{char path[128],destination[180];struct stat info;snprintf(path,sizeof(path),"Recordings/%s.wav",job->name);
-                    error=!recording_path(path,destination) ? ESP_ERR_INVALID_ARG : !strcmp(absolute,destination) ? ESP_OK : stat(destination,&info)==0 ? ESP_ERR_INVALID_STATE : rename(absolute,destination) ? ESP_FAIL : ESP_OK;
+                else{char path[128],destination[180];struct stat info;int n=snprintf(path,sizeof(path),"/Ouse/Apps/%s/Recordings/%s.wav",job->owner.app_id,job->name);
+                    error=n<0||n>=(int)sizeof(path)?ESP_ERR_INVALID_ARG:!recording_path(job->owner.app_id,path,destination) ? ESP_ERR_INVALID_ARG : !strcmp(absolute,destination) ? ESP_OK : stat(destination,&info)==0 ? ESP_ERR_INVALID_STATE : rename(absolute,destination) ? ESP_FAIL : ESP_OK;
                     if(error==ESP_OK){lock();if(!strcmp(state->path,job->path))strcpy(state->path,path);unlock();}
                 }
             }
@@ -180,19 +207,35 @@ esp_err_t ouse_recorder_start(const ouse_task_owner_t *candidate,uint32_t *id)
     ouse_files_state_t card;ouse_files_get(&card);if(card.free_bytes<1024*1024)return ESP_ERR_NO_MEM;
     lock();if(state->active || state->busy){unlock();return ESP_ERR_INVALID_STATE;}
     xStreamBufferReset(pcm);producer_done=false;owner=*candidate;state->stopping=false;state->error=ESP_OK;state->duration_ms=0;state->ended=0;
-    snprintf(state->path,sizeof(state->path),"Recordings/REC_%lld_%08lx.wav",(long long)time(NULL),(unsigned long)esp_random());
+    snprintf(state->path,sizeof(state->path),"/Ouse/Apps/%s/Recordings/REC_%lld_%08lx.wav",candidate->app_id,(long long)time(NULL),(unsigned long)esp_random());
     esp_err_t error=ouse_audio_submit(candidate,OUSE_AUDIO_DISK_CAPTURE,0,id);
     if(error==ESP_OK){state->active=true;state->task_id=*id;++state->revision;}else state->path[0]=0;unlock();return error;
 }
 esp_err_t ouse_recorder_request(const ouse_task_owner_t *candidate,unsigned operation,const char *path,const char *name,unsigned offset,uint32_t *id)
 {
     if(!state || !candidate || !candidate->instance || !id || operation>2 || offset>1024 || !card_ready())return ESP_ERR_INVALID_STATE;
-    char absolute[180];if(operation && !recording_path(path,absolute))return ESP_ERR_INVALID_ARG;
-    if(operation==1){char target[128];if(!name || !*name || strnlen(name,80)>=80)return ESP_ERR_INVALID_ARG;snprintf(target,sizeof(target),"Recordings/%s.wav",name);if(!recording_path(target,absolute))return ESP_ERR_INVALID_ARG;}
+    char absolute[180];if(operation && !recording_path(candidate->app_id,path,absolute))return ESP_ERR_INVALID_ARG;
+    if(operation==1){char target[128];if(!name || !*name || strnlen(name,80)>=80)return ESP_ERR_INVALID_ARG;snprintf(target,sizeof(target),"/Ouse/Apps/%s/Recordings/%s.wav",candidate->app_id,name);if(!recording_path(candidate->app_id,target,absolute))return ESP_ERR_INVALID_ARG;}
     job_t *job=calloc(1,sizeof(*job));if(!job)return ESP_ERR_NO_MEM;
     lock();if(state->active || state->busy){unlock();free(job);return ESP_ERR_INVALID_STATE;}
     static const char *names[]={"recordings","renameRecording","deleteRecording"};esp_err_t error=ouse_task_create(candidate,OUSE_TASK_STORAGE,names[operation],OUSE_TASK_STOP_ON_CLOSE,true,id);
-    if(error==ESP_OK){job->owner=*candidate;job->id=*id;job->operation=operation;job->offset=offset;if(path)strcpy(job->path,path);if(name)strcpy(job->name,name);state->busy=true;
+    if(error==ESP_OK){owner=*candidate;job->owner=*candidate;job->id=*id;job->operation=operation;job->offset=offset;if(path)strcpy(job->path,path);if(name)strcpy(job->name,name);state->busy=true;
         if(xQueueSend(jobs,&job,0)!=pdTRUE){state->busy=false;ouse_task_finish(*id,ESP_ERR_NO_MEM,false);error=ESP_ERR_NO_MEM;}}
     unlock();if(error!=ESP_OK)free(job);return error;
+}
+
+void ouse_recorder_get_owned(const ouse_task_owner_t *candidate,
+                             ouse_recorder_state_t *out) {
+  if (!out)
+    return;
+  if (!mutex || !state) {
+    *out = (ouse_recorder_state_t){.error = ESP_ERR_NOT_SUPPORTED};
+    return;
+  }
+  lock();
+  if (candidate && !strcmp(candidate->app_id, owner.app_id))
+    *out = *state;
+  else
+    *out = (ouse_recorder_state_t){.revision = state->revision};
+  unlock();
 }

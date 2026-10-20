@@ -24,3 +24,5 @@ typedef struct {
     int bar_offset;
 } ouse_shell_state_t;
 void ouse_shell_get_state(ouse_shell_state_t *state);
+
+void ouse_shell_resize(void);

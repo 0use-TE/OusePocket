@@ -1,4 +1,15 @@
 "use strict";
+function resizeCards(){
+ const d=Ouse.display.get(),w=Math.floor(d.contentWidthDp),h=Math.floor(d.contentHeightDp),land=w>h,left=land?264:w-16;
+ Ouse.ui.layout([
+  {id:'heading',x:8,y:8,width:left,height:40},{id:'info',x:8,y:54,width:left,height:28},
+  {id:'status',x:land?288:8,y:land?8:84,width:land?w-296:w-16,height:land?48:24},
+  {id:'cards',x:8,y:land?88:114,width:left,height:land?h-104:h-232},
+  {id:'ops',x:land?288:8,y:land?72:h-108,width:land?w-296:w-16,height:land?56:48},
+  {id:'actions',x:land?288:8,y:land?144:h-52,width:land?w-296:w-16,height:44}
+ ]);
+}
+Ouse.display.onChange(resizeCards);resizeCards();
 const HANDS = [
   [3, 3, 8, 8], [1, 3, 4, 6], [2, 2, 6, 9], [1, 5, 5, 5], [4, 4, 7, 7],
   [2, 3, 8, 8], [1, 6, 6, 8], [2, 4, 6, 8], [1, 4, 5, 6], [3, 5, 7, 9],

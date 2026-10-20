@@ -12,10 +12,10 @@
     "bluetooth": true,
     "hid": true
   },
-  "versionCode": 1,
-  "versionName": "1.0.0",
+  "versionCode": 3,
+  "versionName": "1.1.0",
   "author": "OusePocket",
-  "releasedAt": "2026-10-19",
+  "releasedAt": "2026-10-20",
   "description": "蓝牙演示翻页。",
-  "minNativeApi": 1
+  "minNativeApi": 41
 }

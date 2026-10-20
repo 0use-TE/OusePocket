@@ -40,7 +40,7 @@ static OUSE_PSRAM_BSS struct {
     quick_tile_t wifi_tile,bluetooth_tile,power_tile,sound_tile,theme_tile,usb_tile;
     lv_obj_t *recents,*strip,*clear,*cards[OUSE_RECENTS_CAPACITY],*card_titles[OUSE_RECENTS_CAPACITY];
     lv_obj_t *shield,*back_indicator,*back_arrow,*flight,*flight_image,*pill;
-    lv_obj_t *bottom_guard;
+    lv_obj_t *bottom_guard,*quick_handle,*banner_dismiss;
     lv_obj_t *navigation_buttons[3],*navigation_icons[3];
     unsigned navigation;
     lv_point_t navigation_start;
@@ -71,6 +71,7 @@ static void settle_quick(bool open);
 static void flight_clear(void);
 static void rebuild_notifications(void);
 static void layout_quick(void);
+static void orientation_clicked(lv_event_t *event){(void)event;if(ouse_core_set_orientation(!ouse_core_landscape())!=ESP_OK)ouse_dialog_show("屏幕旋转失败，请重试",NULL,NULL);}
 static void refresh(lv_timer_t *timer);
 static int clamp(int value,int lo,int hi) { return value<lo ? lo : value>hi ? hi : value; }
 static bool visible(lv_obj_t *obj) { return obj && !lv_obj_has_flag(obj,LV_OBJ_FLAG_HIDDEN); }
@@ -610,6 +611,14 @@ static void layout_quick(void)
     int width=shell.width-D(32),tile_height=ouse_ui_font(14)->line_height+ouse_ui_font(11)->line_height+D(14);
     if(tile_height<D(64))tile_height=D(64);
     rect(shell.quick_body,D(16),header+D(8),width,shell.height-header-D(46));
+    if(shell.width>shell.height){
+        int tile_width=(width-D(24))/3;
+        quick_tile_t *tiles[]={&shell.wifi_tile,&shell.bluetooth_tile,&shell.sound_tile,&shell.power_tile,&shell.theme_tile,&shell.usb_tile};
+        for(unsigned i=0;i<6;++i)quick_tile_layout(tiles[i],(i%3)*(tile_width+D(12)),(i/3)*(tile_height+D(12)),tile_width,tile_height);
+        quick_capsule_layout(shell.volume_box,shell.volume_slider,2*(tile_height+D(12)),width,D(56));
+        lv_obj_align(shell.volume_icon,LV_ALIGN_LEFT_MID,D(16),0);
+        quick_capsule_layout(shell.light,shell.slider,2*(tile_height+D(12))+D(68),width,D(56));return;
+    }
     int tile_width=(width-D(12))/2;
     quick_tile_layout(&shell.wifi_tile,0,0,tile_width,tile_height);
     quick_tile_layout(&shell.bluetooth_tile,tile_width+D(12),0,width-tile_width-D(12),tile_height);
@@ -690,12 +699,9 @@ static void refresh(lv_timer_t *timer)
     else if(w.connecting)quick_status_pair(shell.wifi_tile.status,"连接中","Connecting");
     else if(w.enabled)quick_status_pair(shell.wifi_tile.status,"未连接","Disconnected");
     else quick_status_pair(shell.wifi_tile.status,"已关闭","Off");
-    quick_control_color(shell.power_tile.button,power.charging);
-    label_changed(shell.power_tile.icon,symbol);
-    if(power.charging)quick_status_pair(shell.power_tile.status,"充电中","Charging");
-    else if(power.external)quick_status_pair(shell.power_tile.status,"外部供电","External power");
-    else if(power.present)quick_status_pair(shell.power_tile.status,"电池供电","On battery");
-    else quick_status_pair(shell.power_tile.status,"未连接","Disconnected");
+    quick_control_color(shell.power_tile.button,ouse_core_landscape());
+    label_changed(shell.power_tile.icon,LV_SYMBOL_REFRESH);
+    quick_status_pair(shell.power_tile.status,ouse_core_landscape()?"横屏":"竖屏",ouse_core_landscape()?"Landscape":"Portrait");
     ouse_audio_state_t audio={0};ouse_audio_get(&audio);
     if(!lv_obj_has_state(shell.volume_slider,LV_STATE_PRESSED))lv_slider_set_value(shell.volume_slider,audio.volume,LV_ANIM_OFF);
     label_changed(shell.volume_icon,audio.muted || !audio.volume ? LV_SYMBOL_MUTE : LV_SYMBOL_VOLUME_MAX);
@@ -765,7 +771,8 @@ void ouse_shell_set_navigation(unsigned mode)
     lv_obj_set_height(shell.recents,shell.height-height);
     if(mode)hide(shell.pill);else show(shell.pill);
     if(mode)hide(shell.bottom_guard);else show(shell.bottom_guard);
-    for(unsigned index=0;index<3;++index){if(mode)show(shell.navigation_buttons[index]);else hide(shell.navigation_buttons[index]);}
+    rect(shell.pill,shell.width/2-D(32),D(12),D(64),D(4));
+    for(unsigned index=0;index<3;++index){rect(shell.navigation_buttons[index],(int)index*shell.width/3,0,shell.width/3,D(40));lv_obj_center(shell.navigation_icons[index]);if(mode)show(shell.navigation_buttons[index]);else hide(shell.navigation_buttons[index]);}
     if(shell.config.navigation_changed)shell.config.navigation_changed(height);
 }
 static void gesture_step(lv_timer_t *timer)
@@ -940,7 +947,7 @@ void ouse_shell_init(const ouse_shell_config_t *config)
     shell.banner=ouse_widget_box(config->screen,OUSE_STYLE_PANEL,18);rect(shell.banner,D(8),D(42),shell.width-D(16),D(84));lv_obj_add_flag(shell.banner,LV_OBJ_FLAG_CLICKABLE);
     shell.banner_title=ouse_widget_text(shell.banner,"",18);rect(shell.banner_title,D(12),D(10),shell.width-D(80),D(26));lv_label_set_long_mode(shell.banner_title,LV_LABEL_LONG_MODE_DOTS);
     shell.banner_body=ouse_widget_text(shell.banner,"",16);rect(shell.banner_body,D(12),D(42),shell.width-D(48),D(26));lv_label_set_long_mode(shell.banner_body,LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_t *banner_dismiss=ouse_widget_button(shell.banner,LV_SYMBOL_CLOSE,banner_close,NULL);rect(banner_dismiss,shell.width-D(60),D(6),D(34),D(32));hide(shell.banner);
+    lv_obj_t *banner_dismiss=shell.banner_dismiss=ouse_widget_button(shell.banner,LV_SYMBOL_CLOSE,banner_close,NULL);rect(banner_dismiss,shell.width-D(60),D(6),D(34),D(32));hide(shell.banner);
     shell.recents=ouse_widget_box(config->screen,OUSE_STYLE_DESKTOP,0);rect(shell.recents,0,0,shell.width,shell.height-D(24));
     lv_obj_add_flag(shell.recents,LV_OBJ_FLAG_CLICKABLE);lv_obj_add_event_cb(shell.recents,recent_blank,LV_EVENT_CLICKED,NULL);
     shell.strip=ouse_widget_box(shell.recents,OUSE_STYLE_DESKTOP,0);rect(shell.strip,0,0,shell.width,shell.height-D(108));
@@ -962,13 +969,13 @@ void ouse_shell_init(const ouse_shell_config_t *config)
     shell.gear=quick_icon_button(shell.quick,LV_SYMBOL_SETTINGS,quick_settings,(void *)(uintptr_t)0);
     shell.quick_body=ouse_widget_box(shell.quick,OUSE_STYLE_DESKTOP,0);
     lv_obj_add_flag(shell.quick_body,LV_OBJ_FLAG_SCROLLABLE|LV_OBJ_FLAG_CLICKABLE);lv_obj_set_scroll_dir(shell.quick_body,LV_DIR_VER);
-    lv_obj_set_scrollbar_mode(shell.quick_body,LV_SCROLLBAR_MODE_OFF);
+    lv_obj_set_scrollbar_mode(shell.quick_body,LV_SCROLLBAR_MODE_AUTO);
     quick_tile_create(&shell.wifi_tile,shell.quick_body,LV_SYMBOL_WIFI,"Wi-Fi","Wi-Fi",7,NULL);
     quick_tile_create(&shell.bluetooth_tile,shell.quick_body,LV_SYMBOL_BLUETOOTH,"蓝牙","Bluetooth",13,bluetooth_clicked);
     lv_obj_remove_event_cb(shell.bluetooth_tile.button,bluetooth_clicked);
     lv_obj_add_event_cb(shell.bluetooth_tile.button,bluetooth_clicked,LV_EVENT_SHORT_CLICKED,NULL);
     lv_obj_add_event_cb(shell.bluetooth_tile.button,bluetooth_clicked,LV_EVENT_LONG_PRESSED,NULL);
-    quick_tile_create(&shell.power_tile,shell.quick_body,LV_SYMBOL_BATTERY_FULL,"电源","Power",5,NULL);
+    quick_tile_create(&shell.power_tile,shell.quick_body,LV_SYMBOL_REFRESH,"屏幕方向","Orientation",0,orientation_clicked);
     quick_tile_create(&shell.sound_tile,shell.quick_body,LV_SYMBOL_VOLUME_MAX,"声音","Sound",6,sound_clicked);
     quick_tile_create(&shell.theme_tile,shell.quick_body,LV_SYMBOL_TINT,"主题","Theme",0,theme_clicked);
     quick_tile_create(&shell.usb_tile,shell.quick_body,LV_SYMBOL_USB,"USB OTG","USB OTG",10,usb_clicked);
@@ -983,7 +990,7 @@ void ouse_shell_init(const ouse_shell_config_t *config)
     quick_sun(shell.light);
     shell.slider=lv_slider_create(shell.light);ouse_widget_slider(shell.slider,32);
     lv_slider_set_range(shell.slider,10,100);lv_obj_add_event_cb(shell.slider,brightness_changed,LV_EVENT_VALUE_CHANGED,NULL);lv_obj_add_event_cb(shell.slider,save_quick,LV_EVENT_RELEASED,NULL);
-    lv_obj_t *handle=ouse_widget_box(shell.quick,OUSE_STYLE_PILL,2);rect(handle,shell.width/2-D(28),shell.height-D(18),D(56),D(4));
+    lv_obj_t *handle=shell.quick_handle=ouse_widget_box(shell.quick,OUSE_STYLE_PILL,2);rect(handle,shell.width/2-D(28),shell.height-D(18),D(56),D(4));
     shell.notification_panel=ouse_widget_box(shell.sheet,OUSE_STYLE_DESKTOP,0);
     rect(shell.notification_panel,0,0,shell.width,shell.height);
     lv_obj_add_flag(shell.notification_panel,LV_OBJ_FLAG_CLICKABLE);
@@ -1042,4 +1049,15 @@ void ouse_shell_init(const ouse_shell_config_t *config)
     ouse_settings_state_t settings={0};
     if(config->settings_state)config->settings_state(&settings);
     ouse_shell_set_navigation(settings.requested_navigation);
+}
+
+void ouse_shell_resize(void)
+{
+    ouse_shell_foreground();shell.width=lv_obj_get_width(shell.config.screen);shell.height=lv_obj_get_height(shell.config.screen);shell.quick_height=shell.height;shell.card_height=shell.height-D(170);
+    rect(shell.status,0,0,shell.width,D(40));lv_obj_set_x(shell.battery,shell.width-D(66));lv_obj_set_x(shell.wifi_icon,shell.width-D(92));lv_obj_set_x(shell.bluetooth_icon,shell.width-D(116));
+    rect(shell.banner,D(8),D(42),shell.width-D(16),D(84));lv_obj_set_width(shell.banner_title,shell.width-D(80));lv_obj_set_width(shell.banner_body,shell.width-D(48));lv_obj_set_x(shell.banner_dismiss,shell.width-D(60));
+    rect(shell.recents,0,0,shell.width,shell.height-D(24));rect(shell.strip,0,0,shell.width,shell.height-D(108));rect(shell.clear,D(64),shell.height-D(88),shell.width-D(128),D(48));clear_cards();
+    rect(shell.quick_layer,0,0,shell.width,shell.height);rect(shell.sheet,0,-shell.height,shell.width,shell.height);rect(shell.quick,0,0,shell.width,shell.height);rect(shell.notification_panel,0,0,shell.width,shell.height);
+    rect(shell.quick_handle,shell.width/2-D(28),shell.height-D(18),D(56),D(4));rect(shell.shield,0,0,shell.width,shell.height);rect(shell.bottom_guard,0,shell.height-D(24),shell.width,D(24));
+    layout_quick();rebuild_notifications();ouse_shell_set_navigation(shell.navigation);refresh(NULL);
 }

@@ -15,6 +15,32 @@ const COLORS={
 };
 let grid=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], score=0, best=0, over=false, won=false;
 
+function layout(){
+ const d=Ouse.display.get(),w=Math.floor(d.contentWidthDp),h=Math.floor(d.contentHeightDp),land=w>h;
+ const available=land?Math.min(h-16,w-176):Math.min(w-24,h-140);
+ const cell=Math.max(1,Math.floor((available-34)/4)),side=cell*4+34;
+ const x=land?8:Math.floor((w-side)/2),y=land?8:100,frames=[];
+ function f(id,x,y,width,height){frames.push({id,x,y,width,height});}
+ if(land){
+  const left=x+side+16,width=w-left-12;
+  f('title',left,8,width,36);f('score',left,56,width,32);f('best',left,92,width,32);
+  f('status',left,132,width,48);f('restart',left,h-48,width,40);
+ }else{
+  f('title',12,8,w-108,40);f('restart',w-84,8,72,40);
+  f('score',12,56,Math.floor(w/2)-16,32);f('best',Math.floor(w/2),56,Math.floor(w/2)-12,32);
+  f('status',12,y+side+8,w-24,28);
+ }
+ f('board',x,y,side,side);
+ for(let r=0;r<4;r++){
+  f('r'+r,8,8+r*(cell+6),side-16,cell);
+  for(let c=0;c<4;c++)f('c'+(r*4+c),c*(cell+6),0,cell,cell);
+ }
+ Ouse.ui.layout(frames);
+}
+Ouse.display.onChange(layout);
+globalThis.app={onResume:layout};
+layout();
+
 function text(id,value){Ouse.ui.setText(id,String(value));}
 function empty(){const out=[];for(let i=0;i<16;i++)if(!grid[i])out.push(i);return out;}
 function spawn(){

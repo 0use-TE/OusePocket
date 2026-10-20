@@ -6,6 +6,10 @@ import {database,dataDirectory,decodeApp,saveApp} from "./database.js";
 export const validId=id=>typeof id==="string"&&/^user\.[a-z0-9._-]{1,42}$/.test(id);
 const file=name=>path.join(dataDirectory(),name);
 export const categories={tools:"实用工具",life:"生活日常",media:"影音娱乐",games:"游戏",development:"开发工具",other:"其他"};
+function cleanReleaseNotes(value){
+ if(typeof value!=="string"||Buffer.byteLength(value)>1024||/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(value))throw new Error("版本变更日志最多 1024 UTF-8 字节，不能含控制字符");
+ return value.replace(/\r\n?/g,"\n").trim();
+}
 export async function list({cursor="0",limit="12",q="",category="all",sort="name"}={}){
  if(!/^\d{1,8}$/.test(cursor)||!/^\d{1,3}$/.test(limit)||+limit<1||+limit>100||q.length>64)throw new Error("Invalid pagination");
  if(category!=="all"&&!Object.hasOwn(categories,category)||!["name","newest","size"].includes(sort))throw new Error("Invalid filter");
@@ -20,6 +24,7 @@ export async function detail(id){if(!validId(id))return null;const db=await data
 export async function object(name){if(!/^[a-f0-9]{64}\.(bpk|bin)$/.test(name))return null;try{return await readFile(file("objects/"+name));}catch(error){if(error.code==="ENOENT")return null;throw error;}}
 async function immutable(name,bytes){const temporary=file("objects/"+randomUUID()+".tmp"),target=file("objects/"+name);let handle;try{handle=await open(temporary,"wx");await handle.writeFile(bytes);await handle.sync();await handle.close();handle=null;try{await link(temporary,target);}catch(error){if(error.code!=="EEXIST")throw error;const stored=await readFile(target);if(!stored.equals(bytes))throw new Error("Object collision");}}finally{if(handle)await handle.close();await unlink(temporary).catch(error=>{if(error.code!=="ENOENT")throw error;});}}
 export async function publish(bytes,metadata){
+ const releaseNotes=cleanReleaseNotes(metadata.releaseNotes??"");
  if(typeof metadata.description!=="string"||!metadata.description.trim()||Buffer.byteLength(metadata.description)>512||metadata.description.includes("\0"))throw new Error("请填写应用介绍，最多 512 字节");
  if(typeof metadata.author!=="string"||!metadata.author.trim()||Buffer.byteLength(metadata.author)>64||metadata.author.includes("\0"))throw new Error("请填写作者，最多 64 字节");
  if(!Object.hasOwn(categories,metadata.category))throw new Error("请选择应用分类");
@@ -31,7 +36,20 @@ export async function publish(bytes,metadata){
  try{
   db.exec("BEGIN IMMEDIATE");transaction=true;const previous=db.prepare("SELECT versionCode,publishedAt FROM apps WHERE id=?").get(manifest.id);
   if(previous&&previous.versionCode>=metadata.versionCode)throw new Error("versionCode must increase");
-  const now=new Date().toISOString();const app={id:manifest.id,name:manifest.names?.zh_CN||manifest.name,versionCode:manifest.versionCode,versionName:manifest.versionName,minNativeApi:manifest.minNativeApi,size:packed.bytes.length,sha256:packed.sha256,url:"files/"+packed.sha256+".bpk",icon:"files/"+iconHash+".bin",iconPng:"icons/"+iconHash+".png",description:manifest.description,author:manifest.author,releasedAt:manifest.releasedAt,category:metadata.category,capabilities:Object.keys(manifest.capabilities||{}).filter(key=>manifest.capabilities[key]),publishedAt:previous?previous.publishedAt:now,updatedAt:now};
+  const now=new Date().toISOString();const app={id:manifest.id,name:manifest.names?.zh_CN||manifest.name,versionCode:manifest.versionCode,versionName:manifest.versionName,minNativeApi:manifest.minNativeApi,size:packed.bytes.length,sha256:packed.sha256,url:"files/"+packed.sha256+".bpk",icon:"files/"+iconHash+".bin",iconPng:"icons/"+iconHash+".png",description:manifest.description,author:manifest.author,releasedAt:manifest.releasedAt,category:metadata.category,capabilities:Object.keys(manifest.capabilities||{}).filter(key=>manifest.capabilities[key]),publishedAt:previous?previous.publishedAt:now,updatedAt:now,releaseNotes};
   saveApp(db,app);db.exec("COMMIT");transaction=false;return app;
+ }catch(error){if(transaction)db.exec("ROLLBACK");throw error;}finally{db.close();}
+}
+export async function updateReleaseNotes(id,versionCode,value){
+ if(!validId(id)||!Number.isSafeInteger(versionCode)||versionCode<1)throw new Error("Invalid app/versionCode");
+ const releaseNotes=cleanReleaseNotes(value),db=await database();let transaction=false;
+ try{
+  db.exec("BEGIN IMMEDIATE");transaction=true;
+  const app=decodeApp(db.prepare("SELECT * FROM apps WHERE id=?").get(id));
+  if(!app||app.versionCode!==versionCode)throw new Error("应用版本已变化，请刷新后再修改日志");
+  const result=db.prepare("UPDATE releases SET releaseNotes=? WHERE appId=? AND versionCode=?").run(releaseNotes,id,versionCode);
+  if(result.changes!==1)throw new Error("Release record missing");
+  db.prepare("UPDATE apps SET releaseNotes=? WHERE id=? AND versionCode=?").run(releaseNotes,id,versionCode);
+  db.exec("COMMIT");transaction=false;return {...app,releaseNotes};
  }catch(error){if(transaction)db.exec("ROLLBACK");throw error;}finally{db.close();}
 }

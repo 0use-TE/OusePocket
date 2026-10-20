@@ -341,6 +341,28 @@ static JSValue files_api(JSContext *context,JSValueConst self,int argc,JSValueCo
 static JSValue media_api(JSContext *context,JSValueConst self,int argc,JSValueConst *argv,int operation)
 {
     (void)self;instance_t *app=from_js(context);
+    if(operation==6){
+        char asset[32];int gain=100;
+        if(argc!=1 || !JS_IsObject(argv[0]) || !net_string(context,argv[0],"asset",asset,sizeof(asset),""))return JS_ThrowTypeError(context,"effect expects {asset,gain?}: raw PCM16 mono 16kHz");
+        JSValue value=JS_GetPropertyStr(context,argv[0],"gain");
+        double number=100;bool valid=JS_IsUndefined(value)||(JS_IsNumber(value)&&!JS_ToFloat64(context,&number,value)&&isfinite(number)&&floor(number)==number&&number>=0&&number<=100);JS_FreeValue(context,value);
+        if(!valid)return JS_ThrowRangeError(context,"effect gain must be 0..100");
+        gain=(int)number;
+        if(!app->media_allowed || app->validation_only || app->closed || !app->visible)return JS_FALSE;
+        for(unsigned i=0;i<app->asset_count;++i)if(!strcmp(app->assets[i].id,asset)&&app->assets[i].type==OUSE_SCRIPT_ASSET_BINARY){
+            size_t offset=0,length=app->assets[i].size;
+            const char *keys[]={"offset","length"};size_t *values[]={&offset,&length};
+            for(unsigned k=0;k<2;++k){
+                JSValue part=JS_GetPropertyStr(context,argv[0],keys[k]);double n=(double)*values[k];
+                bool ok=JS_IsUndefined(part)||(JS_IsNumber(part)&&!JS_ToFloat64(context,&n,part)&&isfinite(n)&&floor(n)==n&&n>=0&&n<=app->assets[i].size);JS_FreeValue(context,part);
+                if(!ok)return JS_ThrowRangeError(context,"Invalid effect PCM slice");
+                *values[k]=(size_t)n;
+            }
+            if((offset&1)||(length&1)||offset>app->assets[i].size||length>app->assets[i].size-offset)return JS_ThrowRangeError(context,"Effect PCM slice out of range");
+            return JS_NewBool(context,ouse_media_effect(&app->owner,app->assets[i].data+offset,length,(unsigned)gain)==ESP_OK);
+        }
+        return JS_FALSE;
+    }
     if(operation==5){
         char title[128],artist[128];
         if(!app->media_allowed || app->validation_only || app->closed)return JS_FALSE;
@@ -376,14 +398,17 @@ static JSValue media_api(JSContext *context,JSValueConst self,int argc,JSValueCo
     if((!!asset[0]+!!url[0]+!!path[0])!=1)return JS_ThrowTypeError(context,"Choose exactly one media source");
     if(!strncmp(url,"sd:",3))return JS_ThrowTypeError(context,"Use path for SD media");
     if(url[0] && !app->network_allowed)return JS_FALSE;
-    if(path[0]){if(!app->files_allowed)return JS_FALSE;snprintf(url,sizeof(url),"sd:%s",path);}
+    if(path[0]){char prefix[96];snprintf(prefix,sizeof(prefix),"/Ouse/Apps/%s/",app->id);if(!app->files_allowed&&!(app->sdcard_allowed&&!strncmp(path,prefix,strlen(prefix))))return JS_FALSE;snprintf(url,sizeof(url),"sd:%s",path);}
     const void *data=NULL;size_t size=0;
     if(asset[0]){
         for(unsigned i=0;i<app->asset_count;++i)if(!strcmp(app->assets[i].id,asset) && app->assets[i].type==OUSE_SCRIPT_ASSET_BINARY){data=app->assets[i].data;size=app->assets[i].size;break;}
         if(!data || !size)return JS_FALSE;
     }
+    JSValue loop_value=JS_GetPropertyStr(context,argv[0],"loop");
+    bool valid_loop=JS_IsUndefined(loop_value)||JS_IsBool(loop_value),loop=JS_IsBool(loop_value)&&JS_ToBool(context,loop_value);JS_FreeValue(context,loop_value);
+    if(!valid_loop)return JS_ThrowTypeError(context,"media loop must be boolean");
     uint32_t id=0;model_lock(app);
-    esp_err_t error=app->closed || app->faulted ? ESP_ERR_INVALID_STATE : ouse_media_play(&app->owner,url[0] ? url : NULL,data,size,&id);
+    esp_err_t error=app->closed || app->faulted ? ESP_ERR_INVALID_STATE : ouse_media_play_loop(&app->owner,url[0] ? url : NULL,data,size,loop,&id);
     model_unlock(app);return error==ESP_OK ? JS_NewUint32(context,id) : JS_FALSE;
 }
 static JSValue system_cpu(JSContext *context,JSValueConst self,int argc,JSValueConst *argv)

@@ -21,7 +21,7 @@ MAX_ICON_SIDE = 96
 MAX_ICON_PIXELS = 36864
 MAX_ASSETS = 16
 MAX_IMAGE_SIDE = 512
-MAX_IMAGE_BYTES = 128 * 1024
+MAX_IMAGE_BYTES = 512 * 1024
 MAX_DATA_BYTES = 512 * 1024
 FILES = ("manifest.json", "page.json", "app.js", "icon.bin")
 
@@ -235,7 +235,7 @@ def validate(data):
                 _utf8(payload, asset["path"])
             data_bytes += len(payload)
     if image_bytes > MAX_IMAGE_BYTES or data_bytes > MAX_DATA_BYTES:
-        raise ValueError("Image pixels: 131072 bytes total; text/binary assets: 524288 bytes total; entire BPK: 524288 bytes")
+        raise ValueError("Image pixels: 524288 bytes total; text/binary assets: 524288 bytes total; entire BPK: 524288 bytes")
     page = _json(content["page.json"])
     if not isinstance(page, dict) or not _number(page.get("api"), 1) or ("root" in page) == ("pages" in page):
         raise ValueError("page.json requires api=1 and exactly one of root or pages")

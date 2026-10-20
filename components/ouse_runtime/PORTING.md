@@ -1,5 +1,20 @@
 # 来源与执行边界
 
+## Core 0.40.0 Canvas
+
+新增 `canvas` 页面节点和 `Ouse.canvas.submit(id, commands)`，Native API 42。支持矩形、直线、圆弧、图像裁剪缩放、文字和三角形，JS 可在其上实现游戏绘图库。每页最多两个节点，每帧最多 256 条指令；帧整体校验、批量提交，UI 线程绘制。详见 [Canvas 接口与性能对照](../../docs/0.40.0-canvas.md)。
+
+## 原生 API 41：可选显示、专属 SD 与精灵
+
+新增 Ouse.display.setOrientation、Ouse.ui.layout、Ouse.sd 与 Ouse.sprites.update；计时器最短 33 ms。清单按需声明 sdcard，下载还需 network。使用新接口的 BPK 声明 minNativeApi 41；不调用这些接口的应用可继续使用既有能力。完整参数和边界见 [0.39.0 接口记录](../../docs/0.39.0-display-sd-sprites.md)。
+
+
+## 原生 API 40：设置引导
+
+`Ouse.system.openSettings("permissions" | "bluetooth" | "wifi")` 返回是否接收请求，只允许前台、非验证、非关闭/故障实例调用；由 UI 线程异步执行。permissions 固定选择调用应用自己的管理页，不能指定其他应用；蓝牙/Wi-Fi 页和权限页支持返回调用应用。该方法不会自动授予权限、重置拒绝或开启无线功能。使用此接口的 BPK 必须声明 minNativeApi 40。
+
+权限 request 返回 denied 后应显示可点击的设置入口，不能用定时器重复请求。ask 可在首次操作请求，等待授权时保持有界状态；用户主动点击“授权”可以再次请求。蓝牙 get 的 ready 与 connected 不等价于 HID 报告就绪，应用还须检查具体的 keyboardReady/consumerReady/mouseReady，再发送报告。
+
 ## Core 0.30.1 接口
 
 - 原生 API 34，JS API 1；原生 HTTP 头结构扩为每个值最多 511 字节、最多 24 项，name 仍最多 63 字节，响应累计字段/值仍限制 4096 字节。请求构造总缓冲仍 5120 字节，超出时安全拒绝；不保证 24 个最大长度头能同时发送。原生调用者需要重新编译，既有 BPK 不要求重装。
@@ -123,7 +138,7 @@ LVGL 任务只创建控件、读取有界纯数据模型、应用脏状态和将
 
 ## 包内资源与异步私有存储
 
-运行时接收图片描述符和 text/binary 资源，合计最多 16 个，资源 ID 是字母开头、最多 31 字节的 ASCII 字母/数字/下划线/连字符。图片必须为已验证的 ARGB8888 描述符，宽高 1～512、有效 stride 和精确像素长度，累计最多 128 KiB。text/binary 累计另有 128 KiB；text 每项最多 16 KiB，必须为有效 UTF-8 且无 NUL，binary 每项最多 64 KiB，可为空。BPK 解析器验证文本编码；直接构造 C 包的调用者也必须满足此前置条件。
+运行时接收图片描述符和 text/binary 资源，合计最多 16 个，资源 ID 是字母开头、最多 31 字节的 ASCII 字母/数字/下划线/连字符。图片必须为已验证的 ARGB8888 描述符，宽高 1～512、有效 stride 和精确像素长度，累计最多 512 KiB。text/binary 累计另有 512 KiB；text 每项最多 16 KiB，必须为有效 UTF-8 且无 NUL，binary 每项最多 512 KiB，可为空。BPK 解析器验证文本编码；直接构造 C 包的调用者也必须满足此前置条件。
 
 打开与隔离编译验证均持有资源的完整副本，优先放入 PSRAM。每个实例持有自己的 ID、描述符、像素和数据；关闭时先删除 UI 图片及缓存，再让引用计数释放数据，替换/卸载不会留下包内借用指针。
 
@@ -145,7 +160,7 @@ set 使用标准 JSON.stringify：编码后不含终止 NUL 的 JSON 限 1～819
 - 页面、脚本各最多 32,768 字节；文本和词条值最多 256 个 UTF-8 字节。中文/英文词表各最多 128 条。
 - 每应用 8 个计时器，周期/延迟 100～60,000 ms；每执行片段最多处理 8 个 Promise job，未完成的微任务延至下一片段，默认挂起时冻结。单个同步 job 仍受当前片段的中断预算约束，常规前台为 12 ms、后台为 4 ms，首次脚本求值阶段为 100 ms；未处理拒绝在队列清空后结算，仍保留 8 个拒绝跟踪槽和 512 KiB 堆上限。
 - 输入最大长度可设为 1～256，默认 128；下拉选项最多 24 项，总选项字符串最多 512 字节。
-- 包内图片与 text/binary 合计最多 16 项，复制像素累计最多 128 KiB，数据累计另有 128 KiB；单 text 16 KiB、单 binary 64 KiB。
+- 包内图片与 text/binary 合计最多 16 项，复制像素累计最多 512 KiB，数据累计另有 512 KiB；单 text 16 KiB、单 binary 512 KiB。
 - 通知 ID 最多 47 字节、title 127 字节、body 383 字节、payload 255 字节，均为 UTF-8 字符串；ID 和 title 必须非空。
 
 上述是源码契约与边界，不替代对应版本的构建和真机验证记录。详细 JSON/JS 用法见 `docs/bpk.md`。

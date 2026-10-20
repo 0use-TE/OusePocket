@@ -1,6 +1,6 @@
 services:
   web:
-    image: ouse-pocket-store:1.1.0
+    image: ouse-pocket-store:1.2.0
     container_name: ouse-store
     restart: unless-stopped
     ports:

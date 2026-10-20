@@ -1,0 +1,16 @@
+{
+  "tool": "Built-in image_gen",
+  "status": "Succeeded on third request; first two requests returned connection errors",
+  "prompt": "Create a high-quality industrial design concept sheet showing THREE distinct WIRED controller options for a tiny 3.5-inch handheld device named OusePocket. Landscape black host body 95.11 mm wide x63.67 mm tall x14.1 mm thick with rounded corners and a 73.44x48.96 mm screen. White studio background, realistic product renders, three columns A B C, each with large front perspective and smaller rear connection detail. A: slim frame with front left D-pad and front right ABXY, two small button PCBs in side wings, orange flexible ribbon cables wrap around outside edges to a small adapter PCB plugged into recessed 2x16 GPIO female header ON THE BACK of the host; screw-fastened rear retaining crossbar holds machine. B: more ergonomic rounded palm grips, front left thumbstick plus D-pad and right ABXY, same rear GPIO wired connection, protective frame and screws, front control PCBs separate from rear adapter, exposed ribbon routing shown only in rear cutaway. C: host in a compact tabletop stand with a separate compact wired gamepad, short soft cable from gamepad runs to a GPIO adapter ON THE BACK of host, cable strain relief. All are passive controllers without batteries, wireless or microcontrollers. Host screen stays clearly unobstructed in all options, front controls face the player, rear header never appears on the front. Preserve small host scale, feasible component arrangement, no imaginary through-screen connections. Use sparse labels 'A SLIM', 'B GRIP', 'C WIRED', 'FRONT', 'REAR', 'CONCEPT'. These are visual concepts, not manufacturing drawings.",
+  "image": "controller-options-v1.png",
+  "variants": {
+    "A": "Slim frame with front controls and rear GPIO adapter linked by ribbons",
+    "B": "Contoured grips with thumbstick and front controls; rear GPIO wiring",
+    "C": "Host stand and separate wired passive controller"
+  },
+  "limitations": [
+    "Concept imagery only; not verified CAD, pinout or fabrication drawings.",
+    "Connector exact placement, camera clearance, port clearance, cable bends and load-bearing attachments must be reconciled with repository CAD and physical measurements.",
+    "No wireless electronics or battery is required by these wired concepts."
+  ]
+}

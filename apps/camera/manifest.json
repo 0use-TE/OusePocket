@@ -8,15 +8,15 @@
     "en": "Camera"
   },
   "icon": "icon.bin",
-  "minNativeApi": 39,
-  "versionCode": 1,
-  "versionName": "1.0.0",
+  "minNativeApi": 41,
+  "versionCode": 3,
+  "versionName": "1.1.0",
   "capabilities": {
     "camera": true,
     "files": true,
     "photos": true
   },
   "author": "OusePocket",
-  "releasedAt": "2026-10-19",
+  "releasedAt": "2026-10-20",
   "description": "拍照并保存到 SD 卡。"
 }

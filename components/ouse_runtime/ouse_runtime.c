@@ -15,6 +15,7 @@
 #include "ouse_clock.h"
 #include "ouse_media.h"
 #include "ouse_files.h"
+#include "ouse_app_files.h"
 #include "ouse_dialog.h"
 #include "ouse_camera.h"
 #include "ouse_recorder.h"
@@ -116,7 +117,7 @@ typedef enum { NAV_IDLE, NAV_REQUESTED, NAV_DETACHED, NAV_MODEL_READY } navigati
 typedef enum { NAV_OPEN, NAV_PUSH, NAV_BACK, NAV_REPLACE } navigation_action_t;
 typedef enum { CONTAINER, LABEL, BUTTON, SLIDER, IMAGE, TEXT_INPUT, SWITCH,
     CHECKBOX, DROPDOWN, PROGRESS, SPINNER, ARC, CARD, LIST, LIST_ITEM, TOOLBAR,
-    DIVIDER, DIALOG, BOTTOM_SHEET } node_type_t;
+    DIVIDER, DIALOG, BOTTOM_SHEET, SPRITE, CANVAS } node_type_t;
 typedef enum { EVENT_CLICK, EVENT_CHANGE, EVENT_FOCUS, EVENT_BLUR, EVENT_SUBMIT, EVENT_DISMISS, EVENT_SWIPE, EVENT_POINTER_DOWN, EVENT_POINTER_MOVE, EVENT_POINTER_UP, EVENT_POINTER_CANCEL, EVENT_COUNT } widget_event_t;
 typedef struct {
     bool bg_set, color_set, border_set, opacity_set, accent_set, thumb_set;
@@ -140,16 +141,22 @@ typedef struct {
     node_type_t type;
     node_style_t style;
     uint32_t text_revision, value_revision, style_revision, focus_revision, image_revision, scroll_revision;
+    int sprite_w,sprite_h,sprite_first,sprite_count,sprite_frame,sprite_fps;
+    bool sprite_playing,sprite_loop;uint32_t sprite_restart;
     int scroll_target;
     bool focus;
 } node_model_t;
+#include "ouse_canvas_types.h"
+
 typedef struct {
     node_model_t model;
+    canvas_frame_t *canvas_pending, *canvas_render; // model-lock / UI-owned immutable frames
+    void *canvas_owner; // UI only
     JSValue handlers[EVENT_COUNT]; // worker only
-    lv_obj_t *object, *caption, *subtitle, *overlay; // UI only; never dereferenced by worker
+    lv_obj_t *object, *caption, *subtitle, *overlay,*sprite_image; // UI only; never dereferenced by worker
     uint32_t shown_text, shown_value, shown_style, shown_focus, shown_image, shown_scroll;
     int scroll_y,scroll_bottom,scroll_height;
-    unsigned pointer_mask;
+    bool click_enabled;unsigned pointer_mask,sprite_frame;uint32_t sprite_last,sprite_revision,sprite_restart;
 } node_t;
 typedef struct {
     JSValue handler;
@@ -187,7 +194,8 @@ typedef struct instance {
     lv_image_dsc_t image_descriptors[16];
     unsigned char *pending_images[16];
     char image_ids[16][32];
-    unsigned image_count;
+    atomic_uint image_count;
+    size_t sd_image_bytes;
     ouse_script_asset_t assets[OUSE_RUNTIME_ASSETS_MAX];
     char asset_ids[OUSE_RUNTIME_ASSETS_MAX][32];
     unsigned asset_count;
@@ -210,16 +218,18 @@ typedef struct instance {
     bool swipe_armed, swipe_suppress_click; // UI-only swipe tracking
     int swipe_node;
     int16_t swipe_x, swipe_y;
-    ouse_pointer_t pointer;
-    int pointer_origin_x,pointer_origin_y;
-    bool pointer_delivered;
-    unsigned pointer_node;
-    uint32_t pointer_generation,pointer_move_time;
+    ouse_pointer_t pointer[OUSE_POINTER_CONTACTS];
+    lv_indev_t *pointer_device[OUSE_POINTER_CONTACTS];
+    int pointer_origin_x[OUSE_POINTER_CONTACTS],pointer_origin_y[OUSE_POINTER_CONTACTS];
+    bool pointer_delivered[OUSE_POINTER_CONTACTS];
+    unsigned pointer_node[OUSE_POINTER_CONTACTS],pointer_next;
+    uint32_t pointer_generation[OUSE_POINTER_CONTACTS],pointer_move_time[OUSE_POINTER_CONTACTS];
     uint32_t display_revision, core_display_revision, applied_theme_revision, applied_display_revision; // UI-only revision tracking
     node_t nodes[MAX_NODES];
     script_timer_t timers[MAX_TIMERS];
     unsigned node_count;
     bool dp_units, parsing_page;
+    bool canvas_submitting; // worker-only reentrancy guard for command getters
     JSValue translations, changes[6], lifecycle_handler, notification_handler, navigation_handler, back_handler,file_handler;
     JSValue key_handlers[2];
     bool key_claimed[2];
@@ -241,6 +251,7 @@ typedef struct instance {
     // Shared model fields below are protected by model_lock.
     bool visible, closed, ready, built, faulted, fault_shown, background_active, home_requested;
     char launch_requested[48];
+    unsigned settings_requested;
     bool validation_only;
     navigation_stage_t navigation_stage;
     navigation_action_t navigation_action;
@@ -266,7 +277,7 @@ struct storage_job {
     JSValue resolve, reject; // JS task only
     char *result;            // native callback transfers ownership through queue
     esp_err_t error;
-    bool completed;         // JS task only, after receiving the completion
+    bool completed,binary;  // JS task only, after receiving the completion
 };
 struct net_job {
     instance_t *app;
@@ -304,6 +315,7 @@ static void release_instance(instance_t *app)
     for(unsigned i=0;i<app->image_count;++i){free((void *)app->image_descriptors[i].data);free(app->pending_images[i]);}
     for(unsigned image=0;image<OUSE_CAMERA_IMAGES;++image)free((void *)app->native_images[image].data);
     for(unsigned i=0;i<app->asset_count;++i)free((void *)app->assets[i].data);
+    for(unsigned i=0;i<app->node_count;++i){free(app->nodes[i].canvas_pending);free(app->nodes[i].canvas_render);}
     free(app->page);free(app->script);
     if(app->events)vQueueDelete(app->events);
     if(app->validated)vSemaphoreDelete(app->validated);
@@ -467,6 +479,8 @@ static node_t *find_node(instance_t *app,JSValueConst id)
     return NULL;
 }
 static const lv_image_dsc_t *find_image(instance_t *app,const char *id);
+static JSValue sprites_update(JSContext *,JSValueConst,int,JSValueConst *);
+static JSValue canvas_submit(JSContext *,JSValueConst,int,JSValueConst *);
 static bool modal_widget(node_type_t type) {return type==DIALOG || type==BOTTOM_SHEET;}
 static bool container_widget(node_type_t type) {return type==CONTAINER || type==CARD || type==LIST || type==LIST_ITEM || type==TOOLBAR || modal_widget(type);}
 static bool text_widget(node_type_t type) {return type==LABEL || type==BUTTON || type==TEXT_INPUT || type==CHECKBOX || type==CARD || type==LIST_ITEM || type==TOOLBAR || modal_widget(type);}
@@ -550,6 +564,7 @@ static void pending_images_pump(instance_t *app)
         model_lock(app);for(unsigned index=0;index<app->node_count;++index)if(app->nodes[index].model.type==IMAGE&&!strcmp(app->nodes[index].model.image,app->image_ids[slot]))++app->nodes[index].model.image_revision;model_unlock(app);free((void *)previous);
     }
 }
+#include "ouse_runtime_sd_images.inc"
 static JSValue assets_api(JSContext *context,JSValueConst self,int argc,JSValueConst *argv,int action)
 {
     (void)self;instance_t *app=from_js(context);
@@ -607,6 +622,7 @@ static JSValue ui_on(JSContext *context,JSValueConst self,int argc,JSValueConst 
     int index=-1;if(node && copy_string(context,argv[1],event,sizeof(event)))index=event_index(event);
     if(index<0 || (!JS_IsNull(argv[2]) && !JS_IsFunction(context,argv[2])))return JS_ThrowTypeError(context,"on(id, event, function|null): invalid binding");
     JS_FreeValue(context,node->handlers[index]);node->handlers[index]=JS_DupValue(context,argv[2]);
+    if(index==0&&(node->model.type==SPRITE||node->model.type==CANVAS)){model_lock(app);node->click_enabled=!JS_IsNull(argv[2]);model_unlock(app);}
     if(index>=EVENT_POINTER_DOWN){model_lock(app);if(JS_IsNull(argv[2]))node->pointer_mask&=~(1u<<index);else node->pointer_mask|=1u<<index;model_unlock(app);}
     return JS_UNDEFINED;
 }
@@ -621,7 +637,18 @@ static JSValue native_open_app(JSContext *context,JSValueConst self,int argc,JSV
     (void)self;instance_t *app=from_js(context);char id[48];
     if(argc!=1 || !copy_string(context,argv[0],id,sizeof(id)) || !id[0])return JS_ThrowTypeError(context,"openApp expects app id");
     model_lock(app);bool accepted=!app->validation_only && app->visible && !app->closed && !app->faulted;
-    if(accepted)strcpy(app->launch_requested,id);
+    if(accepted){strcpy(app->launch_requested,id);app->settings_requested=0;}
+    model_unlock(app);return JS_NewBool(context,accepted);
+}
+// Deferred navigation is consumed on the UI task and bound to this instance.
+static JSValue native_open_settings(JSContext *context,JSValueConst self,int argc,JSValueConst *argv)
+{
+    (void)self;instance_t *app=from_js(context);char name[24];
+    if(argc!=1 || !copy_string(context,argv[0],name,sizeof(name)))return JS_ThrowTypeError(context,"openSettings expects permissions, bluetooth or wifi");
+    unsigned target=!strcmp(name,"permissions")?1:!strcmp(name,"bluetooth")?2:!strcmp(name,"wifi")?3:0;
+    if(!target)return JS_ThrowTypeError(context,"Unknown settings page");
+    model_lock(app);bool accepted=!app->validation_only && app->visible && !app->closed && !app->faulted;
+    if(accepted){app->settings_requested=target;app->launch_requested[0]=0;app->home_requested=false;}
     model_unlock(app);return JS_NewBool(context,accepted);
 }
 static JSValue lifecycle_snapshot(instance_t *app)
@@ -780,10 +807,11 @@ static JSValue console_log(JSContext *context,JSValueConst self,int argc,JSValue
 }
 static JSValue timer_create(JSContext *context,JSValueConst self,int argc,JSValueConst *argv,int interval)
 {
-    (void)self; instance_t *app=from_js(context); int32_t period;
+    (void)self; instance_t *app=from_js(context); int32_t period;double exact;
     if (argc!=2 || !JS_IsFunction(context,argv[0]) || !JS_IsNumber(argv[1]) ||
-        JS_ToInt32(context,&period,argv[1])<0 || period<100 || period>60000)
-        return JS_ThrowRangeError(context,"Timer expects function and period 100..60000ms");
+        JS_ToFloat64(context,&exact,argv[1])<0 || !isfinite(exact) || floor(exact)!=exact || exact<33 || exact>60000)
+        return JS_ThrowRangeError(context,"Timer expects function and integer period 33..60000ms");
+    period=(int32_t)exact;
     for (unsigned i=0;i<MAX_TIMERS;++i) if (!app->timers[i].id) {
         if (app->next_timer>=INT32_MAX) return JS_ThrowRangeError(context,"Timer id exhausted");
         script_timer_t *timer=&app->timers[i];
@@ -816,6 +844,13 @@ static JSValue theme_snapshot(JSContext *context)
     for(unsigned i=0;i<12;++i){char color[8];snprintf(color,sizeof(color),"#%06lX",(unsigned long)values[i]);JS_SetPropertyStr(context,colors,names[i],JS_NewString(context,color));}
     JS_SetPropertyStr(context,object,"colors",colors); return object;
 }
+static JSValue orientation_set(JSContext *context,JSValueConst self,int argc,JSValueConst *argv)
+{
+    (void)self;instance_t *app=from_js(context);char name[16];
+    if(argc!=1 || !copy_string(context,argv[0],name,sizeof(name)) || (strcmp(name,"portrait")&&strcmp(name,"landscape")))return JS_ThrowTypeError(context,"Expected portrait or landscape");
+    model_lock(app);bool accepted=app->visible&&!app->closed&&!app->faulted&&!app->validation_only;
+    if(accepted){app->pending_commands|=64u;app->command_values[2]=!strcmp(name,"landscape");}model_unlock(app);return JS_NewBool(context,accepted);
+}
 static JSValue display_snapshot(JSContext *context)
 {
     ui_snapshot_t *ui=&from_js(context)->worker_ui;JSValue object=JS_NewObject(context);
@@ -827,6 +862,7 @@ static JSValue display_snapshot(JSContext *context)
     NUMBER("fontPercent",ui->font_percent); NUMBER("fontScale",ui->font_percent/100.0);
     NUMBER("brightness",ui->brightness);
     NUMBER("keyboardHeightDp",ui->keyboard_height/density);NUMBER("keyboardInsetDp",ui->keyboard_inset/density);
+    JS_SetPropertyStr(context,object,"orientation",JS_NewString(context,w>h?"landscape":"portrait"));
     JS_SetPropertyStr(context,object,"keyboardVisible",JS_NewBool(context,ui->keyboard_visible));
 #undef NUMBER
     return object;
@@ -971,12 +1007,14 @@ static JSValue locale_text(JSContext *context,JSValueConst self,int argc,JSValue
     if(argc!=1 || !copy_string(context,argv[0],key,sizeof(key))) return JS_ThrowTypeError(context,"t expects a short translation key");
     return translated(from_js(context),key,from_js(context)->worker_ui.locale);
 }
+static void pointer_cancel_worker(instance_t *app);
 static void preference_notifications(instance_t *app)
 {
     for(unsigned i=0;i<6 && !app->faulted;++i) {
         if(ouse_budget_slice_done(&app->budget) || navigation_pending(app))return;
         uint32_t current=group_revision(app,i);
         if(current==app->revisions[i])continue;
+        if(i==2)pointer_cancel_worker(app);
         if(!JS_IsFunction(app->context,app->changes[i])){app->revisions[i]=current;continue;}
         JSValue handler=JS_DupValue(app->context,app->changes[i]),value=preference_snapshot(app->context,(int)i);
         if(ouse_budget_slice_done(&app->budget)){JS_FreeValue(app->context,value);JS_FreeValue(app->context,handler);return;}
@@ -1158,32 +1196,193 @@ static JSValue storage_api(JSContext *context,JSValueConst self,int argc,JSValue
     if(error!=ESP_OK)app->storage[slot]=NULL;
     model_unlock(app);
     if(json)JS_FreeCString(context,json);
-    JS_FreeValue(context,encoded);
-    if(job->token)JS_DefinePropertyValueStr(context,promise,"taskId",JS_NewUint32(context,job->token),JS_PROP_ENUMERABLE);
-    if(error!=ESP_OK){
-        JSValue reason=storage_error(context,"Error",esp_err_to_name(error),esp_err_to_name(error));
-        if(JS_IsException(reason))reason=JS_GetException(context);
-        JSValue result=call_js(app,"storage","submit-reject",job->reject,JS_UNDEFINED,1,&reason);JS_FreeValue(context,reason);storage_job_release(job);
-        if(JS_IsException(result)){JS_FreeValue(context,result);JS_FreeValue(context,promise);return JS_EXCEPTION;}JS_FreeValue(context,result);
+    JS_FreeValue(context, encoded);
+    if (job->token)
+      JS_DefinePropertyValueStr(context, promise, "taskId",
+                                JS_NewUint32(context, job->token),
+                                JS_PROP_ENUMERABLE);
+    if (error != ESP_OK) {
+      JSValue reason = storage_error(context, "Error", esp_err_to_name(error),
+                                     esp_err_to_name(error));
+      if (JS_IsException(reason))
+        reason = JS_GetException(context);
+      JSValue result = call_js(app, "storage", "submit-reject", job->reject,
+                               JS_UNDEFINED, 1, &reason);
+      JS_FreeValue(context, reason);
+      storage_job_release(job);
+      if (JS_IsException(result)) {
+        JS_FreeValue(context, result);
+        JS_FreeValue(context, promise);
+        return JS_EXCEPTION;
+      }
+      JS_FreeValue(context, result);
     }
     return promise;
 }
-static void process_storage_results(instance_t *app)
+static bool sd_integer(JSContext *context,JSValueConst value,uint32_t *out,uint32_t maximum)
 {
-    for(unsigned i=0;i<MAX_STORAGE_PENDING && !app->faulted;++i){storage_job_t *job=app->storage[i];
-        if(!job || !job->completed)continue;
-        if(ouse_budget_slice_done(&app->budget))return;
-        model_lock(app);bool runnable=!app->closed && !app->faulted && app->navigation_stage==NAV_IDLE && (app->visible || app->background_active);model_unlock(app);
-        if(!runnable)return;
-        app->storage[i]=NULL;job->slot=MAX_STORAGE_PENDING;
-        bool reject=job->error!=ESP_OK || !job->result;
-        JSValue value=reject ? storage_error(app->context,"Error",esp_err_to_name(job->error!=ESP_OK ? job->error : ESP_FAIL),esp_err_to_name(job->error!=ESP_OK ? job->error : ESP_FAIL)) : JS_ParseJSON(app->context,job->result,strlen(job->result),"private-storage");
-        if(JS_IsException(value)){value=JS_GetException(app->context);reject=true;}
-        if(ouse_budget_slice_done(&app->budget)){JS_FreeValue(app->context,value);app->storage[i]=job;job->slot=i;return;}
-        JSValue result=call_js(app,"storage",reject ? "reject" : "resolve",reject ? job->reject : job->resolve,JS_UNDEFINED,1,&value);JS_FreeValue(app->context,value);
-        storage_job_release(job);
-        if(!result_ok(app,result))return;
+    double n;if(!JS_IsNumber(value)||JS_ToFloat64(context,&n,value)||!isfinite(n)||floor(n)!=n||n<0||n>maximum)return false;
+    *out=(uint32_t)n;return true;
+}
+static JSValue sd_api(JSContext *context, JSValueConst self, int argc,
+                      JSValueConst *argv, int operation) {
+  (void)self;
+  instance_t *app = from_js(context);
+  JSValue handlers[2], promise = JS_NewPromiseCapability(context, handlers);
+  if (JS_IsException(promise))
+    return promise;
+  char path[OUSE_APP_FILE_PATH] = "", argument[OUSE_NET_URL_MAX + 1] = "";
+  uint32_t offset = 0, length = OUSE_APP_FILE_CHUNK;
+  size_t bytes = 0;
+  const void *data = NULL;
+  bool valid = argc >= 1 && copy_string(context, argv[0], path, sizeof(path));
+  if (operation == OUSE_APP_FILE_LIST) {
+    valid = valid && argc <= 2;
+    if (argc == 2)
+      valid = valid && sd_integer(context,argv[1],&offset,128U*1024*1024);
+  } else if (operation == OUSE_APP_FILE_READ) {
+    valid = valid && argc == 3 && sd_integer(context,argv[1],&offset,128U*1024*1024) &&
+            sd_integer(context,argv[2],&length,OUSE_APP_FILE_CHUNK) &&
+            length <= OUSE_APP_FILE_CHUNK;
+    bytes = length;
+  } else if (operation == OUSE_APP_FILE_WRITE ||
+             operation == OUSE_APP_FILE_WRITE_CHUNK) {
+    valid = valid && argc == (operation == OUSE_APP_FILE_WRITE ? 2 : 3) &&
+            JS_IsArrayBuffer(argv[1]);
+    if (valid)
+      data = JS_GetArrayBuffer(context, &bytes, argv[1]);
+    if (operation == OUSE_APP_FILE_WRITE_CHUNK && valid)
+      valid = sd_integer(context,argv[2],&offset,128U*1024*1024);
+    valid = valid && bytes <= OUSE_APP_FILE_CHUNK;
+  } else if (operation == OUSE_APP_FILE_RENAME ||
+             operation == OUSE_APP_FILE_DOWNLOAD) {
+    valid = valid && argc == 2 &&
+            copy_string(context, argv[1], argument, sizeof(argument));
+    data = argument;
+    bytes = strlen(argument);
+  } else
+    valid = valid && argc == 1;
+  if (!valid)
+    return rejected_storage_promise(
+        context, promise, handlers,
+        storage_error(context, "TypeError",
+                      "Invalid SD operation arguments; chunk limit 4096 bytes",
+                      "INVALID_ARGUMENT"));
+  if (!app->sdcard_allowed || app->validation_only ||
+      (operation == OUSE_APP_FILE_DOWNLOAD && !app->network_allowed))
+    return rejected_storage_promise(
+        context, promise, handlers,
+        storage_error(context, "Error", "Missing sdcard/network capability",
+                      "PERMISSION_DENIED"));
+  unsigned slot = 0;
+  while (slot < MAX_STORAGE_PENDING && app->storage[slot])
+    ++slot;
+  if (slot == MAX_STORAGE_PENDING || storage_job_count >= MAX_STORAGE_JOBS)
+    return rejected_storage_promise(
+        context, promise, handlers,
+        storage_error(context, "Error", "SD queue full", "BUSY"));
+  storage_job_t *job = calloc(1, sizeof(*job));
+  if (!job)
+    return rejected_storage_promise(
+        context, promise, handlers,
+        storage_error(context, "Error", "Out of memory", "ESP_ERR_NO_MEM"));
+  job->app = app;
+  job->slot = slot;
+  job->resolve = handlers[0];
+  job->reject = handlers[1];
+  job->binary = operation == OUSE_APP_FILE_READ;
+  ++storage_job_count;
+  atomic_fetch_add(&app->references, 1);
+  model_lock(app);
+  esp_err_t error =
+      app->closed || app->faulted ? ESP_ERR_INVALID_STATE : ESP_OK;
+  if (error == ESP_OK) {
+    app->storage[slot] = job;
+    error = ouse_app_files_submit(
+        &app->owner, (ouse_app_file_operation_t)operation, path, offset, data,
+        bytes, &job->token, storage_completed, job);
+  }
+  if (error != ESP_OK)
+    app->storage[slot] = NULL;
+  model_unlock(app);
+  if (error == ESP_OK)
+    JS_DefinePropertyValueStr(context, promise, "taskId",
+                              JS_NewUint32(context, job->token),
+                              JS_PROP_ENUMERABLE);
+  else {
+    JSValue reason = storage_error(context, "Error", esp_err_to_name(error),
+                                   esp_err_to_name(error));
+    JSValue ignored =
+        call_js(app, "sd", "reject", job->reject, JS_UNDEFINED, 1, &reason);
+    JS_FreeValue(context, reason);
+    JS_FreeValue(context, ignored);
+    storage_job_release(job);
+  }
+  return promise;
+}
+static void process_storage_results(instance_t *app) {
+  for (unsigned i = 0; i < MAX_STORAGE_PENDING && !app->faulted; ++i) {
+    storage_job_t *job = app->storage[i];
+    if (!job || !job->completed)
+      continue;
+    if (ouse_budget_slice_done(&app->budget))
+      return;
+    model_lock(app);
+    bool runnable = !app->closed && !app->faulted &&
+                    app->navigation_stage == NAV_IDLE &&
+                    (app->visible || app->background_active);
+    model_unlock(app);
+    if (!runnable)
+      return;
+    app->storage[i] = NULL;
+    job->slot = MAX_STORAGE_PENDING;
+    bool reject = job->error != ESP_OK || !job->result;
+    JSValue value =
+        reject
+            ? storage_error(
+                  app->context, "Error",
+                  esp_err_to_name(job->error != ESP_OK ? job->error : ESP_FAIL),
+                  esp_err_to_name(job->error != ESP_OK ? job->error : ESP_FAIL))
+            : JS_ParseJSON(app->context, job->result, strlen(job->result),
+                           "private-storage");
+    if (!reject && job->binary && JS_IsString(value)) {
+      const char *hex = JS_ToCString(app->context, value);
+      size_t bytes = hex ? strlen(hex) / 2 : 0;
+      unsigned char *raw = malloc(bytes ? bytes : 1);
+      if (raw && hex) {
+        for (size_t n = 0; n < bytes; ++n) {
+          unsigned h = hex[2 * n], l = hex[2 * n + 1];
+          raw[n] = ((h <= '9' ? h - '0' : h - 'a' + 10) << 4) |
+                   (l <= '9' ? l - '0' : l - 'a' + 10);
+        }
+        JS_FreeValue(app->context, value);
+        value = JS_NewArrayBufferCopy(app->context, raw, bytes);
+      } else {
+        JS_FreeValue(app->context, value);
+        value = JS_ThrowOutOfMemory(app->context);
+      }
+      if (hex)
+        JS_FreeCString(app->context, hex);
+      free(raw);
     }
+    if (JS_IsException(value)) {
+      value = JS_GetException(app->context);
+      reject = true;
+    }
+    if (ouse_budget_slice_done(&app->budget)) {
+      JS_FreeValue(app->context, value);
+      app->storage[i] = job;
+      job->slot = i;
+      return;
+    }
+    JSValue result =
+        call_js(app, "storage", reject ? "reject" : "resolve",
+                reject ? job->reject : job->resolve, JS_UNDEFINED, 1, &value);
+    JS_FreeValue(app->context, value);
+    storage_job_release(job);
+    if (!result_ok(app, result))
+      return;
+  }
 }
 static JSValue system_storage(JSContext *context,JSValueConst self,int argc,JSValueConst *argv)
 {
@@ -1284,10 +1483,13 @@ static JSValue keys_on(JSContext *context,JSValueConst self,int argc,JSValueCons
     JS_FreeValue(context,app->key_handlers[key]);app->key_handlers[key]=JS_DupValue(context,argv[1]);
     model_lock(app);app->key_claimed[key]=claimed;app->key_pending&=~(1u<<key);model_unlock(app);return JS_UNDEFINED;
 }
+
+#include "ouse_runtime_layout.inc"
 static void install_api(instance_t *app)
 {
     JSContext *context=app->context;
     JSValue global=JS_GetGlobalObject(context), api=JS_NewObject(context), ui=JS_NewObject(context);
+    JS_SetPropertyStr(context,ui,"layout",JS_NewCFunction(context,ui_layout,"layout",1));
     JS_SetPropertyStr(context,ui,"setText",JS_NewCFunctionMagic(context,ui_text,"setText",2,JS_CFUNC_generic_magic,1));
     JS_SetPropertyStr(context,ui,"setStyle",JS_NewCFunction(context,ui_set_style,"setStyle",2));
     JS_SetPropertyStr(context,ui,"setImage",JS_NewCFunction(context,ui_set_image,"setImage",2));
@@ -1305,6 +1507,7 @@ static void install_api(instance_t *app)
     JS_SetPropertyStr(context,api,"ui",ui);
     JSValue assets=JS_NewObject(context);
     const char *asset_methods[]={"list","readText","readBytes"};
+    JS_SetPropertyStr(context,assets,"loadImage",JS_NewCFunction(context,assets_load_image,"loadImage",2));
     for(int i=0;i<3;++i)JS_SetPropertyStr(context,assets,asset_methods[i],JS_NewCFunctionMagic(context,assets_api,asset_methods[i],i ? 1 : 0,JS_CFUNC_generic_magic,i));
     JS_SetPropertyStr(context,api,"assets",assets);
     JSValue storage=JS_NewObject(context);
@@ -1329,14 +1532,19 @@ static void install_api(instance_t *app)
     JSValue alarms=JS_NewObject(context);const char *alarm_methods[]={"set","remove","dismiss","snooze","list","setEnabled"};
     for(int i=0;i<6;++i)JS_SetPropertyStr(context,alarms,alarm_methods[i],JS_NewCFunctionMagic(context,alarms_api,alarm_methods[i],i==4 ? 0 : i==3 || i==5 ? 2 : 1,JS_CFUNC_generic_magic,i));
     JS_SetPropertyStr(context,api,"alarms",alarms);
-    JSValue media=JS_NewObject(context);const char *media_methods[]={"play","pause","resume","stop","get","setInfo"};
-    for(int i=0;i<6;++i)JS_SetPropertyStr(context,media,media_methods[i],JS_NewCFunctionMagic(context,media_api,media_methods[i],i==0 || i==5 ? 1 : 0,JS_CFUNC_generic_magic,i));
+    JSValue media=JS_NewObject(context);const char *media_methods[]={"play","pause","resume","stop","get","setInfo","effect"};
+    for(int i=0;i<7;++i)JS_SetPropertyStr(context,media,media_methods[i],JS_NewCFunctionMagic(context,media_api,media_methods[i],i==0 || i==5 || i==6 ? 1 : 0,JS_CFUNC_generic_magic,i));
     JS_SetPropertyStr(context,api,"media",media);
     JSValue files=JS_NewObject(context);const char *file_methods[]={"get","list","refresh","download","browse","directory","recover"};
     for(int index=0;index<7;++index)JS_SetPropertyStr(context,files,file_methods[index],JS_NewCFunctionMagic(context,files_api,file_methods[index],index==1 || index==4 ? 2 : index==5 ? 1 : 0,JS_CFUNC_generic_magic,index));
     JS_SetPropertyStr(context,files,"open",JS_NewCFunctionMagic(context,files_api,"open",1,JS_CFUNC_generic_magic,7));
     JS_SetPropertyStr(context,files,"onOpen",JS_NewCFunctionMagic(context,files_api,"onOpen",1,JS_CFUNC_generic_magic,8));
     JS_SetPropertyStr(context,api,"files",files);
+    JSValue sd=JS_NewObject(context);JS_SetPropertyStr(context,sd,"get",JS_NewCFunctionMagic(context,files_api,"get",0,JS_CFUNC_generic_magic,0));const char *sd_methods[]={"list","stat","read","write","writeChunk","mkdir","remove","rename","download"};
+    for(int i=0;i<9;++i)JS_SetPropertyStr(context,sd,sd_methods[i],JS_NewCFunctionMagic(context,sd_api,sd_methods[i],1,JS_CFUNC_generic_magic,i));
+    JS_SetPropertyStr(context,api,"sd",sd);
+    JSValue canvas=JS_NewObject(context);JS_SetPropertyStr(context,canvas,"submit",JS_NewCFunction(context,canvas_submit,"submit",2));JS_SetPropertyStr(context,api,"canvas",canvas);
+    JSValue sprites=JS_NewObject(context);JS_SetPropertyStr(context,sprites,"update",JS_NewCFunction(context,sprites_update,"update",1));JS_SetPropertyStr(context,api,"sprites",sprites);
     JSValue keys=JS_NewObject(context);JS_SetPropertyStr(context,keys,"on",JS_NewCFunction(context,keys_on,"on",2));JS_SetPropertyStr(context,api,"keys",keys);
     JSValue packages=JS_NewObject(context);const char *package_methods[]={"state","list","install","installFromSD"};
     for(unsigned index=0;index<4;++index)JS_SetPropertyStr(context,packages,package_methods[index],JS_NewCFunctionMagic(context,packages_api,package_methods[index],0,JS_CFUNC_generic_magic,index));
@@ -1387,6 +1595,7 @@ static void install_api(instance_t *app)
     JS_SetPropertyStr(context,api,"home",JS_NewCFunction(context,native_home,"home",0));
     JS_SetPropertyStr(context,api,"openApp",JS_NewCFunction(context,native_open_app,"openApp",1));
     JSValue system=JS_NewObject(context);
+    JS_SetPropertyStr(context,system,"openSettings",JS_NewCFunction(context,native_open_settings,"openSettings",1));
     JS_SetPropertyStr(context,system,"info",JS_NewCFunction(context,system_info,"info",0));
     JS_SetPropertyStr(context,system,"tasks",JS_NewCFunctionMagic(context,tasks_api,"tasks",0,JS_CFUNC_generic_magic,4));
     JS_SetPropertyStr(context,system,"diagnostics",JS_NewCFunctionMagic(context,diagnostics_api,"diagnostics",0,JS_CFUNC_generic_magic,1));
@@ -1416,6 +1625,7 @@ static void install_api(instance_t *app)
         JS_SetPropertyStr(context,group,"onChange",JS_NewCFunctionMagic(context,preference_on,"onChange",1,JS_CFUNC_generic_magic,i));
         if(i<2)JS_SetPropertyStr(context,group,"set",JS_NewCFunctionMagic(context,preference_set,"set",1,JS_CFUNC_generic_magic,i));
         if(i==1) JS_SetPropertyStr(context,group,"t",JS_NewCFunction(context,locale_text,"t",1));
+        if(i==2)JS_SetPropertyStr(context,group,"setOrientation",JS_NewCFunction(context,orientation_set,"setOrientation",1));
         if(i==2) JS_SetPropertyStr(context,group,"setBrightness",JS_NewCFunctionMagic(context,preference_set,"setBrightness",1,JS_CFUNC_generic_magic,3));
         JS_SetPropertyStr(context,api,groups[i],group);
     }
@@ -1436,6 +1646,9 @@ static void install_api(instance_t *app)
     JS_SetPropertyStr(context,global,"Ouse",api);
     JS_FreeValue(context,global);
 }
+
+#include "ouse_runtime_sprites.inc"
+#include "ouse_runtime_canvas.inc"
 
 // JSON parsing uses the pinned engine. No eval/getters run while validating;
 // require the entire document to validate before creating any app widgets.
@@ -1595,6 +1808,8 @@ static bool parse_node(instance_t *app,JSValueConst value,int parent,unsigned de
     else if (!strcmp(type,"button")) node->type=BUTTON;
     else if (!strcmp(type,"slider")) node->type=SLIDER;
     else if (!strcmp(type,"image")) node->type=IMAGE;
+    else if(!strcmp(type,"sprite"))node->type=SPRITE;
+    else if(!strcmp(type,"canvas")){node->type=CANVAS;unsigned count=0;for(unsigned n=0;n<index;++n)count+=app->nodes[n].model.type==CANVAS;if(count>=2)return false;}
     else if(!strcmp(type,"textInput"))node->type=TEXT_INPUT;
     else if(!strcmp(type,"switch"))node->type=SWITCH;
     else if(!strcmp(type,"checkbox"))node->type=CHECKBOX;
@@ -1650,7 +1865,14 @@ static bool parse_node(instance_t *app,JSValueConst value,int parent,unsigned de
             !integer_property(app,value,"max",&node->max,node->min+1,32767) ||
             !integer_property(app,value,"value",&node->value,node->min,node->max)) return false;
     }
-    if (node->type==IMAGE && (!string_property(app,value,"src",node->image,sizeof(node->image),true) || !find_image(app,node->image))) return false;
+    if ((node->type==IMAGE||node->type==SPRITE) && (!string_property(app,value,"src",node->image,sizeof(node->image),true) || !find_image(app,node->image))) return false;
+    if(node->type==SPRITE){
+        const lv_image_dsc_t *atlas=find_image(app,node->image);int frames;
+        if(node->image[0]=='@'||!optional_integer(app,value,"frameWidth",&node->sprite_w,32,1,512)||!optional_integer(app,value,"frameHeight",&node->sprite_h,32,1,512)||atlas->header.w%node->sprite_w||atlas->header.h%node->sprite_h)return false;
+        frames=(atlas->header.w/node->sprite_w)*(atlas->header.h/node->sprite_h);
+        if(!optional_integer(app,value,"firstFrame",&node->sprite_first,0,0,frames-1)||!optional_integer(app,value,"frameCount",&node->sprite_count,frames-node->sprite_first,1,frames-node->sprite_first)||!optional_integer(app,value,"frame",&node->sprite_frame,node->sprite_first,0,frames-1)||!optional_integer(app,value,"fps",&node->sprite_fps,10,1,30)||!flag_property(app,value,"playing",&node->sprite_playing))return false;
+        JSValue loop=source_property(app,value,"loop");node->sprite_loop=!JS_IsBool(loop)||JS_ToBool(app->context,loop);JS_FreeValue(app->context,loop);
+    }
     if(node->type==SWITCH || node->type==CHECKBOX){
         JSValue checked=source_property(app,value,"value");
         if(!JS_IsUndefined(checked) && !JS_IsBool(checked)){JS_FreeValue(app->context,checked);return false;}
@@ -1706,33 +1928,36 @@ static bool parse_node(instance_t *app,JSValueConst value,int parent,unsigned de
 // previous page objects have been detached. No LVGL object survives this reset.
 static void pointer_deliver(instance_t *app,const ouse_pointer_event_t *event)
 {
-    if(event->node>=app->node_count)return;
-    if(event->type==0){app->pointer_delivered=true;app->pointer_node=event->node;app->pointer_generation=event->generation;}
-    else if(!app->pointer_delivered || app->pointer_node!=event->node || app->pointer_generation!=event->generation)return;
-    if(event->type>=2)app->pointer_delivered=false;
+    unsigned slot=event->pointer_id;if(slot>=OUSE_POINTER_CONTACTS || event->node>=app->node_count)return;
+    if(event->type==0){app->pointer_delivered[slot]=true;app->pointer_node[slot]=event->node;app->pointer_generation[slot]=event->generation;}
+    else if(!app->pointer_delivered[slot] || app->pointer_node[slot]!=event->node || app->pointer_generation[slot]!=event->generation)return;
+    if(event->type>=2)app->pointer_delivered[slot]=false;
     node_t *node=&app->nodes[event->node];JSValue handler=JS_DupValue(app->context,node->handlers[EVENT_POINTER_DOWN+event->type]);
     if(JS_IsFunction(app->context,handler)){
         JSValue value=JS_NewObject(app->context);
         JS_SetPropertyStr(app->context,value,"x",JS_NewInt32(app->context,event->x));JS_SetPropertyStr(app->context,value,"y",JS_NewInt32(app->context,event->y));
         JS_SetPropertyStr(app->context,value,"dx",JS_NewInt32(app->context,event->dx));JS_SetPropertyStr(app->context,value,"dy",JS_NewInt32(app->context,event->dy));
-        JS_SetPropertyStr(app->context,value,"timeMs",JS_NewUint32(app->context,event->time));JS_SetPropertyStr(app->context,value,"pointerId",JS_NewInt32(app->context,1));
+        JS_SetPropertyStr(app->context,value,"timeMs",JS_NewUint32(app->context,event->time));JS_SetPropertyStr(app->context,value,"pointerId",JS_NewInt32(app->context,slot+1));
         JSValue result=call_js(app,"pointer",node->model.id,handler,JS_UNDEFINED,1,&value);JS_FreeValue(app->context,value);result_ok(app,result);
     }
     JS_FreeValue(app->context,handler);
 }
 static void pointer_cancel_worker(instance_t *app)
 {
-    model_lock(app);memset(&app->pointer,0,sizeof(app->pointer));model_unlock(app);
-    if(app->pointer_delivered && app->context && !app->faulted){
-        ouse_pointer_event_t event={.node=app->pointer_node,.generation=app->pointer_generation,.type=3,.time=now_ms()};begin_call(app);pointer_deliver(app,&event);
+    model_lock(app);memset(app->pointer,0,sizeof(app->pointer));model_unlock(app);
+    for(unsigned slot=0;slot<OUSE_POINTER_CONTACTS;++slot){
+        if(app->pointer_delivered[slot] && app->context && !app->faulted){
+            ouse_pointer_event_t event={.node=app->pointer_node[slot],.generation=app->pointer_generation[slot],.pointer_id=slot,.type=3,.time=now_ms()};begin_call(app);pointer_deliver(app,&event);
+        }
+        app->pointer_delivered[slot]=false;
     }
-    app->pointer_delivered=false;
 }
 static void reset_page_nodes(instance_t *app)
 {
     pointer_cancel_worker(app);
     for(unsigned i=0;i<app->node_count;++i){
         for(unsigned e=0;e<EVENT_COUNT;++e)JS_FreeValue(app->context,app->nodes[i].handlers[e]);
+        free(app->nodes[i].canvas_pending);free(app->nodes[i].canvas_render);
         memset(&app->nodes[i],0,sizeof(app->nodes[i]));
         for(unsigned e=0;e<EVENT_COUNT;++e)app->nodes[i].handlers[e]=JS_UNDEFINED;
     }
@@ -1850,18 +2075,23 @@ static bool pointer_input(instance_t *app,lv_obj_t *object,lv_event_code_t code)
 {
     if(code!=LV_EVENT_PRESSED && code!=LV_EVENT_PRESSING && code!=LV_EVENT_RELEASED && code!=LV_EVENT_PRESS_LOST)return false;
     int index=find_object_node(app,object);if(index<0)return false;
-    lv_indev_t *indev=lv_indev_active();lv_point_t point={0};if(indev)lv_indev_get_point(indev,&point);
-    model_lock(app);bool interested=app->nodes[index].pointer_mask!=0;
+    lv_indev_t *indev=lv_indev_active();if(!indev)return false;
+    lv_point_t point={0};lv_indev_get_point(indev,&point);
+    model_lock(app);unsigned slot=0;
+    while(slot<OUSE_POINTER_CONTACTS && app->pointer_device[slot]!=indev)++slot;
+    if(slot==OUSE_POINTER_CONTACTS && code==LV_EVENT_PRESSED){for(slot=0;slot<OUSE_POINTER_CONTACTS && app->pointer_device[slot];++slot){}if(slot<OUSE_POINTER_CONTACTS)app->pointer_device[slot]=indev;}
+    if(slot>=OUSE_POINTER_CONTACTS){model_unlock(app);return false;}
+    ouse_pointer_t *pointer=&app->pointer[slot];bool interested=app->nodes[index].pointer_mask!=0;
     bool valid=app->visible && !app->closed && !app->faulted && app->navigation_stage==NAV_IDLE && node_visible_locked(app,index,true);
-    bool captured=app->pointer.captured && app->pointer.node==(unsigned)index;
+    bool captured=pointer->captured && pointer->node==(unsigned)index;
     if(!interested && !captured){model_unlock(app);return false;}
-    if(code==LV_EVENT_PRESSED && valid){lv_area_t bounds;lv_obj_get_coords(object,&bounds);app->pointer_origin_x=bounds.x1;app->pointer_origin_y=bounds.y1;}
-    int x=point.x-app->pointer_origin_x,y=point.y-app->pointer_origin_y;
+    if(code==LV_EVENT_PRESSED && valid){lv_area_t bounds;lv_obj_get_coords(object,&bounds);app->pointer_origin_x[slot]=bounds.x1;app->pointer_origin_y[slot]=bounds.y1;}
+    int x=point.x-app->pointer_origin_x[slot],y=point.y-app->pointer_origin_y[slot];
     if(app->dp_units){x=ouse_ui_to_dp(x);y=ouse_ui_to_dp(y);}
     unsigned type=code==LV_EVENT_PRESSED ? 0 : code==LV_EVENT_PRESSING ? 1 : code==LV_EVENT_RELEASED ? 2 : 3;
     if(!valid)type=3;
     bool changed=false;
-    if((code!=LV_EVENT_PRESSED || valid) && (type!=1 || x!=app->pointer.x || y!=app->pointer.y))changed=ouse_pointer_push(&app->pointer,type,index,app->generation,x,y,now_ms());
+    if((code!=LV_EVENT_PRESSED || valid) && (type!=1 || x!=pointer->x || y!=pointer->y))changed=ouse_pointer_push(pointer,type,index,app->generation,x,y,now_ms());
     model_unlock(app);
     if(code==LV_EVENT_PRESSED){lv_obj_add_flag(object,LV_OBJ_FLAG_PRESS_LOCK);lv_obj_remove_flag(object,LV_OBJ_FLAG_SCROLL_CHAIN_HOR|LV_OBJ_FLAG_SCROLL_CHAIN_VER);}
     if(changed)wake_worker();
@@ -1939,6 +2169,8 @@ static uint32_t resolve_color(uint32_t color)
     default:return theme.text;
     }
 }
+#include "ouse_canvas_draw.inc"
+
 static bool circular_control(node_type_t type) {return type==SWITCH || type==SLIDER || type==PROGRESS;}
 static bool arc_control(node_type_t type) {return type==ARC || type==SPINNER;}
 static bool toggle_control(node_type_t type) {return type==SWITCH || type==CHECKBOX;}
@@ -2069,6 +2301,12 @@ static void initialize_control_skin(node_t *node,const node_model_t *model)
 static void apply_style(instance_t *app,node_t *node,const node_model_t *model)
 {
     lv_obj_t *object=node->object;const node_style_t *style=&model->style;
+    unsigned flow=model->parent>=0?app->nodes[model->parent].model.flow:0;
+    lv_obj_set_pos(object,units(app,model->x),units(app,model->y));
+    lv_obj_set_size(object,model->fill_w?(flow==2?0:LV_PCT(100)):units(app,model->w),model->fill_h?(flow==1?0:LV_PCT(100)):model->content_h?LV_SIZE_CONTENT:units(app,model->h));
+    if(model->type==BUTTON&&!model->fill_h&&!model->content_h)lv_obj_set_style_min_height(object,units(app,model->h),0);
+    if(node->overlay){lv_obj_set_style_max_height(object,LV_PCT(96),0);lv_obj_set_style_max_width(object,LV_PCT(94),0);lv_obj_add_flag(object,LV_OBJ_FLAG_SCROLLABLE);lv_obj_set_scroll_dir(object,LV_DIR_VER);lv_obj_align(object,model->type==DIALOG?LV_ALIGN_CENTER:LV_ALIGN_BOTTOM_MID,0,0);}
+
     refresh_control_skin(app,node,model);
     if(style->bg_set || model->type==DIVIDER){
         lv_obj_set_style_bg_color(object,lv_color_hex(resolve_color(style->bg_set ? style->bg : COLOR_THEME|COLOR_BORDER)),0);
@@ -2239,6 +2477,48 @@ static void show_value(instance_t *app,node_t *node,const node_model_t *model)
     }
     app->applying_model=false;
 }
+static void image_pump(instance_t *app,node_t *node,const node_model_t *model)
+{
+    if(node->shown_image==model->image_revision)return;
+    // A sprite is a clipping container; its image child is owned by sprite_pump.
+    if(model->type==IMAGE)lv_image_set_src(node->object,find_image(app,model->image));
+    node->shown_image=model->image_revision;
+}
+static void sprite_pump(instance_t *app, node_t *node,
+                        const node_model_t *model) {
+  const lv_image_dsc_t *atlas = find_image(app, model->image);
+  if (!atlas || !node->sprite_image)
+    return;
+  uint32_t now = lv_tick_get();
+  if (node->sprite_revision != model->image_revision) {
+    if (!node->sprite_revision || node->sprite_restart != model->sprite_restart)
+      node->sprite_frame = model->sprite_frame;
+    node->sprite_restart = model->sprite_restart;
+    node->sprite_revision = model->image_revision;
+    node->sprite_last = now;
+    lv_image_set_src(node->sprite_image, atlas);
+  }
+  if (model->sprite_playing &&
+      (node->sprite_frame < (unsigned)model->sprite_first ||
+       node->sprite_frame >=
+           (unsigned)(model->sprite_first + model->sprite_count)))
+    node->sprite_frame = model->sprite_first;
+  if (model->sprite_playing &&
+      now - node->sprite_last >= 1000u / (unsigned)model->sprite_fps) {
+    node->sprite_last = now;
+    unsigned end = model->sprite_first + model->sprite_count;
+    if (node->sprite_frame + 1 < end)
+      ++node->sprite_frame;
+    else if (model->sprite_loop)
+      node->sprite_frame = model->sprite_first;
+  }
+  unsigned columns = atlas->header.w / model->sprite_w;
+  int w = lv_obj_get_width(node->object), h = lv_obj_get_height(node->object);
+  lv_image_set_scale_x(node->sprite_image, w * 256 / model->sprite_w);
+  lv_image_set_scale_y(node->sprite_image, h * 256 / model->sprite_h);
+  lv_obj_set_pos(node->sprite_image, -(int)(node->sprite_frame % columns) * w,
+                 -(int)(node->sprite_frame / columns) * h);
+}
 static void build_nodes(instance_t *app)
 {
     for(unsigned i=0;i<app->node_count;++i){
@@ -2258,6 +2538,8 @@ static void build_nodes(instance_t *app)
         case BUTTON:node->object=lv_button_create(parent);break;
         case SLIDER:node->object=lv_slider_create(parent);break;
         case IMAGE:node->object=lv_image_create(parent);break;
+        case CANVAS:node->object=lv_obj_create(parent);lv_obj_remove_style_all(node->object);lv_obj_remove_flag(node->object,LV_OBJ_FLAG_SCROLLABLE|LV_OBJ_FLAG_CLICKABLE);node->canvas_owner=app;lv_obj_add_event_cb(node->object,canvas_draw_event,LV_EVENT_DRAW_MAIN,node);break;
+        case SPRITE:node->object=lv_obj_create(parent);lv_obj_remove_style_all(node->object);lv_obj_remove_flag(node->object,LV_OBJ_FLAG_SCROLLABLE|LV_OBJ_FLAG_CLICKABLE);break;
         case TEXT_INPUT:node->object=lv_textarea_create(parent);break;
         case SWITCH:node->object=lv_switch_create(parent);break;
         case CHECKBOX:node->object=lv_checkbox_create(parent);break;
@@ -2300,6 +2582,7 @@ static void build_nodes(instance_t *app)
             node->caption=object;lv_label_set_long_mode(object,LV_LABEL_LONG_WRAP);
             lv_obj_set_style_text_color(object,lv_color_hex(ouse_theme_colors().text),0);
         }
+        else if(model.type==SPRITE){node->sprite_revision=0;node->sprite_image=lv_image_create(object);lv_obj_remove_flag(node->sprite_image,LV_OBJ_FLAG_CLICKABLE);lv_image_set_src(node->sprite_image,find_image(app,model.image));lv_image_set_inner_align(node->sprite_image,LV_IMAGE_ALIGN_TOP_LEFT);lv_image_set_pivot(node->sprite_image,0,0);}
         else if(model.type==IMAGE){lv_image_set_src(object,find_image(app,model.image));lv_image_set_inner_align(object,model.image[0]=='@' ? !strcmp(model.image,"@photo") ? LV_IMAGE_ALIGN_CONTAIN : LV_IMAGE_ALIGN_COVER : LV_IMAGE_ALIGN_STRETCH);}
         else if(model.type==TEXT_INPUT){
             ouse_theme_apply(object,OUSE_STYLE_PANEL,0);
@@ -2323,7 +2606,7 @@ static void build_nodes(instance_t *app)
         ouse_ui_use_font(object,font_sp);
         // Button/card captions are child labels; LVGL text font does not inherit.
         if(node->caption && node->caption!=object)ouse_ui_use_font(node->caption,font_sp);
-        if(container_widget(model.type) || model.type==BUTTON || model.type==LABEL || model.type==IMAGE || model.type==DIVIDER)lv_obj_set_style_pad_all(object,units(app,(int)model.padding),0);
+        if(container_widget(model.type) || model.type==BUTTON || model.type==LABEL || model.type==IMAGE || model.type==SPRITE || model.type==DIVIDER)lv_obj_set_style_pad_all(object,units(app,(int)model.padding),0);
         initialize_control_skin(node,&model);
         if(model.type==BUTTON){
             // Explicit JSON height owns the control; only fill/content keep the 40 dp
@@ -2352,7 +2635,8 @@ static void build_nodes(instance_t *app)
         show_text(app,node,&model);show_value(app,node,&model);apply_style(app,node,&model);
         node->shown_text=model.text_revision;node->shown_value=model.value_revision;node->shown_style=model.style_revision;node->shown_image=model.image_revision;
         lv_obj_add_event_cb(object,input_event,LV_EVENT_ALL,app);
-        model_lock(app);bool pointer_enabled=node->pointer_mask!=0;model_unlock(app);
+        model_lock(app);bool pointer_enabled=node->pointer_mask!=0,click_enabled=node->click_enabled;model_unlock(app);
+        if((model.type==SPRITE||model.type==CANVAS)&&click_enabled)lv_obj_add_flag(object,LV_OBJ_FLAG_CLICKABLE);
         if(pointer_enabled){lv_obj_add_flag(object,LV_OBJ_FLAG_CLICKABLE|LV_OBJ_FLAG_PRESS_LOCK);lv_obj_remove_flag(object,LV_OBJ_FLAG_SCROLLABLE|LV_OBJ_FLAG_GESTURE_BUBBLE);}
     }
     sync_modal_visibility(app);lv_obj_update_layout(app->viewport);
@@ -2368,7 +2652,7 @@ static void clear_page_ui(instance_t *app)
         if(node->model.type==TEXT_INPUT)ouse_ime_detach(node->object);
     }
     if(app->viewport)lv_obj_clean(app->viewport);
-    for(unsigned i=0;i<app->node_count;++i)app->nodes[i].object=app->nodes[i].caption=app->nodes[i].subtitle=app->nodes[i].overlay=NULL;
+    for(unsigned i=0;i<app->node_count;++i)app->nodes[i].object=app->nodes[i].caption=app->nodes[i].subtitle=app->nodes[i].overlay=app->nodes[i].sprite_image=NULL;
     for(unsigned i=0;i<app->image_count;++i)lv_image_cache_drop(&app->image_descriptors[i]);
     app->built=false;app->applying_model=false;app->applied_theme_revision=app->applied_display_revision=0;
 }
@@ -2421,10 +2705,10 @@ static void ui_pump(lv_timer_t *timer)
     if(snapshot.revisions[2]!=app->core_display_revision || snapshot.app_width!=previous.app_width || snapshot.app_height!=previous.app_height ||
         snapshot.keyboard_visible!=previous.keyboard_visible || snapshot.keyboard_height!=previous.keyboard_height || snapshot.keyboard_inset!=previous.keyboard_inset)++app->display_revision;
     app->core_display_revision=snapshot.revisions[2];snapshot.revisions[2]=app->display_revision;
-    unsigned commands;int values[4];bool save,ready,faulted,visible,home;char launch[48],file[128];navigation_stage_t navigation_stage;
+    unsigned commands,settings_target;int values[4];bool save,ready,faulted,visible,home;char launch[48],file[128];navigation_stage_t navigation_stage;
     model_lock(app);app->snapshot=snapshot;commands=app->pending_commands;app->pending_commands=0;memcpy(values,app->command_values,sizeof(values));save=app->brightness_save;
     if(detach)app->navigation_stage=NAV_DETACHED;
-    ready=app->ready;faulted=app->faulted;visible=app->visible;home=app->home_requested;app->home_requested=false;strcpy(launch,app->launch_requested);app->launch_requested[0]=0;navigation_stage=app->navigation_stage;model_unlock(app);
+    ready=app->ready;faulted=app->faulted;visible=app->visible;home=app->home_requested;app->home_requested=false;settings_target=app->settings_requested;app->settings_requested=0;strcpy(launch,app->launch_requested);app->launch_requested[0]=0;navigation_stage=app->navigation_stage;model_unlock(app);
     model_lock(app);strcpy(file,app->file_requested);app->file_requested[0]=0;model_unlock(app);
     if(detach)wake_worker();
     if(commands & 1u)(void)ouse_core_set_theme((ouse_theme_t)values[0]);
@@ -2432,6 +2716,7 @@ static void ui_pump(lv_timer_t *timer)
     if(commands & 8u){if(save)(void)ouse_core_set_brightness((uint8_t)values[3]);else (void)ouse_core_preview_brightness((uint8_t)values[3]);}
     if(commands & 16u)(void)ouse_core_sleep_display();
     if(commands & 32u)(void)ouse_core_wake_display();
+    if((commands & 64u)&&visible&&!faulted)(void)ouse_core_set_orientation(values[2]!=0);
     if(faulted && !app->fault_shown){app->fault_shown=true;show_fault(app);}
     if(!faulted && ready && !app->built && (visible || navigation_stage==NAV_MODEL_READY)){
         build_nodes(app);
@@ -2442,10 +2727,13 @@ static void ui_pump(lv_timer_t *timer)
     if(!faulted && ready && visible && app->built && navigation_stage!=NAV_REQUESTED && navigation_stage!=NAV_DETACHED){
         native_images_pump(app);
         pending_images_pump(app);
-        for(unsigned i=0;i<app->node_count;++i){node_t *node=&app->nodes[i];node_model_t model;model_lock(app);model=node->model;bool pointer_enabled=node->pointer_mask!=0;model_unlock(app);
+        for(unsigned i=0;i<app->node_count;++i){node_t *node=&app->nodes[i];node_model_t model;model_lock(app);model=node->model;bool pointer_enabled=node->pointer_mask!=0,click_enabled=node->click_enabled;model_unlock(app);
+            if(model.type==SPRITE||model.type==CANVAS){if(pointer_enabled||click_enabled)lv_obj_add_flag(node->object,LV_OBJ_FLAG_CLICKABLE);else lv_obj_remove_flag(node->object,LV_OBJ_FLAG_CLICKABLE);}
+            if(model.type==CANVAS)canvas_pump(app,node);
+            if(model.type==SPRITE)sprite_pump(app,node,&model);
             if(pointer_enabled){lv_obj_add_flag(node->object,LV_OBJ_FLAG_CLICKABLE|LV_OBJ_FLAG_PRESS_LOCK);lv_obj_remove_flag(node->object,LV_OBJ_FLAG_SCROLLABLE|LV_OBJ_FLAG_GESTURE_BUBBLE);}
             if(node->shown_text!=model.text_revision){show_text(app,node,&model);node->shown_text=model.text_revision;}
-            if(node->shown_image!=model.image_revision){lv_image_set_src(node->object,find_image(app,model.image));node->shown_image=model.image_revision;}
+            image_pump(app,node,&model);
             if(node->shown_value!=model.value_revision){show_value(app,node,&model);node->shown_value=model.value_revision;}
             if(theme_changed || snapshot.revisions[2]!=app->applied_display_revision || node->shown_style!=model.style_revision){apply_style(app,node,&model);node->shown_style=model.style_revision;}
             model_lock(app);bool focus_allowed=node_visible_locked(app,i,true);model_unlock(app);
@@ -2473,6 +2761,7 @@ static void ui_pump(lv_timer_t *timer)
     }
     if(app->built || app->fault_shown)lv_obj_remove_flag(app->root,OUSE_APP_LOADING_FLAG);
     if(file[0] && visible && !faulted){esp_err_t error=ouse_core_open_file(app->id,file);if(error!=ESP_OK && error!=ESP_ERR_NOT_SUPPORTED && !ouse_dialog_active())ouse_dialog_show("无法打开文件，请稍后重试。",NULL,NULL);}
+    else if(settings_target && visible && !faulted)(void)ouse_core_open_settings(settings_target,app->id);
     else if(launch[0] && visible && !faulted)(void)ouse_app_open(launch);
     else if(home && visible)(void)ouse_app_background();
 }
@@ -2490,7 +2779,7 @@ static void lifecycle(instance_t *app,const char *name)
         JS_FreeValue(app->context,handler);
     }
     JS_FreeValue(app->context,object);JS_FreeValue(app->context,global);
-    model_lock(app);app->home_requested=false;app->launch_requested[0]=0;model_unlock(app);
+    model_lock(app);app->home_requested=false;app->launch_requested[0]=0;app->settings_requested=0;model_unlock(app);
 }
 static void destroy_js(instance_t *app)
 {
@@ -2622,12 +2911,16 @@ static void run_batch(instance_t *app)
     if(!reconcile_policy(app) || !app->worker_runnable || navigation_pending(app))return;
     for(unsigned count=0;count<4 && !app->faulted && !ouse_budget_slice_done(&app->budget);++count){
         ouse_pointer_event_t event;model_lock(app);
-        bool pending=app->pointer.count!=0;
-        if(pending && app->pointer.events[app->pointer.head].type==1 && (uint32_t)(now_ms()-app->pointer_move_time)<16)pending=false;
-        bool found=pending && ouse_pointer_pop(&app->pointer,&event);
+        bool found=false;unsigned slot=0;
+        for(unsigned offset=0;offset<OUSE_POINTER_CONTACTS;++offset){
+            slot=(app->pointer_next+offset)%OUSE_POINTER_CONTACTS;ouse_pointer_t *pointer=&app->pointer[slot];
+            bool pending=pointer->count!=0;
+            if(pending && pointer->events[pointer->head].type==1 && (uint32_t)(now_ms()-app->pointer_move_time[slot])<16)pending=false;
+            if(pending && ouse_pointer_pop(pointer,&event)){found=true;event.pointer_id=slot;app->pointer_next=(slot+1)%OUSE_POINTER_CONTACTS;break;}
+        }
         bool valid=found && app->visible && event.generation==app->generation;
         model_unlock(app);if(!found)break;
-        if(valid){if(event.type==1)app->pointer_move_time=now_ms();pointer_deliver(app,&event);}
+        if(valid){if(event.type==1)app->pointer_move_time[slot]=now_ms();pointer_deliver(app,&event);}
         if(!reconcile_policy(app) || !app->worker_runnable || navigation_pending(app))return;
     }
     input_event_t input;unsigned processed=0;
@@ -2685,6 +2978,7 @@ static void publish_stats(void)
             entry->timers=timers;entry->queued_events=queued;entry->js_heap_bytes=app->sampled_js_bytes;
             entry->memory_sample_ms=app->sampled_memory_us/1000;
             entry->native_known_bytes=sizeof(*app)+(app->page ? strlen(app->page)+1 : 0)+(app->script ? strlen(app->script)+1 : 0);
+            for(unsigned i=0;i<app->node_count;++i){canvas_frame_t *pending=app->nodes[i].canvas_pending,*render=app->nodes[i].canvas_render;if(pending)entry->native_known_bytes+=canvas_frame_bytes(pending->count);if(render)entry->native_known_bytes+=canvas_frame_bytes(render->count);}
             for(unsigned i=0;i<app->image_count;++i)entry->native_known_bytes+=app->image_descriptors[i].data_size;
             for(unsigned image=0;image<OUSE_CAMERA_IMAGES;++image)entry->native_known_bytes+=app->native_images[image].data_size;
             for(unsigned i=0;i<app->asset_count;++i)entry->native_known_bytes+=app->assets[i].size+(app->assets[i].type==OUSE_SCRIPT_ASSET_TEXT ? 1 : 0);
@@ -2801,6 +3095,7 @@ static instance_t *allocate_instance(const ouse_script_package_t *package)
     instance_t *app=ouse_psram_calloc(1,sizeof(*app));
     if(!app)return NULL;
     atomic_init(&app->references,1);
+    atomic_init(&app->image_count,0);
     if(ouse_task_owner_open(package->id,&app->owner)!=ESP_OK){free(app);return NULL;}
     app->model_lock=xSemaphoreCreateMutex();app->events=xQueueCreate(MAX_EVENTS,sizeof(input_event_t));
     strcpy(app->id,package->id);app->background_allowed=package->background_allowed;app->notifications_allowed=package->notifications_allowed;

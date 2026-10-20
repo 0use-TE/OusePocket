@@ -1,36 +1,49 @@
 "use strict";
+// Shared Bluetooth setup flow. Source: tools/app-shared/bluetooth-guide.js.
+function createLinkGuide(kind,onLost){
+ let asked="",wasReady=false,caption="",shown=null;
+ function button(value,visible){if(caption!==value){caption=value;Ouse.ui.setText("connect",value);}if(shown!==visible){shown=visible;visible?Ouse.ui.show("connect"):Ouse.ui.hide("connect");}}
+ function missing(){for(const name of ["bluetooth","hid"]){const state=Ouse.permissions.get(name);if(state!=="granted")return {name,state};}return null;}
+ function unavailable(message,action){if(wasReady&&onLost)onLost();wasReady=false;status(message);button(action,true);return false;}
+ function poll(){
+  const permission=missing();
+  if(permission){session=0;if(permission.state==="ask"&&asked!==permission.name){asked=permission.name;Ouse.permissions.request(permission.name);}return unavailable(permission.state==="denied"?"权限未开启":"等待授权",permission.state==="denied"?"权限设置":"授权");}
+  const link=Ouse.bluetooth.get();
+  if(session&&(!link||link.session!==session)){session=0;if(onLost)onLost();}
+  if(!link||!link.enabled)return unavailable("蓝牙已关闭","开启蓝牙");
+  if(!link.ready)return unavailable("蓝牙启动中","蓝牙设置");
+  if(!link.connected)return unavailable("尚未连接设备","连接蓝牙");
+  if(!session)session=Ouse.bluetooth.open("hid")||0;
+  if(!session)return unavailable(link.closing?"连接释放中":link.busy?"连接被占用":"连接暂不可用","重试连接");
+  if(!link[kind])return unavailable("等待输入服务","蓝牙设置");
+  wasReady=true;status("已连接");button("连接蓝牙",false);return true;
+ }
+ function action(){const permission=missing();if(permission){if(permission.state==="ask"){asked=permission.name;Ouse.permissions.request(permission.name);poll();}else Ouse.system.openSettings("permissions");return;}const link=Ouse.bluetooth.get();if(!link||!link.enabled||!link.ready||!link.connected||session)Ouse.system.openSettings("bluetooth");else poll();}
+ Ouse.ui.on("connect","click",action);
+ return {poll,arm(){asked="";poll();}};
+}
+
 let stage = "";
 let session = 0;
 let token = 0;
 let step = 24;
 let held = 0,travel = 0;
-function status(text) { Ouse.ui.setText("status", text); }
+let lastStatus="";
+function status(text) { if(lastStatus!==text){lastStatus=text;Ouse.ui.setText("status", text);} }
 function move(x, y, wheel) {
-    if (!session) { status("未连接"); return false; }
+    if (!linkGuide.poll()) return false;
     return !!Ouse.bluetooth.mouse(held, x, y, wheel || 0);
 }
 function click(button) {
-    if (!session) { status("未连接"); return; }
+    if (!linkGuide.poll()) return;
     if (!Ouse.bluetooth.mouse(button, 0, 0, 0)) return;
     const mine = ++token;
     Ouse.timers.setTimeout(function () {
         if (mine === token) Ouse.bluetooth.mouse(0, 0, 0, 0);
     }, 100);
 }
-function arm() {
-    session = 0;
-    if (Ouse.permissions.get("bluetooth") !== "granted") {
-        stage = "bluetooth";
-        Ouse.permissions.request("bluetooth");
-        return;
-    }
-    if (Ouse.permissions.get("hid") !== "granted") {
-        stage = "hid";
-        Ouse.permissions.request("hid");
-        return;
-    }
-    stage = "open";
-}
+const linkGuide=createLinkGuide("mouseReady",()=>{held=0;++token;});
+function arm(){session=0;linkGuide.arm();}
 Ouse.ui.on("pad", "pointerdown", function () { travel=0; });
 Ouse.ui.on("pad", "pointermove", function (event) {
     travel+=Math.abs(event.dx)+Math.abs(event.dy);
@@ -50,27 +63,7 @@ Ouse.ui.on("fast", "click", function () {
     step = step === 24 ? 48 : 24;
     Ouse.ui.setText("fast", step === 48 ? "慢速" : "快速");
 });
-Ouse.timers.setInterval(function () {
-    const link=Ouse.bluetooth.get();
-    if(session && link && link.session===session){status(link.mouseReady ? "已连接" : !link.connected ? "请先配对并连接" : "等待输入服务");if(!link.mouseReady)held=0;else if(held)Ouse.bluetooth.mouse(held,0,0,0);return;}
-    if(session){session=0;held=0;stage="open";}
-    if (stage === "bluetooth") {
-        if (Ouse.permissions.get("bluetooth") !== "granted") return;
-        stage = "hid";
-        Ouse.permissions.request("hid");
-        return;
-    }
-    if (stage === "hid") {
-        if (Ouse.permissions.get("hid") !== "granted") return;
-        stage = "open";
-    }
-    if (stage !== "open") return;
-    if(!link || !link.enabled || !link.ready){status("请先开启蓝牙");return;}
-    if(!link.connected){status("请先配对并连接");return;}
-    const result = Ouse.bluetooth.open("hid");
-    if (result) { session = result; status("等待输入服务"); }
-    else status(link.closing ? "正在释放连接" : link.busy ? "连接被其他应用占用" : "连接暂不可用");
-}, 200);
+Ouse.timers.setInterval(function () {const ready=linkGuide.poll();if(held&&ready)Ouse.bluetooth.mouse(held,0,0,0);},200);
 arm();
 globalThis.app = {
     onPause: function () { held=0;Ouse.bluetooth.close(); session = 0; },

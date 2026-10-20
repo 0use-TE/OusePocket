@@ -19,3 +19,5 @@ esp_err_t ouse_recorder_request(const ouse_task_owner_t *owner,unsigned operatio
 bool ouse_recorder_current(uint32_t id);
 bool ouse_recorder_write(uint32_t id,const int16_t *samples,unsigned count);
 void ouse_recorder_producer_done(uint32_t id,esp_err_t error);
+
+void ouse_recorder_get_owned(const ouse_task_owner_t *,ouse_recorder_state_t *);

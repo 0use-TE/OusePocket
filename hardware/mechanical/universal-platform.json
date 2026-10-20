@@ -1,0 +1,11 @@
+{
+  "revision": "UP1",
+  "units": "mm",
+  "pcb": {"width": 56, "length": 78, "thickness": 1.6, "corner_radius": 4},
+  "header": {"center_x": 24, "center_y": 0, "pitch": 2.54, "rows": 2, "columns": 16, "side": "bottom", "pin1": [25.27, -19.05]},
+  "mounting_holes": {"centers": [[-23, -33], [-23, 33], [23, -33], [23, 33]], "diameter": 2.4},
+  "camera": {"center": [-5.8, 0], "pcb_aperture_diameter": 22, "base_aperture_diameter": 24, "lid_aperture_diameter": 30, "position_measured": false},
+  "housing": {"width": 59, "length": 82, "corner_radius": 6, "base_bottom_z": 0.6, "pcb_bottom_z": 4.2, "lid_roof_bottom_z": 9.2, "lid_roof_top_z": 10.6},
+  "host_attachment": "Four removable adhesive pads on rear shell; OEM screw positions not verified",
+  "interface_policy": "All variants retain PCB outline, header, four mounting holes, camera apertures and stack height; functional components, routing and lid openings may change."
+}

@@ -1,0 +1,76 @@
+{
+  "runtime": "ouse-core",
+  "api": 1,
+  "id": "user.brave-road",
+  "name": "Brave Road Local",
+  "names": {
+    "zh_CN": "勇者之路·本地适配",
+    "en": "Brave Road Local"
+  },
+  "icon": "icon.bin",
+  "versionCode": 5,
+  "versionName": "0.4.1",
+  "minNativeApi": 44,
+  "description": "First-stage single-player restoration: original three monster types, 28-enemy waves, stats, village layers and audio. Touch control adaptation.",
+  "assets": [
+    {
+      "id": "hero",
+      "type": "image",
+      "path": "assets/hero.bin"
+    },
+    {
+      "id": "l1",
+      "type": "image",
+      "path": "assets/l1.bin"
+    },
+    {
+      "id": "l2",
+      "type": "image",
+      "path": "assets/l2.bin"
+    },
+    {
+      "id": "l3",
+      "type": "image",
+      "path": "assets/l3.bin"
+    },
+    {
+      "id": "sky",
+      "type": "image",
+      "path": "assets/sky.bin"
+    },
+    {
+      "id": "village",
+      "type": "image",
+      "path": "assets/village.bin"
+    },
+    {
+      "id": "ground",
+      "type": "image",
+      "path": "assets/ground.bin"
+    },
+    {
+      "id": "items",
+      "type": "image",
+      "path": "assets/items.bin"
+    },
+    {
+      "id": "first-level",
+      "type": "text",
+      "path": "assets/first-level.json"
+    },
+    {
+      "id": "rules",
+      "type": "text",
+      "path": "assets/rules.json"
+    },
+    {
+      "id": "sounds",
+      "type": "binary",
+      "path": "assets/sounds.pcm"
+    }
+  ],
+  "capabilities": {
+    "media": true,
+    "files": true
+  }
+}

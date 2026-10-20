@@ -12,9 +12,9 @@ function popup(value){Ouse.ui.setText(page==="album"?"detail":"viewerDetail",val
 function ready(){const card=Ouse.files.get();return !!(card.ready&&card.present);}
 function authorize(name,action){
  if(!Ouse.permissions){action();return;}
- const state=Ouse.permissions.request(name);
- if(state==="granted"){action();return;}if(state==="denied"){popup("权限未开启。");return;}
- let ticks=0;const timer=Ouse.timers.setInterval(()=>{const result=Ouse.permissions.get(name);if(result!=="ask"||++ticks>=150){Ouse.timers.clear(timer);if(result==="granted")action();else popup("权限未开启。");}},100);
+ show(page==="album"?"permissionSettings":"viewerPermissionSettings",false);const state=Ouse.permissions.request(name);
+ if(state==="granted"){action();return;}if(state==="denied"){show(page==="album"?"permissionSettings":"viewerPermissionSettings",true);popup("权限未开启，可前往权限设置开启。");return;}
+ let ticks=0;const timer=Ouse.timers.setInterval(()=>{const result=Ouse.permissions.get(name);if(result!=="ask"||++ticks>=150){Ouse.timers.clear(timer);if(result==="granted")action();else {show(page==="album"?"permissionSettings":"viewerPermissionSettings",true);popup("权限未开启，可前往权限设置开启。");}}},100);
 }
 function paint(){
  if(page!=="album")return;
@@ -36,6 +36,7 @@ function open(index){
 function leave(){Ouse.photos.stop();Ouse.navigation.back();}
 function bind(){
  if(page==="album"){
+  Ouse.ui.on("permissionSettings","click",()=>{show("dialog",false);Ouse.system.openSettings("permissions");});
   Ouse.ui.on("dismiss","click",()=>Ouse.ui.hide("dialog"));
   for(let index=0;index<12;++index)Ouse.ui.on("tile"+index,"click",()=>open(index));paint();
  }else{
@@ -43,6 +44,7 @@ function bind(){
   Ouse.ui.on("viewerPrevious","click",()=>open(Math.max(0,selected-1)));
   Ouse.ui.on("viewerNext","click",()=>open(Math.min(entries.length-1,selected+1)));
   Ouse.ui.on("replay","click",()=>open(selected));
+  Ouse.ui.on("viewerPermissionSettings","click",()=>{show("viewerDialog",false);Ouse.system.openSettings("permissions");});
   Ouse.ui.on("viewerDismiss","click",()=>Ouse.ui.hide("viewerDialog"));
   Ouse.ui.on("delete","click",()=>{if(!pending&&entries[selected]){Ouse.photos.stop();Ouse.ui.show("deleteDialog");}});
   Ouse.ui.on("cancelDelete","click",()=>Ouse.ui.hide("deleteDialog"));

@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.24)
+set(COMPONENTS main)
+set(CMAKE_NINJA_FORCE_RESPONSE_FILE 1 CACHE INTERNAL "")
+if(CMAKE_HOST_WIN32)
+    set(CONFIGDEP_ENABLE 0 CACHE BOOL "Avoid Windows AUX configdep path" FORCE)
+endif()
+include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+project(button_led_v1)

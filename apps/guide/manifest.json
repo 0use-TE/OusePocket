@@ -8,10 +8,10 @@
     "en": "Guide"
   },
   "icon": "icon.bin",
-  "versionCode": 3,
-  "versionName": "1.0.2",
-  "minNativeApi": 1,
+  "versionCode": 4,
+  "versionName": "1.1.0",
+  "minNativeApi": 41,
   "description": "如何用应用商店安装软件。",
   "author": "Ouse",
-  "releasedAt": "2026-10-19"
+  "releasedAt": "2026-10-20"
 }

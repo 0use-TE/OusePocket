@@ -1,0 +1,17 @@
+{
+  "date": "2026-10-20",
+  "host": "../mechanical/ousepocket-host.FCStd",
+  "switch": {
+    "part": "SKHHAJA010",
+    "page": "https://tech.alpsalpine.com/e/products/detail/SKHHAJA010/",
+    "catalog": "https://tech.alpsalpine.com/cms.media/product_catalog_ta_01_skhh_en_bf15276fa8.pdf",
+    "drawing": "No.1"
+  },
+  "joystick": {
+    "part": "RKJXV122400R",
+    "page": "https://tech.alpsalpine.com/e/products/detail/RKJXV122400R/",
+    "catalog": "https://tech.alpsalpine.com/cms.media/product_catalog_mu_01_rkjxv_en_05974b8a16.pdf",
+    "leverDrawing": "https://tech.alpsalpine.com/cms.media/product_detail_fig_rkjxk_d_44_en_5e09e97118.gif"
+  },
+  "physicalFitVerified": false
+}

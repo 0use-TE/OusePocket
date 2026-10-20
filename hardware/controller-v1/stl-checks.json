@@ -1,0 +1,20 @@
+{
+  "CapA.stl": true,
+  "CapB.stl": true,
+  "CapMenu.stl": true,
+  "CapStart.stl": true,
+  "CapX.stl": true,
+  "CapY.stl": true,
+  "DpadCap.stl": true,
+  "DpadPivot.stl": true,
+  "FrontShell.stl": true,
+  "HeightShim0.stl": true,
+  "HeightShim1.stl": true,
+  "HeightShim2.stl": true,
+  "HeightShim3.stl": true,
+  "HeightShim4.stl": true,
+  "JoystickCap.stl": true,
+  "LowerRetainer.stl": true,
+  "RearCover.stl": true,
+  "UpperRetainer.stl": true
+}

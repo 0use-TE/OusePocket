@@ -1,6 +1,27 @@
 "use strict";
 let expr="", mode="simple", base=10, pendingBit=null, acc=null, loaded=false;
 const MAX_EXPR=48;
+function layout(){
+ const d=Ouse.display.get(),w=Math.floor(d.contentWidthDp),h=Math.floor(d.contentHeightDp),land=w>h,a=[];
+ const left=land?Math.floor(w*.36):w-12;
+ function f(id,x,y,width,height){a.push({id,x,y,width:Math.max(1,width),height:Math.max(1,height)});}
+ f('header',6,6,left,36);f('display',6,46,left,72);
+ const groups={science:['b_sqrt','b_sq','b_inv','b_neg','b_pi'],trig:['b_sin','b_cos','b_tan','b_pct'],prog:['b_base','b_and','b_or','b_xor','b_not'],hex:['b_a','b_b','b_c','b_d','b_e','b_f']};
+ let extraHeight=0;
+ for(const id of ['science','trig','prog','hex']){
+  const keys=groups[id],cols=land?3:keys.length,rows=Math.ceil(keys.length/cols),height=rows*44-4;
+  const active=id==='science'||id==='trig'?mode==='science':mode==='prog'&&(id!=='hex'||base===16);
+  f(id,0,extraHeight,left,height);
+  const cell=Math.floor((left-(cols-1)*4)/cols);
+  keys.forEach((key,i)=>f(key,(i%cols)*(cell+4),Math.floor(i/cols)*44,cell,40));
+  if(active)extraHeight+=height+4;
+ }
+ f('extras',6,124,left,land?h-130:Math.max(1,extraHeight));
+ const top=land?6:124+extraHeight+4;
+ f('pad',land?left+18:6,top,land?w-left-24:w-12,Math.max(212,h-top-6));
+ Ouse.ui.layout(a);
+}
+Ouse.display.onChange(layout);globalThis.app={onResume:layout};
 function visible(id,show){if(show)Ouse.ui.show(id);else Ouse.ui.hide(id);}
 function persist(){
  if(!loaded)return;
@@ -15,6 +36,7 @@ function paintMode(){
  visible("science",science);visible("trig",science);visible("prog",prog);visible("hex",prog&&base===16);
  Ouse.ui.setText("b_base",base===16?"HEX":"DEC");
  render(previewAnswer());
+ layout();
 }
 function lastChar(){return expr.length?expr.charAt(expr.length-1):"";}
 function trailingOperators(){let count=0;for(let i=expr.length-1;i>=0;i--){const ch=expr.charAt(i);if(ch!=="+"&&ch!=="-"&&ch!=="*"&&ch!=="/")break;count++;}return count;}

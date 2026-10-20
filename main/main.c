@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 #include "ouse_board.h"
+#include "ouse_journal.h"
+#include "ouse_logs_app.h"
 #include "ouse_core.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -50,12 +52,15 @@ static esp_err_t save_ui(void *context,uint8_t locale,uint8_t percent)
 void app_main(void)
 {
     (void)heap_caps_register_failed_alloc_callback(allocation_failed);
+    esp_err_t journal_error=ouse_journal_start();
+    if(journal_error!=ESP_OK)ESP_LOGW("OuseCore","Journal unavailable: %s",esp_err_to_name(journal_error));
     extern void ouse_fault_report_previous(void);
     ESP_LOGI("OuseCore", "Starting core %s; API %d; reset reason %d",
              ouse_core_version(), OUSE_CORE_API_VERSION, esp_reset_reason());
     ESP_LOGI("OuseCore","Fault diagnostics v3: retained early fault + P4 bus/cache snapshot + bounded UART dump");
     ouse_fault_report_previous();
     ouse_core_config_t config = {.initial_brightness = 45, .density_dpi=160,.boot_animation=true,.device_setup=true};
+    config.apps=ouse_logs_app();config.app_count=1;
     esp_err_t settings_error = ouse_system_init(&config.initial_brightness);
     if (settings_error != ESP_OK) {
         ESP_LOGW("OuseCore", "Settings unavailable: %s; NVS is preserved", esp_err_to_name(settings_error));

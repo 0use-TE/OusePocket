@@ -21,6 +21,10 @@ bool ouse_media_available(void);
 // One global session; busy rejects, never silently replaces another app's song.
 // Native playback survives Home; the runtime stops it on explicit app close.
 esp_err_t ouse_media_play(const ouse_task_owner_t *owner,const char *url,const void *data,size_t size,uint32_t *id);
+// Loop is opt-in, limited to SD/package WAV. Existing callers remain one-shot.
+esp_err_t ouse_media_play_loop(const ouse_task_owner_t *owner,const char *url,const void *data,size_t size,bool loop,uint32_t *id);
+// Short PCM16 LE mono 16kHz, <=2s. Only the active session's exact owner may mix.
+esp_err_t ouse_media_effect(const ouse_task_owner_t *owner,const void *data,size_t size,unsigned gain);
 bool ouse_media_get(const char *app_id,ouse_media_state_t *out);
 esp_err_t ouse_media_set_info(const char *app_id,const char *title,const char *artist);
 esp_err_t ouse_media_pause(const char *app_id,bool paused);

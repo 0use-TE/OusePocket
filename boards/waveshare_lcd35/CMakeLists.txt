@@ -4,6 +4,7 @@ idf_component_register(SRCS "ouse_board.c" "board_display.c" "display_flush_wake
 target_link_options(${COMPONENT_LIB} INTERFACE
     "-Wl,--wrap=lv_display_flush_ready"
     "-Wl,--wrap=esp_lv_adapter_register_display"
+    "-Wl,--wrap=esp_lv_adapter_register_touch"
     "-Wl,--wrap=sdmmc_host_do_transaction" "-Wl,--wrap=sdmmc_write_sectors"
     "-Wl,--wrap=sdmmc_read_sectors" "-Wl,--wrap=sdmmc_card_init")
 if(CONFIG_OUSE_DEVICE_DEBUG AND NOT CONFIG_ESP_HOSTED_ENABLE_BT_NIMBLE AND NOT CONFIG_ESP_HOSTED_ENABLE_BT_BLUEDROID)

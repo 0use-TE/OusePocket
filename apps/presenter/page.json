@@ -6,8 +6,10 @@
     "id": "page",
     "width": "fill",
     "height": "fill",
-    "padding": 12,
-    "style": { "backgroundColor": "$background" },
+    "padding": 0,
+    "style": {
+      "backgroundColor": "$background"
+    },
     "children": [
       {
         "type": "label",
@@ -18,7 +20,9 @@
         "width": 160,
         "height": 32,
         "fontSize": 20,
-        "style": { "textColor": "$text" }
+        "style": {
+          "textColor": "$text"
+        }
       },
       {
         "type": "label",
@@ -29,27 +33,38 @@
         "width": 112,
         "height": 32,
         "fontSize": 15,
-        "style": { "textColor": "$secondary", "textAlign": "right" }
+        "style": {
+          "textColor": "$secondary",
+          "textAlign": "right"
+        }
       },
       {
         "type": "container",
         "id": "stage",
         "x": 0,
-        "y": 56,
+        "y": 0,
         "width": 296,
-        "height": 120,
-        "style": { "backgroundColor": "$surface", "borderColor": "$border", "borderWidth": 1, "radius": 18 },
+        "height": 88,
+        "style": {
+          "backgroundColor": "$surface",
+          "borderColor": "$border",
+          "borderWidth": 1,
+          "radius": 18
+        },
         "children": [
           {
             "type": "label",
             "id": "hint",
             "text": "翻页遥控",
             "x": 0,
-            "y": 44,
+            "y": 28,
             "width": 296,
             "height": 32,
             "fontSize": 18,
-            "style": { "textColor": "$secondary", "textAlign": "center" }
+            "style": {
+              "textColor": "$secondary",
+              "textAlign": "center"
+            }
           }
         ]
       },
@@ -57,7 +72,7 @@
         "type": "container",
         "id": "pages",
         "x": 0,
-        "y": 200,
+        "y": 0,
         "width": 296,
         "height": 64,
         "layout": "row",
@@ -70,7 +85,13 @@
             "width": "fill",
             "height": 64,
             "fontSize": 17,
-            "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 16 }
+            "style": {
+              "backgroundColor": "$surface",
+              "textColor": "$text",
+              "borderColor": "$border",
+              "borderWidth": 1,
+              "radius": 16
+            }
           },
           {
             "type": "button",
@@ -79,7 +100,11 @@
             "width": "fill",
             "height": 64,
             "fontSize": 17,
-            "style": { "backgroundColor": "$accent", "textColor": "#ffffff", "radius": 16 }
+            "style": {
+              "backgroundColor": "$accent",
+              "textColor": "#ffffff",
+              "radius": 16
+            }
           }
         ]
       },
@@ -87,7 +112,7 @@
         "type": "container",
         "id": "show",
         "x": 0,
-        "y": 280,
+        "y": 0,
         "width": 296,
         "height": 48,
         "layout": "row",
@@ -100,7 +125,13 @@
             "width": "fill",
             "height": 48,
             "fontSize": 15,
-            "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 14 }
+            "style": {
+              "backgroundColor": "$surface",
+              "textColor": "$text",
+              "borderColor": "$border",
+              "borderWidth": 1,
+              "radius": 14
+            }
           },
           {
             "type": "button",
@@ -109,7 +140,13 @@
             "width": "fill",
             "height": 48,
             "fontSize": 15,
-            "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 14 }
+            "style": {
+              "backgroundColor": "$surface",
+              "textColor": "$text",
+              "borderColor": "$border",
+              "borderWidth": 1,
+              "radius": 14
+            }
           },
           {
             "type": "button",
@@ -118,7 +155,13 @@
             "width": "fill",
             "height": 48,
             "fontSize": 15,
-            "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 14 }
+            "style": {
+              "backgroundColor": "$surface",
+              "textColor": "$text",
+              "borderColor": "$border",
+              "borderWidth": 1,
+              "radius": 14
+            }
           }
         ]
       },
@@ -126,7 +169,7 @@
         "type": "container",
         "id": "arrows",
         "x": 0,
-        "y": 340,
+        "y": 0,
         "width": 296,
         "height": 48,
         "layout": "row",
@@ -139,7 +182,13 @@
             "width": "fill",
             "height": 48,
             "fontSize": 15,
-            "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 14 }
+            "style": {
+              "backgroundColor": "$surface",
+              "textColor": "$text",
+              "borderColor": "$border",
+              "borderWidth": 1,
+              "radius": 14
+            }
           },
           {
             "type": "button",
@@ -148,7 +197,13 @@
             "width": "fill",
             "height": 48,
             "fontSize": 15,
-            "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 14 }
+            "style": {
+              "backgroundColor": "$surface",
+              "textColor": "$text",
+              "borderColor": "$border",
+              "borderWidth": 1,
+              "radius": 14
+            }
           },
           {
             "type": "button",
@@ -157,7 +212,13 @@
             "width": "fill",
             "height": 48,
             "fontSize": 15,
-            "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 14 }
+            "style": {
+              "backgroundColor": "$surface",
+              "textColor": "$text",
+              "borderColor": "$border",
+              "borderWidth": 1,
+              "radius": 14
+            }
           },
           {
             "type": "button",
@@ -166,9 +227,30 @@
             "width": "fill",
             "height": 48,
             "fontSize": 15,
-            "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 14 }
+            "style": {
+              "backgroundColor": "$surface",
+              "textColor": "$text",
+              "borderColor": "$border",
+              "borderWidth": 1,
+              "radius": 14
+            }
           }
         ]
+      },
+      {
+        "type": "button",
+        "id": "connect",
+        "text": "连接蓝牙",
+        "width": 296,
+        "height": 36,
+        "fontSize": 14,
+        "style": {
+          "backgroundColor": "$surface",
+          "textColor": "$accent",
+          "radius": 10
+        },
+        "x": 0,
+        "y": 0
       }
     ]
   }

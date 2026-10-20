@@ -16,7 +16,8 @@ put("lvgl.h", """#pragma once
 #define LVGL_VERSION_MAJOR 9
 #define LVGL_VERSION_MINOR 5
 #define LVGL_VERSION_PATCH 0
-typedef struct { volatile int flushing; } lv_display_t;
+typedef struct lv_display { volatile int flushing; void (*flush_wait_cb)(struct lv_display *); } lv_display_t;
+void lv_display_set_flush_wait_cb(lv_display_t *, void (*)(lv_display_t *));
 """)
 put("src/display/lv_display_private.h", '#include "lvgl.h"\n')
 put("esp_attr.h", "#define IRAM_ATTR\n")
@@ -37,13 +38,26 @@ int xSemaphoreTake(SemaphoreHandle_t, TickType_t);
 int xSemaphoreGive(SemaphoreHandle_t);
 int xSemaphoreGiveFromISR(SemaphoreHandle_t, BaseType_t *);
 """)
+put("bsp/display.h", "#define BSP_LCD_H_RES 320\n#define BSP_LCD_V_RES 480\n")
+put("esp_lv_adapter.h", """#include "lvgl.h"
+#define ESP_LV_ADAPTER_PANEL_IF_OTHER 1
+#define ESP_LV_ADAPTER_TEAR_AVOID_MODE_NONE 0
+typedef struct { struct {int interface,hor_res,ver_res,buffer_height;bool use_psram,require_double_buffer;} profile;int tear_avoid_mode;} esp_lv_adapter_display_config_t;
+""")
+put("esp_log.h", "#define ESP_LOGI(...) ((void)0)\n")
+put("esp_timer.h", "#include <stdint.h>\n")
 source = (ROOT / "boards/waveshare_lcd35/display_flush_wake.c").as_posix()
-put("test.c", '#include "' + source + '"\n' + r'''
+put("test.c", '#include "' + source + '"\n#include "' + (ROOT / 'boards/waveshare_lcd35/board_display.c').as_posix() + '"\n' + r'''
 #include <assert.h>
 #include <stdio.h>
 static int token,fail_alloc,isr,blocked,takes,gives,yields,delays,allocs;
 static int scenario;
 static lv_display_t display,other;
+void lv_display_set_flush_wait_cb(lv_display_t *d,void (*cb)(lv_display_t *)){d->flush_wait_cb=cb;}
+lv_display_t *__real_esp_lv_adapter_register_display(const esp_lv_adapter_display_config_t *c){
+    assert(c->profile.buffer_height==40 && !c->profile.use_psram && c->profile.require_double_buffer);
+    assert(!display.flush_wait_cb);return &display;
+}
 SemaphoreHandle_t xSemaphoreCreateBinary(void) { ++allocs; return fail_alloc?NULL:&token; }
 int xPortInIsrContext(void) { return isr; }
 void test_yield(void) { ++yields; }
@@ -84,6 +98,12 @@ int main(void) {
     before=gives;other.flushing=1;isr=1;__wrap_lv_display_flush_ready(&other);isr=0;
     assert(!other.flushing && gives==before);
     other.flushing=1;ouse_display_flush_wait(&other);assert(delays==2);
+    esp_lv_adapter_display_config_t config={.profile={.interface=ESP_LV_ADAPTER_PANEL_IF_OTHER,.hor_res=320,.ver_res=480},.tear_avoid_mode=ESP_LV_ADAPTER_TEAR_AVOID_MODE_NONE};
+    assert(__wrap_esp_lv_adapter_register_display(&config)==&display);
+    // Simulate the BSP starting its worker immediately after registration.
+    assert(display.flush_wait_cb==ouse_display_flush_wait);
+    scenario=2;display.flushing=1;display.flush_wait_cb(&display);assert(!display.flushing);
+    puts("PASS initial BSP screen flush already has the safe DMA wait before worker startup");
     puts("PASS production DMA wake: ISR/task completion, early completion, stale/spurious wake, allocation fallback, other display");
 }
 ''')

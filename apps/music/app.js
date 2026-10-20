@@ -5,6 +5,19 @@ let wanted=false,pending=-1,taskId=0,handled=0,saving=false,dirty=false,download
 let cache=Object.create(null),libraryRevision=-1,cardReady=false,lastResult="";
 let listStart=0,filterQuery="",settle=0;
 let externalPath="";
+function resizePlayer(){
+ if(page!=="player")return;
+ const d=Ouse.display.get(),w=Math.floor(d.contentWidthDp),h=Math.floor(d.contentHeightDp),land=w>h,x=land?160:12,width=land?w-172:w-24;
+ Ouse.ui.layout([
+  {id:'title',x:12,y:8,width:100,height:28},{id:'library',x:w-76,y:8,width:64,height:32},
+  {id:'record',x:land?12:Math.floor((w-128)/2),y:land?56:44,width:128,height:128},
+  {id:'track',x,y:land?48:184,width,height:28},{id:'state',x,y:land?80:216,width,height:20},
+  {id:'progress',x:x+8,y:land?108:244,width:width-16,height:5},{id:'time',x,y:land?120:254,width,height:18},
+  {id:'transport',x:land?x:Math.floor((w-208)/2),y:land?144:h-124,width:208,height:56},
+  {id:'actions',x,y:h-58+(land?24:0),width,height:30}
+ ]);
+}
+Ouse.display.onChange(resizePlayer);
 function openExternal(){
  if(!externalPath||!loaded)return;
  const path=externalPath;externalPath="";
@@ -166,12 +179,13 @@ function bindPage(){
   paintTabs();refresh();
  }
 }
-Ouse.navigation.onChange(event=>{page=event.page;if(page==="library"){listStart=0;settle=2;}bindPage();});
+Ouse.navigation.onChange(event=>{page=event.page;if(page==="library"){listStart=0;settle=2;}bindPage();resizePlayer();});
 Ouse.tasks.onComplete(event=>{if(event.id===downloadId){downloadId=0;lastResult=event.state==="succeeded"?"下载完成":("下载未完成："+(event.error||event.state));}refresh();});
 Ouse.notifications.onOpen(()=>{if(page!=="player")Ouse.navigation.back();refresh();});
 Ouse.timers.setInterval(()=>{pollScroll();refresh();},200);
-globalThis.app={onResume(){libraryRevision=-1;refresh();openExternal();},onClose(){pending=-1;endLease();Ouse.media.stop();}};
+globalThis.app={onResume(){resizePlayer();libraryRevision=-1;refresh();openExternal();},onClose(){pending=-1;endLease();Ouse.media.stop();}};
 bindPage();
+resizePlayer();
 Ouse.storage.get("library").then(value=>{
  if(value&&(value.version===1||value.version===2)&&Array.isArray(value.tracks)){
   remote=value.tracks.filter(track=>track&&typeof track.name==="string"&&typeof track.url==="string"&&/^https?:\/\/[^\s]+$/.test(track.url)&&track.url.length<=256).slice(0,8).map(track=>({name:track.name.slice(0,24),url:track.url}));

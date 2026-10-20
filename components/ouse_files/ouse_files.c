@@ -1,4 +1,5 @@
 #include "ouse_files.h"
+#include "ouse_app_files.h"
 #include "ouse_net.h"
 #include "esp_vfs_fat.h"
 #include "diskio_impl.h"
@@ -309,13 +310,13 @@ esp_err_t ouse_files_format_unmounted(sdmmc_card_t *card)
 esp_err_t ouse_files_start(esp_err_t (*recover)(void))
 {
     if(recover)recover_handler=recover;
-    if(worker_started)return ESP_OK;
+    if(worker_started)return ouse_app_files_init();
     if(!mutex)mutex=xSemaphoreCreateMutex();
     if(!entries)entries=heap_caps_calloc(OUSE_FILES_TRACK_MAX,sizeof(*entries),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
     if(!jobs)jobs=xQueueCreate(4,sizeof(job_t *));
     if(!mutex || !entries || !jobs)return ESP_ERR_NO_MEM;
     if(xTaskCreate(worker,"ouse_files",8192,NULL,2,NULL)!=pdPASS)return ESP_ERR_NO_MEM;
-    worker_started=true;return ESP_OK;
+    worker_started=true;return ouse_app_files_init();
 }
 esp_err_t ouse_files_init(sdmmc_card_t *card)
 {

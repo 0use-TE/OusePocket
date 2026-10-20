@@ -9,7 +9,9 @@
     "layout": "column",
     "padding": 12,
     "gap": 8,
-    "style": { "backgroundColor": "$background" },
+    "style": {
+      "backgroundColor": "$background"
+    },
     "children": [
       {
         "type": "container",
@@ -19,9 +21,36 @@
         "layout": "row",
         "gap": 8,
         "children": [
-          { "type": "label", "id": "title", "text": "待办", "width": "fill", "height": 40, "fontSize": 22, "style": { "textColor": "$text" } },
-          { "type": "button", "id": "clear", "text": "清除", "width": 64, "height": 40 },
-          { "type": "button", "id": "add", "text": "添加", "width": 72, "height": 40, "style": { "backgroundColor": "$accent", "textColor": "#ffffff", "radius": 12 } }
+          {
+            "type": "label",
+            "id": "title",
+            "text": "待办",
+            "width": "fill",
+            "height": 40,
+            "fontSize": 22,
+            "style": {
+              "textColor": "$text"
+            }
+          },
+          {
+            "type": "button",
+            "id": "clear",
+            "text": "清除",
+            "width": 64,
+            "height": 40
+          },
+          {
+            "type": "button",
+            "id": "add",
+            "text": "添加",
+            "width": 72,
+            "height": 40,
+            "style": {
+              "backgroundColor": "$accent",
+              "textColor": "#ffffff",
+              "radius": 12
+            }
+          }
         ]
       },
       {
@@ -34,169 +63,709 @@
         "scroll": true,
         "children": [
           {
-            "type": "container", "id": "row0", "width": "fill", "height": 72, "layout": "row", "gap": 8, "padding": 8,
-            "style": { "hidden": true, "backgroundColor": "$surface", "radius": 14, "borderColor": "$border", "borderWidth": 1 },
+            "type": "container",
+            "id": "row0",
+            "width": "fill",
+            "height": 72,
+            "layout": "row",
+            "gap": 8,
+            "padding": 8,
+            "style": {
+              "hidden": true,
+              "backgroundColor": "$surface",
+              "radius": 14,
+              "borderColor": "$border",
+              "borderWidth": 1
+            },
             "children": [
-              { "type": "checkbox", "id": "cb0", "width": 32, "height": 32, "value": false },
               {
-                "type": "container", "id": "meta0", "width": "fill", "height": "fill", "layout": "column", "gap": 2,
+                "type": "checkbox",
+                "id": "cb0",
+                "width": 32,
+                "height": 32,
+                "value": false
+              },
+              {
+                "type": "container",
+                "id": "meta0",
+                "width": "fill",
+                "height": "fill",
+                "layout": "column",
+                "gap": 2,
                 "children": [
-                  { "type": "button", "id": "item0", "text": "", "width": "fill", "height": 32, "fontSize": 16, "style": { "backgroundColor": "$surface", "textColor": "$text", "radius": 8 } },
-                  { "type": "label", "id": "time0", "text": "", "width": "fill", "height": 20, "fontSize": 14, "style": { "textColor": "$secondary" } }
+                  {
+                    "type": "button",
+                    "id": "item0",
+                    "text": "",
+                    "width": "fill",
+                    "height": 32,
+                    "fontSize": 16,
+                    "style": {
+                      "backgroundColor": "$surface",
+                      "textColor": "$text",
+                      "radius": 8
+                    }
+                  },
+                  {
+                    "type": "label",
+                    "id": "time0",
+                    "text": "",
+                    "width": "fill",
+                    "height": 20,
+                    "fontSize": 14,
+                    "style": {
+                      "textColor": "$secondary"
+                    }
+                  }
                 ]
               }
             ]
           },
           {
-            "type": "container", "id": "row1", "width": "fill", "height": 72, "layout": "row", "gap": 8, "padding": 8,
-            "style": { "hidden": true, "backgroundColor": "$surface", "radius": 14, "borderColor": "$border", "borderWidth": 1 },
+            "type": "container",
+            "id": "row1",
+            "width": "fill",
+            "height": 72,
+            "layout": "row",
+            "gap": 8,
+            "padding": 8,
+            "style": {
+              "hidden": true,
+              "backgroundColor": "$surface",
+              "radius": 14,
+              "borderColor": "$border",
+              "borderWidth": 1
+            },
             "children": [
-              { "type": "checkbox", "id": "cb1", "width": 32, "height": 32, "value": false },
               {
-                "type": "container", "id": "meta1", "width": "fill", "height": "fill", "layout": "column", "gap": 2,
+                "type": "checkbox",
+                "id": "cb1",
+                "width": 32,
+                "height": 32,
+                "value": false
+              },
+              {
+                "type": "container",
+                "id": "meta1",
+                "width": "fill",
+                "height": "fill",
+                "layout": "column",
+                "gap": 2,
                 "children": [
-                  { "type": "button", "id": "item1", "text": "", "width": "fill", "height": 32, "fontSize": 16, "style": { "backgroundColor": "$surface", "textColor": "$text", "radius": 8 } },
-                  { "type": "label", "id": "time1", "text": "", "width": "fill", "height": 20, "fontSize": 14, "style": { "textColor": "$secondary" } }
+                  {
+                    "type": "button",
+                    "id": "item1",
+                    "text": "",
+                    "width": "fill",
+                    "height": 32,
+                    "fontSize": 16,
+                    "style": {
+                      "backgroundColor": "$surface",
+                      "textColor": "$text",
+                      "radius": 8
+                    }
+                  },
+                  {
+                    "type": "label",
+                    "id": "time1",
+                    "text": "",
+                    "width": "fill",
+                    "height": 20,
+                    "fontSize": 14,
+                    "style": {
+                      "textColor": "$secondary"
+                    }
+                  }
                 ]
               }
             ]
           },
           {
-            "type": "container", "id": "row2", "width": "fill", "height": 72, "layout": "row", "gap": 8, "padding": 8,
-            "style": { "hidden": true, "backgroundColor": "$surface", "radius": 14, "borderColor": "$border", "borderWidth": 1 },
+            "type": "container",
+            "id": "row2",
+            "width": "fill",
+            "height": 72,
+            "layout": "row",
+            "gap": 8,
+            "padding": 8,
+            "style": {
+              "hidden": true,
+              "backgroundColor": "$surface",
+              "radius": 14,
+              "borderColor": "$border",
+              "borderWidth": 1
+            },
             "children": [
-              { "type": "checkbox", "id": "cb2", "width": 32, "height": 32, "value": false },
               {
-                "type": "container", "id": "meta2", "width": "fill", "height": "fill", "layout": "column", "gap": 2,
+                "type": "checkbox",
+                "id": "cb2",
+                "width": 32,
+                "height": 32,
+                "value": false
+              },
+              {
+                "type": "container",
+                "id": "meta2",
+                "width": "fill",
+                "height": "fill",
+                "layout": "column",
+                "gap": 2,
                 "children": [
-                  { "type": "button", "id": "item2", "text": "", "width": "fill", "height": 32, "fontSize": 16, "style": { "backgroundColor": "$surface", "textColor": "$text", "radius": 8 } },
-                  { "type": "label", "id": "time2", "text": "", "width": "fill", "height": 20, "fontSize": 14, "style": { "textColor": "$secondary" } }
+                  {
+                    "type": "button",
+                    "id": "item2",
+                    "text": "",
+                    "width": "fill",
+                    "height": 32,
+                    "fontSize": 16,
+                    "style": {
+                      "backgroundColor": "$surface",
+                      "textColor": "$text",
+                      "radius": 8
+                    }
+                  },
+                  {
+                    "type": "label",
+                    "id": "time2",
+                    "text": "",
+                    "width": "fill",
+                    "height": 20,
+                    "fontSize": 14,
+                    "style": {
+                      "textColor": "$secondary"
+                    }
+                  }
                 ]
               }
             ]
           },
           {
-            "type": "container", "id": "row3", "width": "fill", "height": 72, "layout": "row", "gap": 8, "padding": 8,
-            "style": { "hidden": true, "backgroundColor": "$surface", "radius": 14, "borderColor": "$border", "borderWidth": 1 },
+            "type": "container",
+            "id": "row3",
+            "width": "fill",
+            "height": 72,
+            "layout": "row",
+            "gap": 8,
+            "padding": 8,
+            "style": {
+              "hidden": true,
+              "backgroundColor": "$surface",
+              "radius": 14,
+              "borderColor": "$border",
+              "borderWidth": 1
+            },
             "children": [
-              { "type": "checkbox", "id": "cb3", "width": 32, "height": 32, "value": false },
               {
-                "type": "container", "id": "meta3", "width": "fill", "height": "fill", "layout": "column", "gap": 2,
+                "type": "checkbox",
+                "id": "cb3",
+                "width": 32,
+                "height": 32,
+                "value": false
+              },
+              {
+                "type": "container",
+                "id": "meta3",
+                "width": "fill",
+                "height": "fill",
+                "layout": "column",
+                "gap": 2,
                 "children": [
-                  { "type": "button", "id": "item3", "text": "", "width": "fill", "height": 32, "fontSize": 16, "style": { "backgroundColor": "$surface", "textColor": "$text", "radius": 8 } },
-                  { "type": "label", "id": "time3", "text": "", "width": "fill", "height": 20, "fontSize": 14, "style": { "textColor": "$secondary" } }
+                  {
+                    "type": "button",
+                    "id": "item3",
+                    "text": "",
+                    "width": "fill",
+                    "height": 32,
+                    "fontSize": 16,
+                    "style": {
+                      "backgroundColor": "$surface",
+                      "textColor": "$text",
+                      "radius": 8
+                    }
+                  },
+                  {
+                    "type": "label",
+                    "id": "time3",
+                    "text": "",
+                    "width": "fill",
+                    "height": 20,
+                    "fontSize": 14,
+                    "style": {
+                      "textColor": "$secondary"
+                    }
+                  }
                 ]
               }
             ]
           },
           {
-            "type": "container", "id": "row4", "width": "fill", "height": 72, "layout": "row", "gap": 8, "padding": 8,
-            "style": { "hidden": true, "backgroundColor": "$surface", "radius": 14, "borderColor": "$border", "borderWidth": 1 },
+            "type": "container",
+            "id": "row4",
+            "width": "fill",
+            "height": 72,
+            "layout": "row",
+            "gap": 8,
+            "padding": 8,
+            "style": {
+              "hidden": true,
+              "backgroundColor": "$surface",
+              "radius": 14,
+              "borderColor": "$border",
+              "borderWidth": 1
+            },
             "children": [
-              { "type": "checkbox", "id": "cb4", "width": 32, "height": 32, "value": false },
               {
-                "type": "container", "id": "meta4", "width": "fill", "height": "fill", "layout": "column", "gap": 2,
+                "type": "checkbox",
+                "id": "cb4",
+                "width": 32,
+                "height": 32,
+                "value": false
+              },
+              {
+                "type": "container",
+                "id": "meta4",
+                "width": "fill",
+                "height": "fill",
+                "layout": "column",
+                "gap": 2,
                 "children": [
-                  { "type": "button", "id": "item4", "text": "", "width": "fill", "height": 32, "fontSize": 16, "style": { "backgroundColor": "$surface", "textColor": "$text", "radius": 8 } },
-                  { "type": "label", "id": "time4", "text": "", "width": "fill", "height": 20, "fontSize": 14, "style": { "textColor": "$secondary" } }
+                  {
+                    "type": "button",
+                    "id": "item4",
+                    "text": "",
+                    "width": "fill",
+                    "height": 32,
+                    "fontSize": 16,
+                    "style": {
+                      "backgroundColor": "$surface",
+                      "textColor": "$text",
+                      "radius": 8
+                    }
+                  },
+                  {
+                    "type": "label",
+                    "id": "time4",
+                    "text": "",
+                    "width": "fill",
+                    "height": 20,
+                    "fontSize": 14,
+                    "style": {
+                      "textColor": "$secondary"
+                    }
+                  }
                 ]
               }
             ]
           },
           {
-            "type": "container", "id": "row5", "width": "fill", "height": 72, "layout": "row", "gap": 8, "padding": 8,
-            "style": { "hidden": true, "backgroundColor": "$surface", "radius": 14, "borderColor": "$border", "borderWidth": 1 },
+            "type": "container",
+            "id": "row5",
+            "width": "fill",
+            "height": 72,
+            "layout": "row",
+            "gap": 8,
+            "padding": 8,
+            "style": {
+              "hidden": true,
+              "backgroundColor": "$surface",
+              "radius": 14,
+              "borderColor": "$border",
+              "borderWidth": 1
+            },
             "children": [
-              { "type": "checkbox", "id": "cb5", "width": 32, "height": 32, "value": false },
               {
-                "type": "container", "id": "meta5", "width": "fill", "height": "fill", "layout": "column", "gap": 2,
+                "type": "checkbox",
+                "id": "cb5",
+                "width": 32,
+                "height": 32,
+                "value": false
+              },
+              {
+                "type": "container",
+                "id": "meta5",
+                "width": "fill",
+                "height": "fill",
+                "layout": "column",
+                "gap": 2,
                 "children": [
-                  { "type": "button", "id": "item5", "text": "", "width": "fill", "height": 32, "fontSize": 16, "style": { "backgroundColor": "$surface", "textColor": "$text", "radius": 8 } },
-                  { "type": "label", "id": "time5", "text": "", "width": "fill", "height": 20, "fontSize": 14, "style": { "textColor": "$secondary" } }
+                  {
+                    "type": "button",
+                    "id": "item5",
+                    "text": "",
+                    "width": "fill",
+                    "height": 32,
+                    "fontSize": 16,
+                    "style": {
+                      "backgroundColor": "$surface",
+                      "textColor": "$text",
+                      "radius": 8
+                    }
+                  },
+                  {
+                    "type": "label",
+                    "id": "time5",
+                    "text": "",
+                    "width": "fill",
+                    "height": 20,
+                    "fontSize": 14,
+                    "style": {
+                      "textColor": "$secondary"
+                    }
+                  }
                 ]
               }
             ]
           },
           {
-            "type": "container", "id": "row6", "width": "fill", "height": 72, "layout": "row", "gap": 8, "padding": 8,
-            "style": { "hidden": true, "backgroundColor": "$surface", "radius": 14, "borderColor": "$border", "borderWidth": 1 },
+            "type": "container",
+            "id": "row6",
+            "width": "fill",
+            "height": 72,
+            "layout": "row",
+            "gap": 8,
+            "padding": 8,
+            "style": {
+              "hidden": true,
+              "backgroundColor": "$surface",
+              "radius": 14,
+              "borderColor": "$border",
+              "borderWidth": 1
+            },
             "children": [
-              { "type": "checkbox", "id": "cb6", "width": 32, "height": 32, "value": false },
               {
-                "type": "container", "id": "meta6", "width": "fill", "height": "fill", "layout": "column", "gap": 2,
+                "type": "checkbox",
+                "id": "cb6",
+                "width": 32,
+                "height": 32,
+                "value": false
+              },
+              {
+                "type": "container",
+                "id": "meta6",
+                "width": "fill",
+                "height": "fill",
+                "layout": "column",
+                "gap": 2,
                 "children": [
-                  { "type": "button", "id": "item6", "text": "", "width": "fill", "height": 32, "fontSize": 16, "style": { "backgroundColor": "$surface", "textColor": "$text", "radius": 8 } },
-                  { "type": "label", "id": "time6", "text": "", "width": "fill", "height": 20, "fontSize": 14, "style": { "textColor": "$secondary" } }
+                  {
+                    "type": "button",
+                    "id": "item6",
+                    "text": "",
+                    "width": "fill",
+                    "height": 32,
+                    "fontSize": 16,
+                    "style": {
+                      "backgroundColor": "$surface",
+                      "textColor": "$text",
+                      "radius": 8
+                    }
+                  },
+                  {
+                    "type": "label",
+                    "id": "time6",
+                    "text": "",
+                    "width": "fill",
+                    "height": 20,
+                    "fontSize": 14,
+                    "style": {
+                      "textColor": "$secondary"
+                    }
+                  }
                 ]
               }
             ]
           },
           {
-            "type": "container", "id": "row7", "width": "fill", "height": 72, "layout": "row", "gap": 8, "padding": 8,
-            "style": { "hidden": true, "backgroundColor": "$surface", "radius": 14, "borderColor": "$border", "borderWidth": 1 },
+            "type": "container",
+            "id": "row7",
+            "width": "fill",
+            "height": 72,
+            "layout": "row",
+            "gap": 8,
+            "padding": 8,
+            "style": {
+              "hidden": true,
+              "backgroundColor": "$surface",
+              "radius": 14,
+              "borderColor": "$border",
+              "borderWidth": 1
+            },
             "children": [
-              { "type": "checkbox", "id": "cb7", "width": 32, "height": 32, "value": false },
               {
-                "type": "container", "id": "meta7", "width": "fill", "height": "fill", "layout": "column", "gap": 2,
+                "type": "checkbox",
+                "id": "cb7",
+                "width": 32,
+                "height": 32,
+                "value": false
+              },
+              {
+                "type": "container",
+                "id": "meta7",
+                "width": "fill",
+                "height": "fill",
+                "layout": "column",
+                "gap": 2,
                 "children": [
-                  { "type": "button", "id": "item7", "text": "", "width": "fill", "height": 32, "fontSize": 16, "style": { "backgroundColor": "$surface", "textColor": "$text", "radius": 8 } },
-                  { "type": "label", "id": "time7", "text": "", "width": "fill", "height": 20, "fontSize": 14, "style": { "textColor": "$secondary" } }
+                  {
+                    "type": "button",
+                    "id": "item7",
+                    "text": "",
+                    "width": "fill",
+                    "height": 32,
+                    "fontSize": 16,
+                    "style": {
+                      "backgroundColor": "$surface",
+                      "textColor": "$text",
+                      "radius": 8
+                    }
+                  },
+                  {
+                    "type": "label",
+                    "id": "time7",
+                    "text": "",
+                    "width": "fill",
+                    "height": 20,
+                    "fontSize": 14,
+                    "style": {
+                      "textColor": "$secondary"
+                    }
+                  }
                 ]
               }
             ]
           },
           {
-            "type": "container", "id": "row8", "width": "fill", "height": 72, "layout": "row", "gap": 8, "padding": 8,
-            "style": { "hidden": true, "backgroundColor": "$surface", "radius": 14, "borderColor": "$border", "borderWidth": 1 },
+            "type": "container",
+            "id": "row8",
+            "width": "fill",
+            "height": 72,
+            "layout": "row",
+            "gap": 8,
+            "padding": 8,
+            "style": {
+              "hidden": true,
+              "backgroundColor": "$surface",
+              "radius": 14,
+              "borderColor": "$border",
+              "borderWidth": 1
+            },
             "children": [
-              { "type": "checkbox", "id": "cb8", "width": 32, "height": 32, "value": false },
               {
-                "type": "container", "id": "meta8", "width": "fill", "height": "fill", "layout": "column", "gap": 2,
+                "type": "checkbox",
+                "id": "cb8",
+                "width": 32,
+                "height": 32,
+                "value": false
+              },
+              {
+                "type": "container",
+                "id": "meta8",
+                "width": "fill",
+                "height": "fill",
+                "layout": "column",
+                "gap": 2,
                 "children": [
-                  { "type": "button", "id": "item8", "text": "", "width": "fill", "height": 32, "fontSize": 16, "style": { "backgroundColor": "$surface", "textColor": "$text", "radius": 8 } },
-                  { "type": "label", "id": "time8", "text": "", "width": "fill", "height": 20, "fontSize": 14, "style": { "textColor": "$secondary" } }
+                  {
+                    "type": "button",
+                    "id": "item8",
+                    "text": "",
+                    "width": "fill",
+                    "height": 32,
+                    "fontSize": 16,
+                    "style": {
+                      "backgroundColor": "$surface",
+                      "textColor": "$text",
+                      "radius": 8
+                    }
+                  },
+                  {
+                    "type": "label",
+                    "id": "time8",
+                    "text": "",
+                    "width": "fill",
+                    "height": 20,
+                    "fontSize": 14,
+                    "style": {
+                      "textColor": "$secondary"
+                    }
+                  }
                 ]
               }
             ]
           },
           {
-            "type": "container", "id": "row9", "width": "fill", "height": 72, "layout": "row", "gap": 8, "padding": 8,
-            "style": { "hidden": true, "backgroundColor": "$surface", "radius": 14, "borderColor": "$border", "borderWidth": 1 },
+            "type": "container",
+            "id": "row9",
+            "width": "fill",
+            "height": 72,
+            "layout": "row",
+            "gap": 8,
+            "padding": 8,
+            "style": {
+              "hidden": true,
+              "backgroundColor": "$surface",
+              "radius": 14,
+              "borderColor": "$border",
+              "borderWidth": 1
+            },
             "children": [
-              { "type": "checkbox", "id": "cb9", "width": 32, "height": 32, "value": false },
               {
-                "type": "container", "id": "meta9", "width": "fill", "height": "fill", "layout": "column", "gap": 2,
+                "type": "checkbox",
+                "id": "cb9",
+                "width": 32,
+                "height": 32,
+                "value": false
+              },
+              {
+                "type": "container",
+                "id": "meta9",
+                "width": "fill",
+                "height": "fill",
+                "layout": "column",
+                "gap": 2,
                 "children": [
-                  { "type": "button", "id": "item9", "text": "", "width": "fill", "height": 32, "fontSize": 16, "style": { "backgroundColor": "$surface", "textColor": "$text", "radius": 8 } },
-                  { "type": "label", "id": "time9", "text": "", "width": "fill", "height": 20, "fontSize": 14, "style": { "textColor": "$secondary" } }
+                  {
+                    "type": "button",
+                    "id": "item9",
+                    "text": "",
+                    "width": "fill",
+                    "height": 32,
+                    "fontSize": 16,
+                    "style": {
+                      "backgroundColor": "$surface",
+                      "textColor": "$text",
+                      "radius": 8
+                    }
+                  },
+                  {
+                    "type": "label",
+                    "id": "time9",
+                    "text": "",
+                    "width": "fill",
+                    "height": 20,
+                    "fontSize": 14,
+                    "style": {
+                      "textColor": "$secondary"
+                    }
+                  }
                 ]
               }
             ]
           },
           {
-            "type": "container", "id": "row10", "width": "fill", "height": 72, "layout": "row", "gap": 8, "padding": 8,
-            "style": { "hidden": true, "backgroundColor": "$surface", "radius": 14, "borderColor": "$border", "borderWidth": 1 },
+            "type": "container",
+            "id": "row10",
+            "width": "fill",
+            "height": 72,
+            "layout": "row",
+            "gap": 8,
+            "padding": 8,
+            "style": {
+              "hidden": true,
+              "backgroundColor": "$surface",
+              "radius": 14,
+              "borderColor": "$border",
+              "borderWidth": 1
+            },
             "children": [
-              { "type": "checkbox", "id": "cb10", "width": 32, "height": 32, "value": false },
               {
-                "type": "container", "id": "meta10", "width": "fill", "height": "fill", "layout": "column", "gap": 2,
+                "type": "checkbox",
+                "id": "cb10",
+                "width": 32,
+                "height": 32,
+                "value": false
+              },
+              {
+                "type": "container",
+                "id": "meta10",
+                "width": "fill",
+                "height": "fill",
+                "layout": "column",
+                "gap": 2,
                 "children": [
-                  { "type": "button", "id": "item10", "text": "", "width": "fill", "height": 32, "fontSize": 16, "style": { "backgroundColor": "$surface", "textColor": "$text", "radius": 8 } },
-                  { "type": "label", "id": "time10", "text": "", "width": "fill", "height": 20, "fontSize": 14, "style": { "textColor": "$secondary" } }
+                  {
+                    "type": "button",
+                    "id": "item10",
+                    "text": "",
+                    "width": "fill",
+                    "height": 32,
+                    "fontSize": 16,
+                    "style": {
+                      "backgroundColor": "$surface",
+                      "textColor": "$text",
+                      "radius": 8
+                    }
+                  },
+                  {
+                    "type": "label",
+                    "id": "time10",
+                    "text": "",
+                    "width": "fill",
+                    "height": 20,
+                    "fontSize": 14,
+                    "style": {
+                      "textColor": "$secondary"
+                    }
+                  }
                 ]
               }
             ]
           },
           {
-            "type": "container", "id": "row11", "width": "fill", "height": 72, "layout": "row", "gap": 8, "padding": 8,
-            "style": { "hidden": true, "backgroundColor": "$surface", "radius": 14, "borderColor": "$border", "borderWidth": 1 },
+            "type": "container",
+            "id": "row11",
+            "width": "fill",
+            "height": 72,
+            "layout": "row",
+            "gap": 8,
+            "padding": 8,
+            "style": {
+              "hidden": true,
+              "backgroundColor": "$surface",
+              "radius": 14,
+              "borderColor": "$border",
+              "borderWidth": 1
+            },
             "children": [
-              { "type": "checkbox", "id": "cb11", "width": 32, "height": 32, "value": false },
               {
-                "type": "container", "id": "meta11", "width": "fill", "height": "fill", "layout": "column", "gap": 2,
+                "type": "checkbox",
+                "id": "cb11",
+                "width": 32,
+                "height": 32,
+                "value": false
+              },
+              {
+                "type": "container",
+                "id": "meta11",
+                "width": "fill",
+                "height": "fill",
+                "layout": "column",
+                "gap": 2,
                 "children": [
-                  { "type": "button", "id": "item11", "text": "", "width": "fill", "height": 32, "fontSize": 16, "style": { "backgroundColor": "$surface", "textColor": "$text", "radius": 8 } },
-                  { "type": "label", "id": "time11", "text": "", "width": "fill", "height": 20, "fontSize": 14, "style": { "textColor": "$secondary" } }
+                  {
+                    "type": "button",
+                    "id": "item11",
+                    "text": "",
+                    "width": "fill",
+                    "height": 32,
+                    "fontSize": 16,
+                    "style": {
+                      "backgroundColor": "$surface",
+                      "textColor": "$text",
+                      "radius": 8
+                    }
+                  },
+                  {
+                    "type": "label",
+                    "id": "time11",
+                    "text": "",
+                    "width": "fill",
+                    "height": 20,
+                    "fontSize": 14,
+                    "style": {
+                      "textColor": "$secondary"
+                    }
+                  }
                 ]
               }
             ]
@@ -212,13 +781,57 @@
         "padding": 16,
         "gap": 10,
         "children": [
-          { "type": "textInput", "id": "name", "placeholder": "写点什么", "width": "fill", "height": 44, "maxLength": 48, "keyboardMode": "pan" },
-          { "type": "button", "id": "whenBtn", "text": "选择时间", "width": "fill", "height": 44, "fontSize": 16, "style": { "backgroundColor": "$background", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 12 } },
           {
-            "type": "container", "id": "editActions", "width": "fill", "height": 48, "layout": "row", "gap": 8,
+            "type": "textInput",
+            "id": "name",
+            "placeholder": "写点什么",
+            "width": "fill",
+            "height": 44,
+            "maxLength": 48,
+            "keyboardMode": "pan"
+          },
+          {
+            "type": "button",
+            "id": "whenBtn",
+            "text": "选择时间",
+            "width": "fill",
+            "height": 44,
+            "fontSize": 16,
+            "style": {
+              "backgroundColor": "$background",
+              "textColor": "$text",
+              "borderColor": "$border",
+              "borderWidth": 1,
+              "radius": 12
+            }
+          },
+          {
+            "type": "container",
+            "id": "editActions",
+            "width": "fill",
+            "height": 48,
+            "layout": "row",
+            "gap": 8,
             "children": [
-              { "type": "button", "id": "remove", "text": "删除", "width": 88, "height": 48 },
-              { "type": "button", "id": "save", "text": "保存", "width": "fill", "height": 48, "style": { "backgroundColor": "$accent", "textColor": "#ffffff", "radius": 12 } }
+              {
+                "type": "button",
+                "id": "remove",
+                "text": "删除",
+                "width": 88,
+                "height": 48
+              },
+              {
+                "type": "button",
+                "id": "save",
+                "text": "保存",
+                "width": "fill",
+                "height": 48,
+                "style": {
+                  "backgroundColor": "$accent",
+                  "textColor": "#ffffff",
+                  "radius": 12
+                }
+              }
             ]
           }
         ]
@@ -233,48 +846,211 @@
         "gap": 8,
         "children": [
           {
-            "type": "container", "id": "rowY", "width": "fill", "height": 44, "layout": "row", "gap": 8,
+            "type": "container",
+            "id": "rowY",
+            "width": "fill",
+            "height": 44,
+            "layout": "row",
+            "gap": 8,
             "children": [
-              { "type": "button", "id": "decY", "text": "-", "width": 48, "height": 44, "fontSize": 22 },
-              { "type": "label", "id": "valY", "text": "2026年", "width": "fill", "height": 44, "fontSize": 18, "style": { "textAlign": "center", "textColor": "$text" } },
-              { "type": "button", "id": "incY", "text": "+", "width": 48, "height": 44, "fontSize": 22 }
+              {
+                "type": "button",
+                "id": "decY",
+                "text": "-",
+                "width": 48,
+                "height": 44,
+                "fontSize": 22
+              },
+              {
+                "type": "label",
+                "id": "valY",
+                "text": "2026年",
+                "width": "fill",
+                "height": 44,
+                "fontSize": 18,
+                "style": {
+                  "textAlign": "center",
+                  "textColor": "$text"
+                }
+              },
+              {
+                "type": "button",
+                "id": "incY",
+                "text": "+",
+                "width": 48,
+                "height": 44,
+                "fontSize": 22
+              }
             ]
           },
           {
-            "type": "container", "id": "rowM", "width": "fill", "height": 44, "layout": "row", "gap": 8,
+            "type": "container",
+            "id": "rowM",
+            "width": "fill",
+            "height": 44,
+            "layout": "row",
+            "gap": 8,
             "children": [
-              { "type": "button", "id": "decM", "text": "-", "width": 48, "height": 44, "fontSize": 22 },
-              { "type": "label", "id": "valM", "text": "1月", "width": "fill", "height": 44, "fontSize": 18, "style": { "textAlign": "center", "textColor": "$text" } },
-              { "type": "button", "id": "incM", "text": "+", "width": 48, "height": 44, "fontSize": 22 }
+              {
+                "type": "button",
+                "id": "decM",
+                "text": "-",
+                "width": 48,
+                "height": 44,
+                "fontSize": 22
+              },
+              {
+                "type": "label",
+                "id": "valM",
+                "text": "1月",
+                "width": "fill",
+                "height": 44,
+                "fontSize": 18,
+                "style": {
+                  "textAlign": "center",
+                  "textColor": "$text"
+                }
+              },
+              {
+                "type": "button",
+                "id": "incM",
+                "text": "+",
+                "width": 48,
+                "height": 44,
+                "fontSize": 22
+              }
             ]
           },
           {
-            "type": "container", "id": "rowD", "width": "fill", "height": 44, "layout": "row", "gap": 8,
+            "type": "container",
+            "id": "rowD",
+            "width": "fill",
+            "height": 44,
+            "layout": "row",
+            "gap": 8,
             "children": [
-              { "type": "button", "id": "decD", "text": "-", "width": 48, "height": 44, "fontSize": 22 },
-              { "type": "label", "id": "valD", "text": "1日", "width": "fill", "height": 44, "fontSize": 18, "style": { "textAlign": "center", "textColor": "$text" } },
-              { "type": "button", "id": "incD", "text": "+", "width": 48, "height": 44, "fontSize": 22 }
+              {
+                "type": "button",
+                "id": "decD",
+                "text": "-",
+                "width": 48,
+                "height": 44,
+                "fontSize": 22
+              },
+              {
+                "type": "label",
+                "id": "valD",
+                "text": "1日",
+                "width": "fill",
+                "height": 44,
+                "fontSize": 18,
+                "style": {
+                  "textAlign": "center",
+                  "textColor": "$text"
+                }
+              },
+              {
+                "type": "button",
+                "id": "incD",
+                "text": "+",
+                "width": 48,
+                "height": 44,
+                "fontSize": 22
+              }
             ]
           },
           {
-            "type": "container", "id": "rowH", "width": "fill", "height": 44, "layout": "row", "gap": 8,
+            "type": "container",
+            "id": "rowH",
+            "width": "fill",
+            "height": 44,
+            "layout": "row",
+            "gap": 8,
             "children": [
-              { "type": "button", "id": "decH", "text": "-", "width": 48, "height": 44, "fontSize": 22 },
-              { "type": "label", "id": "valH", "text": "0时", "width": "fill", "height": 44, "fontSize": 18, "style": { "textAlign": "center", "textColor": "$text" } },
-              { "type": "button", "id": "incH", "text": "+", "width": 48, "height": 44, "fontSize": 22 }
+              {
+                "type": "button",
+                "id": "decH",
+                "text": "-",
+                "width": 48,
+                "height": 44,
+                "fontSize": 22
+              },
+              {
+                "type": "label",
+                "id": "valH",
+                "text": "0时",
+                "width": "fill",
+                "height": 44,
+                "fontSize": 18,
+                "style": {
+                  "textAlign": "center",
+                  "textColor": "$text"
+                }
+              },
+              {
+                "type": "button",
+                "id": "incH",
+                "text": "+",
+                "width": 48,
+                "height": 44,
+                "fontSize": 22
+              }
             ]
           },
           {
-            "type": "container", "id": "rowN", "width": "fill", "height": 44, "layout": "row", "gap": 8,
+            "type": "container",
+            "id": "rowN",
+            "width": "fill",
+            "height": 44,
+            "layout": "row",
+            "gap": 8,
             "children": [
-              { "type": "button", "id": "decN", "text": "-", "width": 48, "height": 44, "fontSize": 22 },
-              { "type": "label", "id": "valN", "text": "0分", "width": "fill", "height": 44, "fontSize": 18, "style": { "textAlign": "center", "textColor": "$text" } },
-              { "type": "button", "id": "incN", "text": "+", "width": 48, "height": 44, "fontSize": 22 }
+              {
+                "type": "button",
+                "id": "decN",
+                "text": "-",
+                "width": 48,
+                "height": 44,
+                "fontSize": 22
+              },
+              {
+                "type": "label",
+                "id": "valN",
+                "text": "0分",
+                "width": "fill",
+                "height": 44,
+                "fontSize": 18,
+                "style": {
+                  "textAlign": "center",
+                  "textColor": "$text"
+                }
+              },
+              {
+                "type": "button",
+                "id": "incN",
+                "text": "+",
+                "width": 48,
+                "height": 44,
+                "fontSize": 22
+              }
             ]
           },
-          { "type": "button", "id": "timeDone", "text": "完成", "width": "fill", "height": 44, "fontSize": 18, "style": { "backgroundColor": "$accent", "textColor": "#ffffff", "radius": 12 } }
+          {
+            "type": "button",
+            "id": "timeDone",
+            "text": "完成",
+            "width": "fill",
+            "height": 44,
+            "fontSize": 18,
+            "style": {
+              "backgroundColor": "$accent",
+              "textColor": "#ffffff",
+              "radius": 12
+            }
+          }
         ]
       }
-    ]
+    ],
+    "scroll": true
   }
 }

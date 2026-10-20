@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: MIT
 #include "ouse_media.h"
+#include "ouse_memory.h"
+#define OUSE_EFFECT_ALLOC ouse_psram_malloc
+#include "ouse_pcm_effects.h"
 #include "ouse_files.h"
 #include "ouse_wave.h"
 #include "ouse_net.h"
@@ -21,8 +24,9 @@ typedef struct {
     ouse_wave_t wave;
     ouse_http_response_t *response;
     int64_t deadline;
-    bool timed_out;
+    bool timed_out,loop;
 } source_t;
+static ouse_effects_t effects;
 static SemaphoreHandle_t mutex;
 static QueueHandle_t sources;
 static StreamBufferHandle_t pcm;
@@ -93,7 +97,9 @@ static void worker(void *unused)
         while(!stop(source)){
             lock();claimed=session.claimed;unlock();if(claimed)break;vTaskDelay(1);
         }
-        esp_err_t error=ESP_OK;ouse_wave_init(&source->wave,output,source);
+        esp_err_t error=ESP_OK;
+        do {
+        ouse_wave_init(&source->wave,output,source);
         if(claimed && !stop(source)){
             if(!strncmp(source->url,"sd:",3)) {
                 FILE *file=ouse_files_open(source->url+3);
@@ -126,6 +132,7 @@ static void worker(void *unused)
             }
             if(error==ESP_OK && !stop(source))error=ouse_wave_finish(&source->wave);
         }
+        } while(source->loop && source->wave.data_size && error==ESP_OK && !stop(source));
         bool cancelled=stop(source);
         if(source->timed_out){error=ESP_ERR_TIMEOUT;cancelled=false;}
         else if(cancelled && error==ESP_ERR_INVALID_STATE)error=ESP_OK;
@@ -150,21 +157,26 @@ esp_err_t ouse_media_init(void)
     return ESP_OK;
 }
 esp_err_t ouse_media_play(const ouse_task_owner_t *owner,const char *url,const void *data,size_t size,uint32_t *id)
+{return ouse_media_play_loop(owner,url,data,size,false,id);}
+esp_err_t ouse_media_play_loop(const ouse_task_owner_t *owner,const char *url,const void *data,size_t size,bool loop,uint32_t *id)
 {
     if(!id)return ESP_ERR_INVALID_ARG;
     *id=0;
     if(!owner || !owner->app_id[0] || (url && (data || size)) || (!url && (!data || !size || size>OUSE_MEDIA_ASSET_MAX)))return ESP_ERR_INVALID_ARG;
     if(!sources)return ESP_ERR_INVALID_STATE;
+    if(loop && url && strncmp(url,"sd:",3))return ESP_ERR_INVALID_ARG;
     if(url){
         if(!strncmp(url,"sd:",3)){char absolute[180];if(!ouse_files_read_path(url+3,absolute,sizeof(absolute)))return ESP_ERR_INVALID_ARG;}
         else{ouse_http_request_t request={.url=url,.method="GET",.timeout_ms=15000};if(ouse_http_validate(&request)!=ESP_OK)return ESP_ERR_INVALID_ARG;}
     }
     source_t *source=calloc(1,sizeof(*source));if(!source)return ESP_ERR_NO_MEM;
+    source->loop=loop;
     if(url)strcpy(source->url,url);
     else{source->data=malloc(size);if(!source->data){free(source);return ESP_ERR_NO_MEM;}memcpy(source->data,data,size);source->size=size;}
     lock();esp_err_t error=ESP_ERR_INVALID_STATE;
     if(session.state.active)goto done;
     error=ouse_task_create(owner,OUSE_TASK_AUDIO,"play",OUSE_TASK_FINISH_ON_CLOSE,true,id);if(error!=ESP_OK)goto done;
+    ouse_effects_clear(&effects);
     source->id=*id;source->deadline=esp_timer_get_time()+4LL*60*60*1000000;
     uint32_t revision=session.state.revision+1;memset(&session,0,sizeof(session));
     session.state=(ouse_media_state_t){.active=true,.buffering=true,.task_id=*id,.revision=revision};strcpy(session.state.app_id,owner->app_id);
@@ -209,6 +221,7 @@ esp_err_t ouse_media_stop_owner(const ouse_task_owner_t *owner)
     lock();uint32_t id=session.state.active ? session.state.task_id : 0;unlock();
     ouse_task_snapshot_t task;
     if(!id || !ouse_task_get(owner,id,&task))return ESP_ERR_NOT_FOUND;
+    lock();if(match(id))ouse_effects_clear(&effects);unlock();
     return ouse_task_cancel(owner,id,"owner_close");
 }
 void ouse_media_consumer_started(uint32_t id)
@@ -224,6 +237,7 @@ unsigned ouse_media_read(uint32_t id,int16_t *samples,unsigned capacity,bool *do
         *error=session.state.error;
         *done=*error!=ESP_OK || (producer_done && !xStreamBufferBytesAvailable(pcm));
         session.state.buffering=!paused && !bytes && !*done;
+        if(!paused && bytes)ouse_effects_mix(&effects,samples,bytes/2);
     }unlock();return bytes/2;
 }
 void ouse_media_consumed(uint32_t id,unsigned samples)
@@ -233,8 +247,20 @@ void ouse_media_interrupted(uint32_t id,bool interrupted)
 void ouse_media_consumer_done(uint32_t id,esp_err_t error,bool cancelled)
 {
     lock();if(match(id)){
+        ouse_effects_clear(&effects);
         session.consumer_done=true;session.force_stop=true;session.cancelled|=cancelled;
         if(error!=ESP_OK)session.state.error=error;
         ++session.state.revision;finish_if_stopped();
     }unlock();
+}
+
+// Effects never open a codec or replace focus. They follow their media session.
+esp_err_t ouse_media_effect(const ouse_task_owner_t *owner,const void *data,size_t size,unsigned gain)
+{
+    if(!owner || !mutex || !data || !size || (size&1) || size>OUSE_EFFECT_BYTES_MAX || gain>100)return ESP_ERR_INVALID_ARG;
+    lock();uint32_t id=session.state.active && !session.force_stop && !session.state.paused && !session.state.interrupted ? session.state.task_id : 0;
+    unlock();ouse_task_snapshot_t task;
+    if(!id || !ouse_task_get(owner,id,&task) || task.state!=OUSE_TASK_RUNNING)return ESP_ERR_INVALID_STATE;
+    lock();bool accepted=match(id) && !session.force_stop && !session.state.paused && !session.state.interrupted && ouse_effects_add(&effects,data,size,gain);unlock();
+    return accepted ? ESP_OK : ESP_ERR_INVALID_STATE;
 }

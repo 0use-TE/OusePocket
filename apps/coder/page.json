@@ -9,7 +9,9 @@
     "layout": "column",
     "padding": 12,
     "gap": 8,
-    "style": { "backgroundColor": "$background" },
+    "style": {
+      "backgroundColor": "$background"
+    },
     "children": [
       {
         "type": "container",
@@ -19,75 +21,317 @@
         "layout": "row",
         "gap": 8,
         "children": [
-          { "type": "label", "id": "title", "text": "快捷键", "width": "fill", "height": 32, "fontSize": 20, "style": { "textColor": "$text" } },
-          { "type": "label", "id": "status", "text": "连接中", "width": 96, "height": 32, "fontSize": 15, "style": { "textColor": "$secondary" } }
+          {
+            "type": "label",
+            "id": "title",
+            "text": "快捷键",
+            "width": "fill",
+            "height": 32,
+            "fontSize": 20,
+            "style": {
+              "textColor": "$text"
+            }
+          },
+          {
+            "type": "label",
+            "id": "status",
+            "text": "连接中",
+            "width": 96,
+            "height": 32,
+            "fontSize": 15,
+            "style": {
+              "textColor": "$secondary"
+            }
+          }
         ]
+      },
+      {
+        "type": "button",
+        "id": "connect",
+        "text": "连接蓝牙",
+        "width": "fill",
+        "height": 36,
+        "fontSize": 14,
+        "style": {
+          "backgroundColor": "$surface",
+          "textColor": "$accent",
+          "radius": 10
+        }
       },
       {
         "type": "container",
         "id": "row0",
         "width": "fill",
-        "height": "fill",
+        "height": 48,
         "layout": "row",
         "gap": 8,
         "children": [
-          { "type": "button", "id": "term", "text": "终端", "width": "fill", "height": "fill", "fontSize": 16, "style": { "backgroundColor": "$accent", "textColor": "#ffffff", "radius": 14 } },
-          { "type": "button", "id": "cmd", "text": "CMD", "width": "fill", "height": "fill", "fontSize": 16, "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 14 } },
-          { "type": "button", "id": "ps", "text": "PowerShell", "width": "fill", "height": "fill", "fontSize": 13, "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 14 } }
+          {
+            "type": "button",
+            "id": "term",
+            "text": "终端",
+            "width": "fill",
+            "height": "fill",
+            "fontSize": 16,
+            "style": {
+              "backgroundColor": "$accent",
+              "textColor": "#ffffff",
+              "radius": 14
+            }
+          },
+          {
+            "type": "button",
+            "id": "cmd",
+            "text": "CMD",
+            "width": "fill",
+            "height": "fill",
+            "fontSize": 16,
+            "style": {
+              "backgroundColor": "$surface",
+              "textColor": "$text",
+              "borderColor": "$border",
+              "borderWidth": 1,
+              "radius": 14
+            }
+          },
+          {
+            "type": "button",
+            "id": "ps",
+            "text": "PowerShell",
+            "width": "fill",
+            "height": "fill",
+            "fontSize": 13,
+            "style": {
+              "backgroundColor": "$surface",
+              "textColor": "$text",
+              "borderColor": "$border",
+              "borderWidth": 1,
+              "radius": 14
+            }
+          }
         ]
       },
       {
         "type": "container",
         "id": "row1",
         "width": "fill",
-        "height": "fill",
+        "height": 48,
         "layout": "row",
         "gap": 8,
         "children": [
-          { "type": "button", "id": "tab", "text": "切标签", "width": "fill", "height": "fill", "fontSize": 16, "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 14 } },
-          { "type": "button", "id": "newTab", "text": "新标签", "width": "fill", "height": "fill", "fontSize": 16, "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 14 } },
-          { "type": "button", "id": "closeTab", "text": "关标签", "width": "fill", "height": "fill", "fontSize": 16, "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 14 } }
+          {
+            "type": "button",
+            "id": "tab",
+            "text": "切标签",
+            "width": "fill",
+            "height": "fill",
+            "fontSize": 16,
+            "style": {
+              "backgroundColor": "$surface",
+              "textColor": "$text",
+              "borderColor": "$border",
+              "borderWidth": 1,
+              "radius": 14
+            }
+          },
+          {
+            "type": "button",
+            "id": "newTab",
+            "text": "新标签",
+            "width": "fill",
+            "height": "fill",
+            "fontSize": 16,
+            "style": {
+              "backgroundColor": "$surface",
+              "textColor": "$text",
+              "borderColor": "$border",
+              "borderWidth": 1,
+              "radius": 14
+            }
+          },
+          {
+            "type": "button",
+            "id": "closeTab",
+            "text": "关标签",
+            "width": "fill",
+            "height": "fill",
+            "fontSize": 16,
+            "style": {
+              "backgroundColor": "$surface",
+              "textColor": "$text",
+              "borderColor": "$border",
+              "borderWidth": 1,
+              "radius": 14
+            }
+          }
         ]
       },
       {
         "type": "container",
         "id": "row2",
         "width": "fill",
-        "height": "fill",
+        "height": 48,
         "layout": "row",
         "gap": 8,
         "children": [
-          { "type": "button", "id": "window", "text": "切窗口", "width": "fill", "height": "fill", "fontSize": 16, "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 14 } },
-          { "type": "button", "id": "desktop", "text": "桌面", "width": "fill", "height": "fill", "fontSize": 16, "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 14 } },
-          { "type": "button", "id": "run", "text": "运行", "width": "fill", "height": "fill", "fontSize": 16, "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 14 } }
+          {
+            "type": "button",
+            "id": "window",
+            "text": "切窗口",
+            "width": "fill",
+            "height": "fill",
+            "fontSize": 16,
+            "style": {
+              "backgroundColor": "$surface",
+              "textColor": "$text",
+              "borderColor": "$border",
+              "borderWidth": 1,
+              "radius": 14
+            }
+          },
+          {
+            "type": "button",
+            "id": "desktop",
+            "text": "桌面",
+            "width": "fill",
+            "height": "fill",
+            "fontSize": 16,
+            "style": {
+              "backgroundColor": "$surface",
+              "textColor": "$text",
+              "borderColor": "$border",
+              "borderWidth": 1,
+              "radius": 14
+            }
+          },
+          {
+            "type": "button",
+            "id": "run",
+            "text": "运行",
+            "width": "fill",
+            "height": "fill",
+            "fontSize": 16,
+            "style": {
+              "backgroundColor": "$surface",
+              "textColor": "$text",
+              "borderColor": "$border",
+              "borderWidth": 1,
+              "radius": 14
+            }
+          }
         ]
       },
       {
         "type": "container",
         "id": "row3",
         "width": "fill",
-        "height": "fill",
+        "height": 48,
         "layout": "row",
         "gap": 8,
         "children": [
-          { "type": "button", "id": "taskmgr", "text": "任务管理", "width": "fill", "height": "fill", "fontSize": 14, "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 14 } },
-          { "type": "button", "id": "explorer", "text": "资源管理", "width": "fill", "height": "fill", "fontSize": 14, "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 14 } },
-          { "type": "button", "id": "desktops", "text": "虚拟桌面", "width": "fill", "height": "fill", "fontSize": 14, "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 14 } }
+          {
+            "type": "button",
+            "id": "taskmgr",
+            "text": "任务管理",
+            "width": "fill",
+            "height": "fill",
+            "fontSize": 14,
+            "style": {
+              "backgroundColor": "$surface",
+              "textColor": "$text",
+              "borderColor": "$border",
+              "borderWidth": 1,
+              "radius": 14
+            }
+          },
+          {
+            "type": "button",
+            "id": "explorer",
+            "text": "资源管理",
+            "width": "fill",
+            "height": "fill",
+            "fontSize": 14,
+            "style": {
+              "backgroundColor": "$surface",
+              "textColor": "$text",
+              "borderColor": "$border",
+              "borderWidth": 1,
+              "radius": 14
+            }
+          },
+          {
+            "type": "button",
+            "id": "desktops",
+            "text": "虚拟桌面",
+            "width": "fill",
+            "height": "fill",
+            "fontSize": 14,
+            "style": {
+              "backgroundColor": "$surface",
+              "textColor": "$text",
+              "borderColor": "$border",
+              "borderWidth": 1,
+              "radius": 14
+            }
+          }
         ]
       },
       {
         "type": "container",
         "id": "row4",
         "width": "fill",
-        "height": "fill",
+        "height": 48,
         "layout": "row",
         "gap": 8,
         "children": [
-          { "type": "button", "id": "services", "text": "服务", "width": "fill", "height": "fill", "fontSize": 15, "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 14 } },
-          { "type": "button", "id": "firewall", "text": "防火墙", "width": "fill", "height": "fill", "fontSize": 15, "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 14 } },
-          { "type": "button", "id": "control", "text": "控制面板", "width": "fill", "height": "fill", "fontSize": 14, "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 14 } }
+          {
+            "type": "button",
+            "id": "services",
+            "text": "服务",
+            "width": "fill",
+            "height": "fill",
+            "fontSize": 15,
+            "style": {
+              "backgroundColor": "$surface",
+              "textColor": "$text",
+              "borderColor": "$border",
+              "borderWidth": 1,
+              "radius": 14
+            }
+          },
+          {
+            "type": "button",
+            "id": "firewall",
+            "text": "防火墙",
+            "width": "fill",
+            "height": "fill",
+            "fontSize": 15,
+            "style": {
+              "backgroundColor": "$surface",
+              "textColor": "$text",
+              "borderColor": "$border",
+              "borderWidth": 1,
+              "radius": 14
+            }
+          },
+          {
+            "type": "button",
+            "id": "control",
+            "text": "控制面板",
+            "width": "fill",
+            "height": "fill",
+            "fontSize": 14,
+            "style": {
+              "backgroundColor": "$surface",
+              "textColor": "$text",
+              "borderColor": "$border",
+              "borderWidth": 1,
+              "radius": 14
+            }
+          }
         ]
       }
-    ]
+    ],
+    "scroll": true
   }
 }

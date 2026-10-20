@@ -14,8 +14,8 @@
 extern "C" {
 #endif
 
-#define OUSE_CORE_VERSION "0.36.0"
-#define OUSE_CORE_API_VERSION 39
+#define OUSE_CORE_VERSION "0.43.0"
+#define OUSE_CORE_API_VERSION 45
 
 // Immutable board specifications; these describe hardware, not current usage.
 typedef struct {
@@ -32,6 +32,7 @@ typedef struct {
     bool (*lock)(void *context, uint32_t timeout_ms);
     void (*unlock)(void *context);
     esp_err_t (*set_brightness)(void *context, uint8_t percent);
+    esp_err_t (*set_orientation)(void *context,bool landscape);
     bool (*read_key)(void *context,unsigned key);
     // Optional system hooks: save only enqueues; status/info only read memory.
     esp_err_t (*save_brightness)(void *context, uint8_t percent);
@@ -60,6 +61,8 @@ typedef struct {
 // do not start concurrently. The caller must not already hold the UI lock.
 esp_err_t ouse_core_start(const ouse_core_config_t *config);
 bool ouse_core_is_started(void);
+// UI task only: 1=own app permissions, 2=Bluetooth, 3=Wi-Fi.
+esp_err_t ouse_core_open_settings(unsigned target,const char *app_id);
 bool ouse_core_access_blocked(void); // UI task/lock only; setup, PIN or security dialog.
 bool ouse_core_locked(void);
 unsigned ouse_core_setup_step(void);
@@ -80,6 +83,8 @@ void ouse_core_launcher_state(unsigned *page,unsigned *pages);
 esp_err_t ouse_core_sleep_display(void); // UI task; backlight off, not deep sleep
 esp_err_t ouse_core_wake_display(void);
 const char *ouse_core_version(void);
+esp_err_t ouse_core_set_orientation(bool landscape); // UI task; atomic display/layout transition
+bool ouse_core_landscape(void);
 esp_err_t ouse_core_set_theme(ouse_theme_t theme); // UI task/lock only; save asynchronously
 
 // From non-UI tasks only: enqueue a short callback for the LVGL task, at most

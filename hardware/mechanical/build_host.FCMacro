@@ -1,0 +1,95 @@
+import FreeCAD as App
+import Part
+import os
+import json
+import traceback
+
+OUT = r'C:\Users\ouse\FastProjects\OusePocket\hardware\mechanical'
+os.makedirs(OUT, exist_ok=True)
+try:
+    doc = App.newDocument('OusePocketHost')
+    doc.Label = 'OusePocket 主机基准 · 官方外廓／细节估算'
+    params = doc.addObject('Spreadsheet::Sheet', 'Parameters')
+    params.Label = '尺寸参数（mm）· 双击编辑'
+    values = [
+        ('FaceWidth',63.67,'官方：正面短边'),('FaceLength',95.11,'官方：正面长边'),
+        ('FaceRadius',7.30,'官方：正面圆角'),('FaceDepth',5.40,'官方：前框厚度'),
+        ('RearWidth',59.50,'官方：背部短边'),('RearLength',83.20,'官方：背部长边'),
+        ('RearDepth',8.10,'推算：13.50 - 5.40'),('RearRadius',5.20,'估算：背壳圆角'),
+        ('FootDepth',0.60,'推算：14.10 - 13.50'),('FootRadius',2.70,'估算：脚垫半径'),
+        ('FootPitchX',48.50,'官方：脚垫横向中心距'),('FootPitchY',72.00,'官方：脚垫纵向中心距'),
+        ('ScreenWidth',48.96,'官方：显示区短边'),('ScreenLength',73.44,'官方：显示区长边'),
+        ('SocketX',24.00,'估算：排母中心 X'),('SocketY',0.00,'估算：排母中心 Y'),
+        ('SocketWidth',4.95,'Samtec 参考：塑壳宽'),('SocketLength',41.15,'Samtec 参考：塑壳长'),
+        ('SocketHeight',8.51,'Samtec 参考：塑壳高，不含焊脚'),('SocketRecess',0.00,'孔口齐平；凹陷深度待测'),
+        ('Pitch',2.54,'排母孔距'),('HoleWidth',1.58,'估算：孔口宽'),
+        ('OpeningClearance',0.225,'估算：背壳开口单边间隙')]
+    params.set('A1','参数'); params.set('B1','数值 mm'); params.set('C1','依据')
+    for row,(alias,value,note) in enumerate(values,2):
+        params.set('A'+str(row),alias); params.set('B'+str(row),str(value)+' mm')
+        params.setAlias('B'+str(row),alias); params.set('C'+str(row),note)
+    params.setColumnWidth('A',170); params.setColumnWidth('B',95); params.setColumnWidth('C',280)
+    host=doc.addObject('App::Part','Host'); host.Label='主机参考模型 · 独立零件'
+    tools=doc.addObject('App::DocumentObjectGroup','Construction'); tools.Label='构造体（隐藏）'
+    outputs=[]
+    def expr(obj,prop,value): obj.setExpression(prop,value)
+    def box(name,label,w,h,d,x,y,z,parent=host):
+        obj=doc.addObject('Part::Box',name); obj.Label=label; parent.addObject(obj)
+        for prop,value in [('Length',w),('Width',h),('Height',d),('Placement.Base.x',x),('Placement.Base.y',y),('Placement.Base.z',z)]:
+            expr(obj,prop,str(value))
+        doc.recompute(); return obj
+    def rounded(name,label,w,h,d,z,radius):
+        r='Parameters.'+('FaceRadius' if name=='FrontFrame' else 'RearRadius')
+        pieces=[box(name+'CoreX',label+' 横芯',w+'-2*'+r,h,d,'-('+w+')/2+'+r,'-('+h+')/2',z,tools),
+                box(name+'CoreY',label+' 纵芯',w,h+'-2*'+r,d,'-('+w+')/2','-('+h+')/2+'+r,z,tools)]
+        for i,(sx,sy) in enumerate([(-1,-1),(-1,1),(1,-1),(1,1)]):
+            corner=doc.addObject('Part::Cylinder',name+'Corner'+str(i));tools.addObject(corner)
+            expr(corner,'Radius',r);expr(corner,'Height',d)
+            expr(corner,'Placement.Base.x',str(sx)+'*(('+w+')/2-'+r+')')
+            expr(corner,'Placement.Base.y',str(sy)+'*(('+h+')/2-'+r+')')
+            expr(corner,'Placement.Base.z',z);pieces.append(corner)
+        fil=doc.addObject('Part::MultiFuse',name);host.addObject(fil);fil.Label=label;fil.Shapes=pieces;fil.Refine=True
+        doc.recompute()
+        for piece in pieces:piece.Visibility=False
+        return fil
+    front=rounded('FrontFrame','前框 · 官方外廓 R7.30','Parameters.FaceWidth','Parameters.FaceLength','Parameters.FaceDepth','-14.10 mm',7.3)
+    rear=rounded('RearStock','背壳外形 · 圆角估算','Parameters.RearWidth','Parameters.RearLength','Parameters.RearDepth','-14.10 mm + Parameters.FaceDepth',5.2)
+    opening=box('SocketOpening','排母开口（估算间隙）','Parameters.SocketWidth+2*Parameters.OpeningClearance','Parameters.SocketLength+2*Parameters.OpeningClearance','Parameters.RearDepth+1 mm','Parameters.SocketX-Parameters.SocketWidth/2-Parameters.OpeningClearance','Parameters.SocketY-Parameters.SocketLength/2-Parameters.OpeningClearance','-14.10 mm+Parameters.FaceDepth-0.5 mm',tools)
+    rearCut=doc.addObject('Part::Cut','RearShell');rearCut.Label='背壳 · 排母内嵌开口';host.addObject(rearCut);rearCut.Base=rear;rearCut.Tool=opening
+    socketGroup=doc.addObject('App::Part','Socket');socketGroup.Label='2×16 内嵌排母 · 参考 H8.51';host.addObject(socketGroup)
+    socket=box('SocketStock','排母塑壳毛坯','Parameters.SocketWidth','Parameters.SocketLength','Parameters.SocketHeight','Parameters.SocketX-Parameters.SocketWidth/2','Parameters.SocketY-Parameters.SocketLength/2','-Parameters.FootDepth-Parameters.SocketRecess-Parameters.SocketHeight',tools)
+    holes=[]
+    for row in range(16):
+        for col in range(2):
+            holes.append(box('Hole%d'%(row*2+col+1),'孔位切除','Parameters.HoleWidth','Parameters.HoleWidth','Parameters.SocketHeight+1 mm','Parameters.SocketX+(%s)*Parameters.Pitch-Parameters.HoleWidth/2'%(col-.5),'Parameters.SocketY+(%s)*Parameters.Pitch-Parameters.HoleWidth/2'%(row-7.5),'-Parameters.FootDepth-Parameters.SocketRecess-Parameters.SocketHeight-0.5 mm',tools))
+    holeTools=doc.addObject('Part::MultiFuse','SocketHoleTools');tools.addObject(holeTools);holeTools.Shapes=holes
+    socketCut=doc.addObject('Part::Cut','SocketHousing');socketGroup.addObject(socketCut);socketCut.Label='塑壳与32孔 · 孔口不突出背壳';socketCut.Base=socket;socketCut.Tool=holeTools
+    feet=doc.addObject('App::Part','Feet');feet.Label='脚垫 · 官方中心距／直径估算';host.addObject(feet)
+    for i,(sx,sy) in enumerate([(-1,-1),(-1,1),(1,-1),(1,1)],1):
+        foot=doc.addObject('Part::Cylinder','Foot%d'%i);feet.addObject(foot);foot.Label='脚垫 %d'%i
+        expr(foot,'Radius','Parameters.FootRadius');expr(foot,'Height','Parameters.FootDepth')
+        expr(foot,'Placement.Base.x','Parameters.FootPitchX*%s/2'%sx);expr(foot,'Placement.Base.y','Parameters.FootPitchY*%s/2'%sy)
+        expr(foot,'Placement.Base.z','-Parameters.FootDepth');outputs.append(foot)
+    screen=box('DisplayArea','有效显示区 · 官方尺寸（示意薄片）','Parameters.ScreenWidth','Parameters.ScreenLength','0.04 mm','-Parameters.ScreenWidth/2','-Parameters.ScreenLength/2','-14.14 mm')
+    camera=doc.addObject('Part::Cylinder','Camera');camera.Label='摄像头 · 位置尺寸估算';host.addObject(camera);camera.Radius=4.5;camera.Height=.6;camera.Placement.Base=App.Vector(-5.8,0,-.6)
+    outputs += [front,rearCut,socketCut,screen,camera]
+    doc.recompute()
+    for obj in tools.Group: obj.Visibility=False
+    rear.Visibility=False;opening.Visibility=False;socket.Visibility=False;holeTools.Visibility=False
+    for obj in holes:obj.Visibility=False
+    front.ViewObject.ShapeColor=(.12,.14,.17);rearCut.ViewObject.ShapeColor=(.22,.25,.29)
+    socketCut.ViewObject.ShapeColor=(.07,.07,.08);screen.ViewObject.ShapeColor=(.04,.08,.10);camera.ViewObject.ShapeColor=(.03,.04,.05)
+    for obj in outputs:obj.Visibility=True
+    Gui.activeDocument().activeView().viewAxonometric();Gui.activeDocument().activeView().fitAll()
+    Gui.activeDocument().activeView().setAnimationEnabled(False) if hasattr(Gui.activeDocument().activeView(),'setAnimationEnabled') else None
+    doc.recompute()
+    checks={obj.Name:{'valid':obj.Shape.isValid(),'solids':len(obj.Shape.Solids),'volume':obj.Shape.Volume} for obj in outputs}
+    errors=[(obj.Name,obj.State) for obj in doc.Objects if 'Invalid' in obj.State]
+    if errors or any(not v['valid'] or v['volume']<=0 for v in checks.values()):raise RuntimeError(str((errors,checks)))
+    doc.saveAs(os.path.join(OUT,'ousepocket-host.FCStd'))
+    Part.export(outputs,os.path.join(OUT,'ousepocket-host-reference.step'))
+    Gui.activeDocument().activeView().saveImage(os.path.join(OUT,'ousepocket-host-preview.png'),1200,900,'White')
+    with open(os.path.join(OUT,'build-result.json'),'w',encoding='utf8') as f:json.dump({'success':True,'checks':checks,'errors':errors},f,indent=2)
+except Exception:
+    with open(os.path.join(OUT,'build-error.txt'),'w',encoding='utf8') as f:f.write(traceback.format_exc())
+    raise

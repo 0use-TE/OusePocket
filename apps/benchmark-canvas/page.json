@@ -1,0 +1,1 @@
+{"api":1,"units":"dp","root":{"type":"container","id":"root","width":"fill","height":"fill","children":[{"type":"label","id":"status","x":4,"y":0,"width":312,"height":28,"text":"canvas"},{"type":"canvas","id":"world","x":0,"y":34,"width":320,"height":222,"style":{"backgroundColor":"#182020"}}]}}

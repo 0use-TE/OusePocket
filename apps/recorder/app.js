@@ -12,9 +12,9 @@ let permissionPending=false,listRevision=0,renderedList="";
 function authorize(name,action){
  if(permissionPending)return;
  if(!Ouse.permissions){action();return;}
- const state=Ouse.permissions.request(name);
- if(state==="granted"){action();return;}if(state==="denied"){popup("权限未开启。");return;}
- permissionPending=true;let ticks=0;const timer=Ouse.timers.setInterval(()=>{const result=Ouse.permissions.get(name);if(result!=="ask"||++ticks>=150){Ouse.timers.clear(timer);permissionPending=false;if(result==="granted"&&!paused)action();else if(!paused)popup("权限未开启。");}},100);
+ Ouse.ui.hide("permissionSettings");const state=Ouse.permissions.request(name);
+ if(state==="granted"){action();return;}if(state==="denied"){Ouse.ui.show("permissionSettings");popup("权限未开启，可前往权限设置开启。");return;}
+ permissionPending=true;let ticks=0;const timer=Ouse.timers.setInterval(()=>{const result=Ouse.permissions.get(name);if(result!=="ask"||++ticks>=150){Ouse.timers.clear(timer);permissionPending=false;if(result==="granted"&&!paused)action();else if(!paused){Ouse.ui.show("permissionSettings");popup("权限未开启，可前往权限设置开启。");}}},100);
 }
 function start(){authorize("microphone",()=>{if(pending||paused||!ready())return;pending=Ouse.recorder.start();kind="record";if(!pending)popup("无法开始录音，请检查麦克风占用和 SD 卡空间。");refresh();});}
 function refresh(){
@@ -39,7 +39,7 @@ Ouse.ui.on("play","click",()=>{if(!ready()){popup("SD 卡不可用。");return;}
 Ouse.ui.on("rename","click",()=>{Ouse.media.stop();Ouse.ui.hide("actions");rename(entries[selected].path,false);});
 Ouse.ui.on("remove","click",()=>{Ouse.media.stop();Ouse.ui.hide("actions");Ouse.ui.show("deleteDialog");});
 Ouse.ui.on("closeActions","click",()=>{Ouse.media.stop();Ouse.ui.hide("actions");});
-Ouse.ui.on("confirmDelete","click",()=>{if(pending||selected<0)return;Ouse.ui.hide("deleteDialog");const path=entries[selected].path;authorize("sharedDelete",()=>{if(pending||!ready())return;pending=Ouse.recorder.remove(path);kind="remove";if(!pending)popup("删除失败，请稍后重试。");});});
+Ouse.ui.on("confirmDelete","click",()=>{if(pending||selected<0)return;Ouse.ui.hide("deleteDialog");const path=entries[selected].path;if(pending||!ready())return;pending=Ouse.recorder.remove(path);kind="remove";if(!pending)popup("删除失败，请稍后重试。");});
 Ouse.ui.on("cancelDelete","click",()=>Ouse.ui.hide("deleteDialog"));
 Ouse.ui.on("saveName","click",()=>{if(pending||!naming)return;const value=Ouse.ui.getText("name").trim();if(!value||value.length>24||/[\\/:*?"<>|]/.test(value)){popup("请输入不超过 24 字的有效名称。");return;}pending=Ouse.recorder.rename(naming,value);kind="rename";if(!pending)popup("重命名失败，请检查名称或 SD 卡。");});
 Ouse.ui.on("keepName","click",()=>{Ouse.ui.hide("nameDialog");naming="";list(namingNew?0:offset);});
@@ -59,3 +59,5 @@ Ouse.timers.setInterval(()=>{
 },250);
 globalThis.app={onPause(){paused=true;startWanted=false;Ouse.recorder.stop();Ouse.media.stop();},onResume(){paused=false;if(!pending)list();refresh();},onClose(){startWanted=false;Ouse.recorder.stop();Ouse.media.stop();}};
 if(ready())list(0);else{noticed=true;popup("请插入 SD 卡后使用录音机。");}refresh();
+
+Ouse.ui.on("permissionSettings","click",()=>{Ouse.ui.hide("dialog");Ouse.system.openSettings("permissions");});

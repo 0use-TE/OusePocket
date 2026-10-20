@@ -1,0 +1,51 @@
+{
+  "success": true,
+  "checks": {
+    "Foot1": {
+      "valid": true,
+      "solids": 1,
+      "volume": 13.741326266801755
+    },
+    "Foot2": {
+      "valid": true,
+      "solids": 1,
+      "volume": 13.741326266801755
+    },
+    "Foot3": {
+      "valid": true,
+      "solids": 1,
+      "volume": 13.741326266801755
+    },
+    "Foot4": {
+      "valid": true,
+      "solids": 1,
+      "volume": 13.741326266801755
+    },
+    "FrontFrame": {
+      "valid": true,
+      "solids": 1,
+      "volume": 32453.509531552918
+    },
+    "RearShell": {
+      "valid": true,
+      "solids": 1,
+      "volume": 38090.644189359846
+    },
+    "SocketHousing": {
+      "valid": true,
+      "solids": 1,
+      "volume": 1053.6035270000023
+    },
+    "DisplayArea": {
+      "valid": true,
+      "solids": 1,
+      "volume": 143.82489599999897
+    },
+    "Camera": {
+      "valid": true,
+      "solids": 1,
+      "volume": 38.17035074111599
+    }
+  },
+  "errors": []
+}

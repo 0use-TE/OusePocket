@@ -6,3 +6,5 @@ void ouse_manager_ui_refresh(void);
 bool ouse_manager_ui_back(void);
 void ouse_manager_ui_release_icons(void);
 void ouse_manager_ui_close(void);
+
+void ouse_manager_ui_select(const char *id);

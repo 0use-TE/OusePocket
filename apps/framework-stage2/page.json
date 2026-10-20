@@ -2,62 +2,328 @@
   "api": 1,
   "units": "dp",
   "root": {
-    "type": "container", "id": "page", "width": "fill", "height": "fill",
-    "layout": "column", "padding": 12, "gap": 6,
+    "type": "container",
+    "id": "page",
+    "width": "fill",
+    "height": "fill",
+    "layout": "column",
+    "padding": 12,
+    "gap": 6,
     "children": [
-      {"type": "toolbar", "id": "toolbar", "text": "Stage 2", "width": "fill", "height": 44},
-      {"type": "label", "id": "ready", "text": "ready=0", "width": "fill", "height": "content"},
-      {"type": "label", "id": "result", "text": "result=starting", "width": "fill", "height": "content"},
-      {"type": "label", "id": "intent", "text": "intent=none", "width": "fill", "height": "content"},
-      {"type": "container", "id": "content", "width": "fill", "height": 1,
-        "layout": "column", "scroll": true, "gap": 8, "style": {"flexGrow": 1}, "children": [
-      {"type": "card", "id": "card", "text": "Card", "width": "fill", "height": "content", "padding": 12, "gap": 6,
-        "style": {"backgroundColor": "$surface", "borderWidth": 1, "borderColor": "$border", "radius": 16},
+      {
+        "type": "toolbar",
+        "id": "toolbar",
+        "text": "控件与通知测试",
+        "width": "fill",
+        "height": 44
+      },
+      {
+        "type": "label",
+        "id": "ready",
+        "text": "ready=0",
+        "width": "fill",
+        "height": "content"
+      },
+      {
+        "type": "label",
+        "id": "result",
+        "text": "result=starting",
+        "width": "fill",
+        "height": "content"
+      },
+      {
+        "type": "label",
+        "id": "intent",
+        "text": "intent=none",
+        "width": "fill",
+        "height": "content"
+      },
+      {
+        "type": "container",
+        "id": "content",
+        "width": "fill",
+        "height": 1,
+        "layout": "column",
+        "scroll": true,
+        "gap": 8,
+        "style": {
+          "flexGrow": 1
+        },
         "children": [
-          {"type": "label", "id": "cardValue", "text": "Card content", "width": "fill", "height": "content"}
-        ]},
-      {"type": "list", "id": "list", "width": "fill", "height": "content", "children": [
-        {"type": "listItem", "id": "listAction", "text": "List action", "subtitle": "Primary and secondary text", "width": "fill", "height": 60},
-        {"type": "divider", "id": "divider", "width": "fill", "height": 1},
-        {"type": "listItem", "id": "listSecond", "text": "Second item", "subtitle": "Separate event target", "width": "fill", "height": 60}
-      ]},
-      {"type": "container", "id": "modals", "width": "fill", "height": 42, "layout": "row", "gap": 6, "children": [
-        {"type": "button", "id": "openDialog", "text": "Dialog", "width": 88, "height": 40},
-        {"type": "button", "id": "openSheet", "text": "Sheet", "width": 88, "height": 40},
-        {"type": "button", "id": "changeStyle", "text": "Style", "width": 88, "height": 40}
-      ]},
-      {"type": "container", "id": "states", "width": "fill", "height": 42, "layout": "row", "gap": 6, "children": [
-        {"type": "button", "id": "toggleEnabled", "text": "Disable", "width": 134, "height": 40},
-        {"type": "button", "id": "stateTarget", "text": "Target", "width": 134, "height": 40,
-          "style": {"backgroundColor": "$accent", "states": {"pressed": {"backgroundColor": "#805020"}, "disabled": {"backgroundColor": "#323238", "opacity": 130}}}}
-      ]},
-      {"type": "switch", "id": "checked", "width": 48, "height": 28,
-        "style": {"states": {"checked": {"backgroundColor": "#2A8D62"}}}},
-      {"type": "label", "id": "notificationsTitle", "text": "Notifications", "width": "fill", "height": "content", "fontSize": 20},
-      {"type": "container", "id": "notificationActions", "width": "fill", "height": 42, "layout": "row", "gap": 6, "children": [
-        {"type": "button", "id": "publish", "text": "Publish", "width": 88, "height": 40},
-        {"type": "button", "id": "update", "text": "Update", "width": 88, "height": 40},
-        {"type": "button", "id": "cancel", "text": "Cancel", "width": 88, "height": 40}
-      ]},
-      {"type": "container", "id": "notificationMore", "width": "fill", "height": 42, "layout": "row", "gap": 6, "children": [
-        {"type": "button", "id": "background", "text": "Background", "width": 134, "height": 40},
-        {"type": "button", "id": "quota", "text": "Quota", "width": 134, "height": 40}
-      ]},
-      {"type": "container", "id": "notificationClean", "width": "fill", "height": 42, "layout": "row", "gap": 6, "children": [
-        {"type": "button", "id": "reset", "text": "Reset notices", "width": 134, "height": 40},
-        {"type": "button", "id": "listNotices", "text": "Own notices", "width": 134, "height": 40}
-      ]}
-      ]},
-      {"type": "dialog", "id": "dialog", "text": "Stage 2 dialog", "width": 264, "height": "content", "padding": 18, "gap": 14,
+          {
+            "type": "card",
+            "id": "card",
+            "text": "Card",
+            "width": "fill",
+            "height": "content",
+            "padding": 12,
+            "gap": 6,
+            "style": {
+              "backgroundColor": "$surface",
+              "borderWidth": 1,
+              "borderColor": "$border",
+              "radius": 16
+            },
+            "children": [
+              {
+                "type": "label",
+                "id": "cardValue",
+                "text": "Card content",
+                "width": "fill",
+                "height": "content"
+              }
+            ]
+          },
+          {
+            "type": "list",
+            "id": "list",
+            "width": "fill",
+            "height": "content",
+            "children": [
+              {
+                "type": "listItem",
+                "id": "listAction",
+                "text": "List action",
+                "subtitle": "Primary and secondary text",
+                "width": "fill",
+                "height": 60
+              },
+              {
+                "type": "divider",
+                "id": "divider",
+                "width": "fill",
+                "height": 1
+              },
+              {
+                "type": "listItem",
+                "id": "listSecond",
+                "text": "Second item",
+                "subtitle": "Separate event target",
+                "width": "fill",
+                "height": 60
+              }
+            ]
+          },
+          {
+            "type": "container",
+            "id": "modals",
+            "width": "fill",
+            "height": 42,
+            "layout": "row",
+            "gap": 6,
+            "children": [
+              {
+                "type": "button",
+                "id": "openDialog",
+                "text": "Dialog",
+                "width": 88,
+                "height": 40
+              },
+              {
+                "type": "button",
+                "id": "openSheet",
+                "text": "Sheet",
+                "width": 88,
+                "height": 40
+              },
+              {
+                "type": "button",
+                "id": "changeStyle",
+                "text": "Style",
+                "width": 88,
+                "height": 40
+              }
+            ]
+          },
+          {
+            "type": "container",
+            "id": "states",
+            "width": "fill",
+            "height": 42,
+            "layout": "row",
+            "gap": 6,
+            "children": [
+              {
+                "type": "button",
+                "id": "toggleEnabled",
+                "text": "Disable",
+                "width": 134,
+                "height": 40
+              },
+              {
+                "type": "button",
+                "id": "stateTarget",
+                "text": "Target",
+                "width": 134,
+                "height": 40,
+                "style": {
+                  "backgroundColor": "$accent",
+                  "states": {
+                    "pressed": {
+                      "backgroundColor": "#805020"
+                    },
+                    "disabled": {
+                      "backgroundColor": "#323238",
+                      "opacity": 130
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "type": "switch",
+            "id": "checked",
+            "width": 48,
+            "height": 28,
+            "style": {
+              "states": {
+                "checked": {
+                  "backgroundColor": "#2A8D62"
+                }
+              }
+            }
+          },
+          {
+            "type": "label",
+            "id": "notificationsTitle",
+            "text": "Notifications",
+            "width": "fill",
+            "height": "content",
+            "fontSize": 20
+          },
+          {
+            "type": "container",
+            "id": "notificationActions",
+            "width": "fill",
+            "height": 42,
+            "layout": "row",
+            "gap": 6,
+            "children": [
+              {
+                "type": "button",
+                "id": "publish",
+                "text": "Publish",
+                "width": 88,
+                "height": 40
+              },
+              {
+                "type": "button",
+                "id": "update",
+                "text": "Update",
+                "width": 88,
+                "height": 40
+              },
+              {
+                "type": "button",
+                "id": "cancel",
+                "text": "Cancel",
+                "width": 88,
+                "height": 40
+              }
+            ]
+          },
+          {
+            "type": "container",
+            "id": "notificationMore",
+            "width": "fill",
+            "height": 42,
+            "layout": "row",
+            "gap": 6,
+            "children": [
+              {
+                "type": "button",
+                "id": "background",
+                "text": "Background",
+                "width": 134,
+                "height": 40
+              },
+              {
+                "type": "button",
+                "id": "quota",
+                "text": "Quota",
+                "width": 134,
+                "height": 40
+              }
+            ]
+          },
+          {
+            "type": "container",
+            "id": "notificationClean",
+            "width": "fill",
+            "height": 42,
+            "layout": "row",
+            "gap": 6,
+            "children": [
+              {
+                "type": "button",
+                "id": "reset",
+                "text": "Reset notices",
+                "width": 134,
+                "height": 40
+              },
+              {
+                "type": "button",
+                "id": "listNotices",
+                "text": "Own notices",
+                "width": 134,
+                "height": 40
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "dialog",
+        "id": "dialog",
+        "text": "Stage 2 dialog",
+        "width": 264,
+        "height": "content",
+        "padding": 18,
+        "gap": 14,
         "children": [
-          {"type": "label", "id": "dialogBody", "text": "Modal content", "width": "fill", "height": "content"},
-          {"type": "button", "id": "dialogDone", "text": "Dialog done", "width": "fill", "height": 42}
-        ]},
-      {"type": "bottomSheet", "id": "sheet", "text": "Stage 2 sheet", "width": "fill", "height": "content", "padding": 18, "gap": 14,
+          {
+            "type": "label",
+            "id": "dialogBody",
+            "text": "Modal content",
+            "width": "fill",
+            "height": "content"
+          },
+          {
+            "type": "button",
+            "id": "dialogDone",
+            "text": "Dialog done",
+            "width": "fill",
+            "height": 42
+          }
+        ]
+      },
+      {
+        "type": "bottomSheet",
+        "id": "sheet",
+        "text": "Stage 2 sheet",
+        "width": "fill",
+        "height": "content",
+        "padding": 18,
+        "gap": 14,
         "children": [
-          {"type": "label", "id": "sheetBody", "text": "Bottom sheet content", "width": "fill", "height": "content"},
-          {"type": "button", "id": "sheetDone", "text": "Sheet done", "width": "fill", "height": 42}
-        ]}
-    ]
+          {
+            "type": "label",
+            "id": "sheetBody",
+            "text": "Bottom sheet content",
+            "width": "fill",
+            "height": "content"
+          },
+          {
+            "type": "button",
+            "id": "sheetDone",
+            "text": "Sheet done",
+            "width": "fill",
+            "height": 42
+          }
+        ]
+      }
+    ],
+    "scroll": true
   }
 }

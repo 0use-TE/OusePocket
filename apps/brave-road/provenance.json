@@ -1,0 +1,36 @@
+{
+  "page": "https://www.4399.com/flash/47931_1.htm",
+  "swf": "https://sda.4399.com/4399swf/upload_swf/ftp3/haibo/20110124/1.swf",
+  "sha256": "3f633169368ff02907553f3145775379c3c7409489f9d9f0f67aa954a5559a6e",
+  "tool": "JPEXS FFDec 26.4.0",
+  "extraction": {
+    "images": 1459,
+    "scripts": 413,
+    "sounds": 24
+  },
+  "imageBytes": 306976,
+  "limitations": [
+    "Rewritten JavaScript gameplay, not execution of original ActionScript.",
+    "First-stage map and all 28 enemies/6 groups; three distinct 17-frame monster atlases and extracted stats.",
+    "Complete source BGM/endings transcoded to SD WAV; seven full short effects in package. Reduced audio sample rates.",
+    "Touch auto-attack adaptation; reduced hero frames, simplified collision/camera/AI; no weapon switching or dynamic equipment art.",
+    "Other stages, pets, shop, story and multiplayer are not implemented.",
+    "Not a public-domain assertion; local extraction and device install only."
+  ],
+  "levelsExtracted": 13,
+  "levelsPlayable": 1,
+  "soundBankBytes": 166358,
+  "version": "0.3.0",
+  "nativeApi": 44,
+  "sdImageBytes": 3722400,
+  "sdBackgroundSizes": {
+    "sky": [
+      930,
+      330
+    ],
+    "village": [
+      1620,
+      385
+    ]
+  }
+}

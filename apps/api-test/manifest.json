@@ -34,10 +34,10 @@
       "path": "assets/raw.bin"
     }
   ],
-  "versionCode": 1,
-  "versionName": "1.0.0",
+  "versionCode": 3,
+  "versionName": "1.2.0",
   "author": "OusePocket",
-  "releasedAt": "2026-10-19",
+  "releasedAt": "2026-10-20",
   "description": "接口测试",
-  "minNativeApi": 1
+  "minNativeApi": 45
 }

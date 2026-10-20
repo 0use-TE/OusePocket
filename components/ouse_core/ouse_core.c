@@ -150,7 +150,8 @@ static void select_settings_page(unsigned page)
     }
     if(page==13){ouse_ble_state_t state;ouse_ble_get(&state);if(state.enabled && state.ready)(void)ouse_ble_discoverable();}
 }
-static void show_settings(lv_event_t *event) { (void)event;select_settings_page(0); }
+static char settings_origin[48];
+static void show_settings(lv_event_t *event) { (void)event;if(settings_origin[0]){char id[48];strcpy(id,settings_origin);settings_origin[0]=0;if(ouse_app_open(id)==ESP_OK)return;}select_settings_page(0); }
 static void manager_settings_back(void){select_settings_page(0);}
 
 static void theme_label(void)
@@ -209,6 +210,17 @@ static void shell_settings_page(unsigned page)
 {
     if(ouse_app_open("ouse.settings")==ESP_OK)select_settings_page(page);
 }
+esp_err_t ouse_core_open_settings(unsigned target,const char *app_id)
+{
+    if(target<1 || target>3 || (target==1 && (!app_id || strncmp(app_id,"user.",5))))return ESP_ERR_INVALID_ARG;
+    if(ouse_core_access_blocked())return ESP_ERR_INVALID_STATE;
+    esp_err_t error=ouse_app_open("ouse.settings");if(error!=ESP_OK)return error;
+    select_settings_page(target==1?12:target==2?13:7);
+    if(target==1){settings_origin[0]=0;ouse_manager_ui_select(app_id);}
+    else if(app_id)snprintf(settings_origin,sizeof(settings_origin),"%s",app_id);
+    return ESP_OK;
+}
+
 
 static void refresh_status(lv_timer_t *timer)
 {
@@ -572,11 +584,27 @@ static void launcher_scrolled(lv_event_t *event)
 static void navigation_layout(int navigation_height)
 {
     ouse_ime_set_bottom_inset(navigation_height);
-    int height=lv_obj_get_height(core.screen);
+    int height=lv_obj_get_height(core.screen),width=lv_obj_get_width(core.screen);
+    lv_obj_set_width(core.home,width);lv_obj_set_width(core.app_host,width);lv_obj_set_width(core.grid,width-ouse_ui_dp(16));
     lv_obj_set_height(core.home,height-ouse_ui_dp(40)-navigation_height);
     lv_obj_set_height(core.grid,height-ouse_ui_dp(70)-navigation_height);
     ouse_apps_resize(height-ouse_ui_dp(40)-navigation_height);
     rebuild_launcher();
+}
+bool ouse_core_landscape(void){return core.started && lv_display_get_rotation(core.port.display)==LV_DISPLAY_ROTATION_270;}
+esp_err_t ouse_core_set_orientation(bool landscape)
+{
+    if(!core.started || ouse_core_access_blocked())return ESP_ERR_INVALID_STATE;
+    if(ouse_core_landscape()==landscape)return ESP_OK;
+    if(ouse_core_launch_active())launch_animation_end();
+    ouse_ime_hide();ouse_device_ui_close_modal();ouse_shell_foreground();
+    for(lv_indev_t *input=lv_indev_get_next(NULL);input;input=lv_indev_get_next(input))if(lv_indev_get_display(input)==core.port.display)lv_indev_reset(input,NULL);
+    esp_err_t error=core.port.set_orientation?core.port.set_orientation(core.port.context,landscape):ESP_OK;
+    if(error!=ESP_OK)return error;
+    lv_display_set_rotation(core.port.display,landscape?LV_DISPLAY_ROTATION_270:LV_DISPLAY_ROTATION_0);
+    lv_obj_update_layout(core.screen);ouse_ui_display_changed();
+    ouse_shell_resize();ouse_dialog_resize();lv_obj_invalidate(core.screen);
+    return ESP_OK;
 }
 void ouse_core_launcher_state(unsigned *page,unsigned *pages)
 {
@@ -601,7 +629,7 @@ static void rebuild_launcher(void)
     unsigned saved_page=core.launcher_page;
     lv_obj_clean(core.grid); lv_obj_update_layout(core.grid);
     int width=lv_obj_get_width(core.grid), height=lv_obj_get_height(core.grid);
-    int cols=3,rows=4;
+    int cols,rows;launcher_shape(width,height,&cols,&rows);
     int cell_w=width/cols, name_h=2*ouse_ui_font(14)->line_height;
     int cell_h=height/rows;
     unsigned capacity=(unsigned)(rows*cols); lv_obj_t *page=NULL;

@@ -9,7 +9,9 @@
     "layout": "column",
     "padding": 12,
     "gap": 10,
-    "style": { "backgroundColor": "$background" },
+    "style": {
+      "backgroundColor": "$background"
+    },
     "children": [
       {
         "type": "label",
@@ -18,7 +20,9 @@
         "width": "fill",
         "height": 36,
         "fontSize": 22,
-        "style": { "textColor": "$text" }
+        "style": {
+          "textColor": "$text"
+        }
       },
       {
         "type": "container",
@@ -43,7 +47,9 @@
             "width": "fill",
             "height": 28,
             "fontSize": 16,
-            "style": { "textColor": "$text" }
+            "style": {
+              "textColor": "$text"
+            }
           },
           {
             "type": "label",
@@ -52,7 +58,9 @@
             "width": "fill",
             "height": 44,
             "fontSize": 16,
-            "style": { "textColor": "$text" }
+            "style": {
+              "textColor": "$text"
+            }
           },
           {
             "type": "label",
@@ -61,7 +69,9 @@
             "width": "fill",
             "height": 28,
             "fontSize": 16,
-            "style": { "textColor": "$text" }
+            "style": {
+              "textColor": "$text"
+            }
           },
           {
             "type": "label",
@@ -70,7 +80,9 @@
             "width": "fill",
             "height": 44,
             "fontSize": 16,
-            "style": { "textColor": "$text" }
+            "style": {
+              "textColor": "$text"
+            }
           },
           {
             "type": "label",
@@ -79,7 +91,9 @@
             "width": "fill",
             "height": 28,
             "fontSize": 16,
-            "style": { "textColor": "$text" }
+            "style": {
+              "textColor": "$text"
+            }
           },
           {
             "type": "label",
@@ -88,7 +102,9 @@
             "width": "fill",
             "height": 28,
             "fontSize": 16,
-            "style": { "textColor": "$text" }
+            "style": {
+              "textColor": "$text"
+            }
           },
           {
             "type": "label",
@@ -97,7 +113,9 @@
             "width": "fill",
             "height": 44,
             "fontSize": 14,
-            "style": { "textColor": "$accent" }
+            "style": {
+              "textColor": "$accent"
+            }
           },
           {
             "type": "label",
@@ -106,10 +124,13 @@
             "width": "fill",
             "height": 28,
             "fontSize": 14,
-            "style": { "textColor": "$secondary" }
+            "style": {
+              "textColor": "$secondary"
+            }
           }
         ]
       }
-    ]
+    ],
+    "scroll": true
   }
 }

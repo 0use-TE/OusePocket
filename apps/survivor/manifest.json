@@ -1,0 +1,30 @@
+{
+  "runtime": "ouse-core",
+  "api": 1,
+  "id": "user.survivor",
+  "name": "Wild Survivor",
+  "names": {
+    "zh_CN": "荒野生存",
+    "en": "Wild Survivor"
+  },
+  "icon": "icon.bin",
+  "versionCode": 4,
+  "versionName": "1.0.0",
+  "minNativeApi": 41,
+  "author": "OusePocket",
+  "description": "轻量横屏生存战：摇杆移动、自动瞄准、火箭范围伤害和环绕飞剑，精简怪物与特效负载。",
+  "releasedAt": "2026-10-20",
+  "capabilities": {},
+  "assets": [
+    {
+      "id": "actors",
+      "type": "image",
+      "path": "assets/actors.bin"
+    },
+    {
+      "id": "badge",
+      "type": "image",
+      "path": "assets/badge.bin"
+    }
+  ]
+}

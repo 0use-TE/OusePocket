@@ -1,0 +1,68 @@
+{
+  "platform": "UP1",
+  "pcb": [
+    56,
+    78,
+    1.6
+  ],
+  "housing": [
+    59,
+    82
+  ],
+  "parts": [
+    {
+      "part": "universal-base",
+      "valid": true,
+      "hostInterference_mm3": 0.0,
+      "xy_bounds": [
+        -29.5,
+        -41.0,
+        29.5,
+        41.0
+      ],
+      "insideHostProjection": true
+    },
+    {
+      "part": "universal-lid-blank",
+      "valid": true,
+      "hostInterference_mm3": 0.0,
+      "xy_bounds": [
+        -29.5,
+        -41.0,
+        29.5,
+        41.0
+      ],
+      "insideHostProjection": true
+    },
+    {
+      "part": "button-led-lid",
+      "valid": true,
+      "hostInterference_mm3": 0.0,
+      "xy_bounds": [
+        -29.5,
+        -41.0,
+        29.5,
+        41.0
+      ],
+      "insideHostProjection": true
+    },
+    {
+      "part": "button-cap",
+      "valid": true,
+      "hostInterference_mm3": 0.0,
+      "xy_bounds": [
+        -3.8,
+        -25.78378986992113,
+        3.8,
+        -18.21621013007887
+      ],
+      "insideHostProjection": true
+    }
+  ],
+  "pcbMountCollisions": [],
+  "pcbPartsChecked": 6,
+  "cameraPcbApertureConfirmed": true,
+  "stlClosed": true,
+  "hostAttachment": "removable adhesive pads; OEM screws unverified",
+  "physicalFitVerified": false
+}

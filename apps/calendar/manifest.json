@@ -1,0 +1,17 @@
+{
+  "runtime": "ouse-core",
+  "api": 1,
+  "id": "user.calendar",
+  "name": "Calendar",
+  "names": {
+    "zh_CN": "日历",
+    "en": "Calendar"
+  },
+  "icon": "icon.bin",
+  "versionCode": 1,
+  "versionName": "1.0.0",
+  "minNativeApi": 41,
+  "author": "OusePocket",
+  "description": "支持横竖屏的月历与每日记事。",
+  "releasedAt": "2026-10-20"
+}

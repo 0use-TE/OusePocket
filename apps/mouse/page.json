@@ -9,7 +9,9 @@
     "layout": "column",
     "padding": 12,
     "gap": 10,
-    "style": { "backgroundColor": "$background" },
+    "style": {
+      "backgroundColor": "$background"
+    },
     "children": [
       {
         "type": "container",
@@ -19,16 +21,54 @@
         "layout": "row",
         "gap": 8,
         "children": [
-          { "type": "label", "id": "title", "text": "鼠标", "width": "fill", "height": 32, "fontSize": 20, "style": { "textColor": "$text" } },
-          { "type": "label", "id": "status", "text": "连接中", "width": 96, "height": 32, "fontSize": 15, "style": { "textColor": "$secondary" } }
+          {
+            "type": "label",
+            "id": "title",
+            "text": "鼠标",
+            "width": "fill",
+            "height": 32,
+            "fontSize": 20,
+            "style": {
+              "textColor": "$text"
+            }
+          },
+          {
+            "type": "label",
+            "id": "status",
+            "text": "连接中",
+            "width": 96,
+            "height": 32,
+            "fontSize": 15,
+            "style": {
+              "textColor": "$secondary"
+            }
+          }
         ]
+      },
+      {
+        "type": "button",
+        "id": "connect",
+        "text": "连接蓝牙",
+        "width": "fill",
+        "height": 36,
+        "fontSize": 14,
+        "style": {
+          "backgroundColor": "$surface",
+          "textColor": "$accent",
+          "radius": 10
+        }
       },
       {
         "type": "container",
         "id": "pad",
         "width": "fill",
-        "height": "fill",
-        "style": { "backgroundColor": "$surface", "borderColor": "$border", "borderWidth": 1, "radius": 20 }
+        "height": 128,
+        "style": {
+          "backgroundColor": "$surface",
+          "borderColor": "$border",
+          "borderWidth": 1,
+          "radius": 20
+        }
       },
       {
         "type": "container",
@@ -38,8 +78,34 @@
         "layout": "row",
         "gap": 10,
         "children": [
-          { "type": "button", "id": "left", "text": "左键", "width": "fill", "height": 56, "fontSize": 16, "style": { "backgroundColor": "$accent", "textColor": "#ffffff", "radius": 14 } },
-          { "type": "button", "id": "right", "text": "右键", "width": "fill", "height": 56, "fontSize": 16, "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 14 } }
+          {
+            "type": "button",
+            "id": "left",
+            "text": "左键",
+            "width": "fill",
+            "height": 56,
+            "fontSize": 16,
+            "style": {
+              "backgroundColor": "$accent",
+              "textColor": "#ffffff",
+              "radius": 14
+            }
+          },
+          {
+            "type": "button",
+            "id": "right",
+            "text": "右键",
+            "width": "fill",
+            "height": 56,
+            "fontSize": 16,
+            "style": {
+              "backgroundColor": "$surface",
+              "textColor": "$text",
+              "borderColor": "$border",
+              "borderWidth": 1,
+              "radius": 14
+            }
+          }
         ]
       },
       {
@@ -50,11 +116,54 @@
         "layout": "row",
         "gap": 10,
         "children": [
-          { "type": "button", "id": "up", "text": "上滚", "width": "fill", "height": 48, "fontSize": 15, "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 14 } },
-          { "type": "button", "id": "fast", "text": "快速", "width": "fill", "height": 48, "fontSize": 15, "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 14 } },
-          { "type": "button", "id": "down", "text": "下滚", "width": "fill", "height": 48, "fontSize": 15, "style": { "backgroundColor": "$surface", "textColor": "$text", "borderColor": "$border", "borderWidth": 1, "radius": 14 } }
+          {
+            "type": "button",
+            "id": "up",
+            "text": "上滚",
+            "width": "fill",
+            "height": 48,
+            "fontSize": 15,
+            "style": {
+              "backgroundColor": "$surface",
+              "textColor": "$text",
+              "borderColor": "$border",
+              "borderWidth": 1,
+              "radius": 14
+            }
+          },
+          {
+            "type": "button",
+            "id": "fast",
+            "text": "快速",
+            "width": "fill",
+            "height": 48,
+            "fontSize": 15,
+            "style": {
+              "backgroundColor": "$surface",
+              "textColor": "$text",
+              "borderColor": "$border",
+              "borderWidth": 1,
+              "radius": 14
+            }
+          },
+          {
+            "type": "button",
+            "id": "down",
+            "text": "下滚",
+            "width": "fill",
+            "height": 48,
+            "fontSize": 15,
+            "style": {
+              "backgroundColor": "$surface",
+              "textColor": "$text",
+              "borderColor": "$border",
+              "borderWidth": 1,
+              "radius": 14
+            }
+          }
         ]
       }
-    ]
+    ],
+    "scroll": true
   }
 }

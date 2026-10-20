@@ -4,14 +4,14 @@ let permissionAsked=false;
 const labels=Object.create(null);
 function text(id,value){if(labels[id]!==value){labels[id]=value;Ouse.ui.setText(id,value);}}
 function show(id,value){if(value)Ouse.ui.show(id);else Ouse.ui.hide(id);}
-function popup(message){text("detail",message);Ouse.ui.show("dialog");}
+function popup(message){show("permissionSettings",Ouse.permissions.get("camera")==="denied");text("detail",message);Ouse.ui.show("dialog");}
 function ready(){const card=Ouse.files.get();return !!(card.ready&&card.present);}
 function thumbnail(){if(!ready()||pending)return;pending=Ouse.photos.list(0);kind="list";}
 function start(){
  if(!opening||pending||!active||Ouse.power.get().asleep)return;
  if(Ouse.permissions){
   const permission=permissionAsked?Ouse.permissions.get("camera"):Ouse.permissions.request("camera");permissionAsked=true;
-  if(permission!=="granted"){if(permission==="denied"){opening=false;popup("摄像头权限未开启。");}return;}
+  if(permission!=="granted"){if(permission==="denied"){opening=false;popup("摄像头权限已拒绝，可前往权限设置开启。");}return;}
  }
  const state=Ouse.camera.get();if(!state||state.busy)return;
  if(state.running){opening=false;return;}
@@ -22,12 +22,13 @@ function start(){
 }
 function refresh(){
  const previous=Ouse.camera.get();
- if(active&&!pending&&!opening&&previous&&!previous.running&&!previous.busy&&!previous.inUse&&!previous.recoveryPending&&previous.error==="ESP_OK"&&!Ouse.power.get().asleep){opening=true;attempts=0;}
+ if(active&&!pending&&!opening&&previous&&!previous.running&&!previous.busy&&!previous.inUse&&!previous.recoveryPending&&previous.error==="ESP_OK"&&Ouse.permissions.get("camera")==="granted"&&!Ouse.power.get().asleep){opening=true;attempts=0;}
  start();const state=Ouse.camera.get();if(!state)return;
  Ouse.ui.setEnabled("shutter",!opening&&!pending&&!state.busy&&state.running);
  Ouse.ui.setEnabled("album",!opening&&!pending&&!state.busy);
 }
 Ouse.ui.on("album","click",()=>{if(pending)return;if(!ready()){popup("请插入 SD 卡后再打开相册。");return;}Ouse.openApp("user.gallery");});
+Ouse.ui.on("permissionSettings","click",()=>{Ouse.ui.hide("dialog");Ouse.system.openSettings("permissions");});
 Ouse.ui.on("dismiss","click",()=>Ouse.ui.hide("dialog"));
 function capture(){
  if(pending||opening)return;

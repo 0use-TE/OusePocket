@@ -132,13 +132,17 @@ static void launcher_error(void)
     launcher.failed=true;
     ouse_dialog_show(ouse_ui_locale() ? "Could not save desktop order." : "桌面排序保存失败。",ouse_ui_locale() ? "Retry" : "重试",launcher_retry);
 }
+static void launcher_shape(int width,int height,int *columns,int *rows)
+{*columns=width>height?6:3;*rows=width>height?2:4;}
 static void launcher_reposition(void)
 {
-    int width=lv_obj_get_width(core.grid),height=lv_obj_get_height(core.grid);
+    int width=lv_obj_get_width(core.grid),height=lv_obj_get_height(core.grid),cols,rows;
+    launcher_shape(width,height,&cols,&rows);
+    unsigned capacity=(unsigned)(cols*rows);
     for(unsigned index=0;index<core.app_count;++index){
-        lv_obj_t *tile=launcher.tiles[index],*page=lv_obj_get_child(core.grid,index/12);
+        lv_obj_t *tile=launcher.tiles[index],*page=lv_obj_get_child(core.grid,index/capacity);
         if(lv_obj_get_parent(tile)!=page)lv_obj_set_parent(tile,page);
-        lv_obj_set_pos(tile,(int)(index%3)*(width/3),(int)((index%12)/3)*(height/4));
+        lv_obj_set_pos(tile,(int)((index%capacity)%cols)*(width/cols),(int)((index%capacity)/cols)*(height/rows));
     }
 }
 static void launcher_move(unsigned target)
@@ -176,9 +180,10 @@ static void launcher_drag_point(void)
     if(edge!=launcher.edge){launcher.edge=edge;launcher.edge_since=lv_tick_get();}
     if(edge)return;
     int width=lv_obj_get_width(core.grid),height=lv_obj_get_height(core.grid);
-    int column=(launcher.point.x-bounds.x1)/(width/3),row=(launcher.point.y-bounds.y1)/(height/4);
-    if(column<0 || column>2 || row<0 || row>3)return;
-    unsigned target=core.launcher_page*12+(unsigned)(row*3+column);
+    int cols,rows;launcher_shape(width,height,&cols,&rows);
+    int column=(launcher.point.x-bounds.x1)/(width/cols),row=(launcher.point.y-bounds.y1)/(height/rows);
+    if(column<0 || column>=cols || row<0 || row>=rows)return;
+    unsigned target=core.launcher_page*(unsigned)(cols*rows)+(unsigned)(row*cols+column);
     if(target>=core.app_count)target=core.app_count-1;
     launcher_move(target);
 }

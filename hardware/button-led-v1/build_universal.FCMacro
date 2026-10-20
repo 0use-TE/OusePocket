@@ -1,0 +1,122 @@
+import FreeCAD as App
+import Part,Import,Mesh,MeshPart
+import json,os,traceback
+root=r'C:\Users\ouse\FastProjects\OusePocket\hardware\button-led-v1'
+try:
+    for old in list(App.listDocuments().values()):
+        if old.Label in ['Button LED V1 · 主机与托架试配','UP1 通用背部模块 · 按钮灯板']:App.closeDocument(old.Name)
+    doc=App.openDocument(r'C:\Users\ouse\FastProjects\OusePocket\hardware\mechanical\ousepocket-host.FCStd')
+    doc.Label='UP1 通用背部模块 · 按钮灯板'
+    with open(os.path.join(root,'..','mechanical','universal-platform.json'),encoding='utf8') as f:standard=json.load(f)
+    settings=doc.addObject('Spreadsheet::Sheet','Platform');settings.Label='UP1 通用安装接口 · mm'
+    vals=[('Width',standard['housing']['width']),('Length',standard['housing']['length']),('Radius',6),('BoardWidth',56),('BoardLength',78),('BoardZ',4.2),('BaseZ',.6),('BaseFloor',1.4),('RoofZ',9.2),('RoofThickness',1.4),('HoleX',23),('HoleY',33),('CameraX',-5.8)]
+    for i,(key,value) in enumerate(vals,1):settings.set('A'+str(i),key);settings.set('B'+str(i),('='+str(value)+' mm') if value<0 else str(value)+' mm');settings.setAlias('B'+str(i),key)
+    settings.setColumnWidth('A',160)
+    printed=doc.addObject('App::Part','UniversalHousing');printed.Label='UP1 外壳 · 共用底座／可换上盖'
+    tools=doc.addObject('App::DocumentObjectGroup','PlatformTools');tools.Label='壳体构造体（隐藏）'
+    def expr(o,p,s):o.setExpression(p,str(s))
+    def box(name,w,h,d,x,y,z):
+        o=doc.addObject('Part::Box',name);tools.addObject(o)
+        for p,v in [('Length',w),('Width',h),('Height',d),('Placement.Base.x',x),('Placement.Base.y',y),('Placement.Base.z',z)]:expr(o,p,v)
+        return o
+    def cyl(name,r,h,x,y,z):
+        o=doc.addObject('Part::Cylinder',name);tools.addObject(o)
+        for p,v in [('Radius',r),('Height',h),('Placement.Base.x',x),('Placement.Base.y',y),('Placement.Base.z',z)]:expr(o,p,v)
+        return o
+    def union(name,objects):
+        o=doc.addObject('Part::MultiFuse',name);tools.addObject(o);o.Shapes=objects;o.Refine=True;return o
+    def cut(name,base,tool):
+        o=doc.addObject('Part::Cut',name);tools.addObject(o);o.Base=base;o.Tool=tool;return o
+    def rounded(name,w,h,r,depth,z):
+        # Native parametric boxes/cylinders give exact circular plan-view corners.
+        w=str(w);h=str(h);r=str(r)
+        pieces=[box(name+'X',w+'-2*('+r+')',h,depth,'-('+w+')/2+('+r+')','-('+h+')/2',z),box(name+'Y',w,h+'-2*('+r+')',depth,'-('+w+')/2','-('+h+')/2+('+r+')',z)]
+        for i,(sx,sy) in enumerate([(-1,-1),(-1,1),(1,-1),(1,1)]):pieces.append(cyl(name+'C'+str(i),r,depth,str(sx)+'*(('+w+')/2-('+r+'))',str(sy)+'*(('+h+')/2-('+r+'))',z))
+        return union(name,pieces)
+    def expose(o,label,color):tools.removeObject(o);printed.addObject(o);o.Label=label;o.ViewObject.ShapeColor=color;return o
+    # One common base, wholly inside the original machine's projected outline.
+    outer=rounded('BaseOuter','Platform.Width','Platform.Length','Platform.Radius','6 mm','Platform.BaseZ')
+    inner=rounded('BaseInterior','Platform.Width-2.2 mm','Platform.Length-2.2 mm','Platform.Radius-1.1 mm','8 mm','Platform.BaseZ+Platform.BaseFloor')
+    shell=cut('BaseWallAndFloor',outer,inner)
+    baseBosses=[];baseHoles=[];lidBosses=[];lidHoles=[]
+    for i,(sx,sy) in enumerate([(-1,-1),(-1,1),(1,-1),(1,1)]):
+        x=str(sx)+'*Platform.HoleX';y=str(sy)+'*Platform.HoleY'
+        baseBosses.append(cyl('BaseBoss'+str(i),'2.5 mm','Platform.BoardZ-Platform.BaseZ-0.02 mm',x,y,'Platform.BaseZ'))
+        baseHoles.append(cyl('Pilot'+str(i),'0.85 mm','12 mm',x,y,'0.5 mm'))
+        lidBosses.append(cyl('LidBoss'+str(i),'2.5 mm','Platform.RoofZ-Platform.BoardZ-1.62 mm',x,y,'Platform.BoardZ+1.62 mm'))
+        lidHoles.append(cyl('LidScrewHole'+str(i),'1.1 mm','9 mm',x,y,'5 mm'))
+    baseUnion=union('BaseBeforeDrilling',[shell]+baseBosses)
+    cameraBase=cyl('CameraBaseClearance','12 mm','14 mm','Platform.CameraX','0 mm','0 mm')
+    header=box('HeaderClearance','7 mm','43 mm','14 mm','20.5 mm','-21.5 mm','0 mm')
+    base=cut('CommonBase',baseUnion,union('BaseCutters',baseHoles+[cameraBase,header]))
+    expose(base,'共用底座 · 59×82 · 仅背部固定',(.24,.42,.56))
+    # All functional variants reuse the blank lid and only change face openings.
+    roof=rounded('Roof','Platform.Width','Platform.Length','Platform.Radius','Platform.RoofThickness','Platform.RoofZ')
+    skirtOuter=rounded('SkirtOuter','Platform.Width','Platform.Length','Platform.Radius','2.4 mm','Platform.RoofZ-2.4 mm')
+    skirtInner=rounded('SkirtInner','Platform.Width-2.2 mm','Platform.Length-2.2 mm','Platform.Radius-1.1 mm','3 mm','Platform.RoofZ-2.5 mm')
+    skirt=cut('LidSkirt',skirtOuter,skirtInner)
+    lidAll=union('LidBeforeDrilling',[roof,skirt]+lidBosses)
+    cameraLid=cyl('CameraLidClearance','15 mm','16 mm','Platform.CameraX','0 mm','0 mm')
+    blank=cut('UniversalBlankLid',lidAll,union('CommonLidHoles',lidHoles+[cameraLid]));blank.Label='共用上盖毛坯 · 相机＋四螺孔'
+    buttonHole=cyl('ButtonOpening','3.2 mm','8 mm','0 mm','-22 mm','7 mm')
+    ledHole=cyl('LedOpening','1.8 mm','8 mm','0 mm','22 mm','7 mm')
+    lid=cut('ButtonLedLid',blank,union('FunctionalHoles',[buttonHole,ledHole]))
+    expose(lid,'本版上盖 · 按钮孔／LED观察孔',(.7,.73,.77))
+    button=union('ButtonPlunger',[cyl('ButtonFoot','1 mm','.6 mm','0 mm','-22 mm','7.5 mm'),cyl('ButtonFlange','3.8 mm','.8 mm','0 mm','-22 mm','8.1 mm'),cyl('ButtonStem','2.9 mm','3.1 mm','0 mm','-22 mm','8.9 mm')])
+    expose(button,'按钮帽 · 可独立更换',(.28,.42,.55))
+    pads=doc.addObject('App::Part','RearAdhesivePads');pads.Label='背部可移除贴片 · 暂拟安装方式'
+    for i,(x,y) in enumerate([(-17,-24),(-17,24),(17,-24),(17,24)]):
+        p=box('Adhesive'+str(i),'8 mm','8 mm','1.2 mm',str(x-4)+' mm',str(y-4)+' mm','-.6 mm');tools.removeObject(p);pads.addObject(p);p.Label='可移除贴片 '+str(i+1);p.ViewObject.ShapeColor=(.7,.7,.7)
+    fasteners=doc.addObject('App::Part','CoverFasteners');fasteners.Label='四颗 M2×10 · 共用固定接口'
+    for i,(x,y) in enumerate([(-23,-33),(-23,33),(23,-33),(23,33)]):
+        for o in [cyl('ScrewShaft'+str(i),'.95 mm','10 mm',str(x)+' mm',str(y)+' mm','.6 mm'),cyl('ScrewHead'+str(i),'1.9 mm','1.3 mm',str(x)+' mm',str(y)+' mm','10.6 mm')]:
+            tools.removeObject(o);fasteners.addObject(o);o.ViewObject.ShapeColor=(.65,.68,.7)
+    doc.recompute()
+    old=set(o.Name for o in doc.Objects)
+    Import.insert(os.path.join(root,'button-led-v1.step'),doc.Name);doc.recompute()
+    added=[o for o in doc.Objects if o.Name not in old]
+    roots=[o for o in added if o.TypeId=='App::Part' and not any(p in added and p.TypeId=='App::Part' for p in o.InList)]
+    if len(roots)!=1:raise RuntimeError('PCB import needs one root')
+    pcb=roots[0];pcb.Label='通用 PCB 56×78 · 按钮灯板';expr(pcb,'Placement.Base.z','Platform.BoardZ')
+    for o in tools.Group:o.Visibility=False
+    for o in [base,lid,button]:o.Visibility=True
+    doc.recompute()
+    items=[(base,'universal-base'),(blank,'universal-lid-blank'),(lid,'button-led-lid'),(button,'button-cap')]
+    checks=[]
+    host=doc.getObject('FrontFrame').Shape.fuse(doc.getObject('RearShell').Shape)
+    pcbShapes=[]
+    for o in added:
+        if hasattr(o,'Shape') and not o.Shape.isNull() and o.Label.startswith(('Board~','J1~','SW1~','D1~','R1~','R2~')):
+            s=o.Shape.copy();s.Placement=o.getGlobalPlacement();pcbShapes.append((o.Label,s))
+    boards=[s for label,s in pcbShapes if label.startswith('Board~')]
+    if not boards:raise RuntimeError('Missing actual PCB solid')
+    probe=Part.makeCylinder(.2,1.5,App.Vector(-5.8,0,4.25))
+    cameraBlockedVolume=sum(s.common(probe).Volume for s in boards)
+    if cameraBlockedVolume>0.00001:raise RuntimeError('Camera aperture not cut through actual PCB')
+    for o,name in items:
+        if not o.Shape.isValid() or len(o.Shape.Solids)!=1:raise RuntimeError('Invalid solid '+name)
+        b=o.Shape.BoundBox
+        checks.append({'part':name,'valid':True,'hostInterference_mm3':o.Shape.common(host).Volume,'xy_bounds':[b.XMin,b.YMin,b.XMax,b.YMax],'insideHostProjection':b.XMin>=-31.835 and b.XMax<=31.835 and b.YMin>=-47.555 and b.YMax<=47.555})
+        shape=o.Shape.removeSplitter();bb=shape.BoundBox;shape.translate(App.Vector(-(bb.XMin+bb.XMax)/2,-(bb.YMin+bb.YMax)/2,-bb.ZMin))
+        mesh=MeshPart.meshFromShape(Shape=shape,LinearDeflection=.05,AngularDeflection=.3,Relative=False)
+        pts,faces=mesh.Topology;mesh=Mesh.Mesh([[App.Vector(*[round(c,5) for c in pts[i]]) for i in f] for f in faces]);mesh.removeDuplicatedPoints();mesh.removeDuplicatedFacets();mesh.harmonizeNormals()
+        if not mesh.isSolid():raise RuntimeError('Open STL '+name)
+        mesh.write(os.path.join(root,name+'.stl'));Part.export([o],os.path.join(root,name+'.step'))
+    collisions=[]
+    for label,s in pcbShapes:
+        for o,name in [(base,'base'),(lid,'lid'),(button,'button')]:
+            volume=s.common(o.Shape).Volume
+            if volume>.01:collisions.append({'pcb':label,'part':name,'volume_mm3':volume})
+    Gui.activeDocument().activeView().viewAxonometric();Gui.activeDocument().activeView().fitAll()
+    target=os.path.join(root,'button-led-v1-assembly.FCStd')
+    if os.path.exists(target):os.remove(target)
+    doc.saveAs(target)
+    Gui.activeDocument().activeView().saveImage(os.path.join(root,'assembly-preview.png'),1400,1000,'White')
+    lid.Visibility=False;button.Visibility=False;fasteners.Visibility=False
+    Gui.activeDocument().activeView().saveImage(os.path.join(root,'assembly-open-preview.png'),1400,1000,'White')
+    lid.Visibility=True;button.Visibility=True;fasteners.Visibility=True
+    with open(os.path.join(root,'assembly-check.json'),'w',encoding='utf8') as f:json.dump({'platform':'UP1','pcb':[56,78,1.6],'housing':[59,82],'parts':checks,'pcbMountCollisions':collisions,'pcbPartsChecked':len(pcbShapes),'cameraPcbApertureConfirmed':cameraBlockedVolume<0.00001,'stlClosed':True,'hostAttachment':'removable adhesive pads; OEM screws unverified','physicalFitVerified':False},f,indent=2,ensure_ascii=False)
+    if os.path.exists(os.path.join(root,'assembly-error.txt')):os.remove(os.path.join(root,'assembly-error.txt'))
+except Exception:
+    with open(os.path.join(root,'assembly-error.txt'),'w',encoding='utf8') as f:f.write(traceback.format_exc())
+    raise

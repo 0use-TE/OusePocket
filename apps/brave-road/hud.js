@@ -1,0 +1,3 @@
+let hudCommands=[],controlCommands=[];
+// Compact top-left retained HUD, independent of scene redraws.
+function createGameHud(id){let last='';return {invalidate(){last='';},draw(s,width){const key=JSON.stringify(s);if(key===last)return false;const bar=(y,n,max,color)=>[{op:'fillRect',x:5,y,width:116,height:2,color:0x8a937e},{op:'fillRect',x:5,y,width:Math.max(1,Math.round(116*Math.max(0,Math.min(1,n/max)))),height:5,color}];hudCommands=[{op:'drawText',x:5,y:0,width:120,height:22,text:'HP '+Math.ceil(s.hp)+'/'+s.maxHp,color:0xf5d7ac},...bar(23,s.hp,s.maxHp,0xe56850),...bar(32,s.mp,s.maxMp,0x6abfd3),...bar(40,s.xp,s.nextXp,0xdab861)];Ouse.canvas.submit(id,hudCommands.concat(controlCommands));last=key;return true;}};}

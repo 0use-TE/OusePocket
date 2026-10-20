@@ -92,6 +92,7 @@ for name in ["esp_err.h", "sdmmc_cmd.h", "esp_vfs_fat.h", "diskio_impl.h", "disk
 fixture = r'''
 #include "sdk.h"
 #include "ouse_files.h"
+esp_err_t ouse_app_files_init(void){return ESP_OK;}
 #include "ouse_net.h"
 static void (*worker)(void *);
 bool ouse_sd_browser_path(const char *path,char *absolute,size_t capacity){if(!path || path[0]!='/' || strstr(path,".."))return false;int size=snprintf(absolute,capacity,"/sdcard%s",path);return size>0 && (size_t)size<capacity;}

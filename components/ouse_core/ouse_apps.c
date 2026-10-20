@@ -286,9 +286,10 @@ esp_err_t ouse_app_background(void)
 void ouse_apps_resize(int height)
 {
     lv_obj_set_height(apps.host,height);
+    lv_obj_update_layout(apps.host); // Resolve the new host width before resizing existing roots.
     for(unsigned index=0;index<apps.count;++index) {
         entry_t *entry=&apps.entries[index];
-        if(entry->root)lv_obj_set_height(entry->root,height);
+        if(entry->root)lv_obj_set_size(entry->root,lv_obj_get_width(apps.host),height);
         free_preview(entry);
         if(entry->root && entry->preview_generation==ouse_ui_generation())entry->preview_deferred=true;
     }

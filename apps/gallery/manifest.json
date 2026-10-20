@@ -8,9 +8,9 @@
     "en": "Gallery"
   },
   "icon": "icon.bin",
-  "minNativeApi": 38,
-  "versionCode": 1,
-  "versionName": "1.0.0",
+  "minNativeApi": 41,
+  "versionCode": 3,
+  "versionName": "1.1.0",
   "fileTypes": [
     "image/jpeg",
     "video/x-msvideo"
@@ -19,6 +19,6 @@
     "photos": true
   },
   "author": "OusePocket",
-  "releasedAt": "2026-10-19",
+  "releasedAt": "2026-10-20",
   "description": "浏览相册照片与录像。"
 }

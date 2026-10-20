@@ -7,8 +7,8 @@
 #include "esp_lv_adapter.h"
 #include "display_flush_wait.h"
 #include "sdkconfig.h"
-#if CONFIG_OUSE_DEVICE_DEBUG
 #include "esp_lcd_panel_ops.h"
+#if CONFIG_OUSE_DEVICE_DEBUG
 
 static lv_display_t *debug_display;
 static bool debug_lcd_enabled = true;
@@ -110,6 +110,15 @@ static const ouse_hardware_info_t hardware = {
     .power = "AXP2101",
 };
 
+static esp_err_t board_orientation(void *context,bool landscape)
+{
+    (void)context;esp_lcd_panel_handle_t panel=bsp_display_get_panel_handle();
+    // Synchronous panel commands drain queued pixel DMA before MADCTL changes.
+    esp_err_t error=esp_lcd_panel_swap_xy(panel,landscape);
+    if(error==ESP_OK)error=esp_lcd_panel_mirror(panel,!landscape,false);
+    if(error!=ESP_OK){(void)esp_lcd_panel_swap_xy(panel,!landscape);(void)esp_lcd_panel_mirror(panel,landscape,false);}
+    return error;
+}
 static bool board_key(void *context,unsigned key)
 {(void)context;return key==0 ? gpio_get_level(GPIO_NUM_35)==0 : key==1 && gpio_get_level(GPIO_NUM_49)!=0;}
 esp_err_t ouse_board_init(ouse_core_port_t *port)
@@ -153,7 +162,7 @@ esp_err_t ouse_board_init(ouse_core_port_t *port)
         .lock = board_lock,
         .unlock = board_unlock,
         .set_brightness = board_brightness,
-        .read_key=board_key,
+        .read_key=board_key,.set_orientation=board_orientation,
         .board_name = "Waveshare P4 LCD 3.5",
         .hardware = &hardware,
     };

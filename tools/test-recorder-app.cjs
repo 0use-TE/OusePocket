@@ -4,14 +4,14 @@ const vm=require("node:vm");
 function load(ready,permission="granted"){
  const state={active:false,stopping:false,busy:false,more:false,entries:[],durationMs:0,ended:1792300000,path:"",offset:0};
  const card={ready,present:ready},media={active:false},texts={},enabled={},shown=new Set(),handlers={},requests=[],intervals=[];
- let complete,identifier=100,stops=0,rowWrites=0;const permissions={microphone:permission,sharedDelete:permission},cleared=new Set();
+ const settings=[];let complete,identifier=100,stops=0,rowWrites=0;const permissions={microphone:permission,sharedDelete:permission},cleared=new Set();
  const request=(operation,...args)=>{requests.push([operation,...args]);return ++identifier;};
- const api={ui:{setText(key,value){texts[key]=value;if(key.startsWith("entry"))++rowWrites;},getText:key=>texts[key],setEnabled(key,value){enabled[key]=value;},show:key=>shown.add(key),hide:key=>shown.delete(key),on(key,event,handler){handlers[key]=handler;},scrollTo(){}},
+ const api={system:{openSettings:key=>settings.push(key)},ui:{setText(key,value){texts[key]=value;if(key.startsWith("entry"))++rowWrites;},getText:key=>texts[key],setEnabled(key,value){enabled[key]=value;},show:key=>shown.add(key),hide:key=>shown.delete(key),on(key,event,handler){handlers[key]=handler;},scrollTo(){}},
  files:{get:()=>card},recorder:{get:()=>state,list:offset=>request("list",offset),start:()=>request("start"),stop(){++stops;state.stopping=true;return true;},rename:(...args)=>request("rename",...args),remove:path=>request("remove",path)},
  permissions:{get:name=>permissions[name],request:name=>permissions[name]},
  media:{get:()=>media,stop(){media.active=false;},play(value){requests.push(["play",value.path]);media.active=true;return 500;}},timers:{setInterval(fn){intervals.push(fn);return intervals.length;},clear(id){cleared.add(id);}},tasks:{onComplete(fn){complete=fn;}}};
  const context=vm.createContext({Ouse:api});vm.runInContext(fs.readFileSync("apps/recorder/app.js","utf8"),context);
- return {state,card,media,texts,enabled,shown,requests,permissions,rowWrites:()=>rowWrites,timerCount:()=>intervals.length-cleared.size,lifecycle:context.app,stops:()=>stops,click:key=>handlers[key](),tick:()=>intervals.slice().forEach((fn,index)=>{if(!cleared.has(index+1))fn();}),finish(ok=true){complete({id:identifier,state:ok?"succeeded":"failed"});}};
+ return {settings,state,card,media,texts,enabled,shown,requests,permissions,rowWrites:()=>rowWrites,timerCount:()=>intervals.length-cleared.size,lifecycle:context.app,stops:()=>stops,click:key=>handlers[key](),tick:()=>intervals.slice().forEach((fn,index)=>{if(!cleared.has(index+1))fn();}),finish(ok=true){complete({id:identifier,state:ok?"succeeded":"failed"});}};
 }
 {
  const app=load(false);assert(app.shown.has("dialog"));assert.equal(app.requests.length,0);assert.equal(app.enabled.record,false);
@@ -50,5 +50,8 @@ function load(ready,permission="granted"){
 }
 {
  const app=load(true,"ask");app.finish();app.click("record");for(let index=0;index<150;++index)app.tick();assert(app.shown.has("dialog"));assert.equal(app.timerCount(),1);assert(!app.requests.some(item=>item[0]==="start"));
+}
+{
+ const app=load(true,"denied");app.finish();app.click("record");assert(app.shown.has("permissionSettings"));app.click("permissionSettings");assert.equal(app.settings.at(-1),"permissions");assert(!app.requests.some(item=>item[0]==="start"));
 }
 console.log("PASS recorder: SD gate, duplicate start, record lifecycle and permission ask-to-grant/deny/timeout/pause with real clear API and no leaked permission timer");

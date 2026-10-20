@@ -11,7 +11,7 @@ def main():
     parser.add_argument("--folder", choices=["Music", "Downloads", "Video", "Pictures"], default="Music")
     parser.add_argument("--discard-partial", action="store_true", help="Explicitly discard stale .part files for missing destination files")
     args = parser.parse_args()
-    files = [args.source] if args.source.is_file() else sorted(file for file in args.source.iterdir() if file.suffix == ".wav" or file.name == "LICENSES.txt")
+    files = [args.source] if args.source.is_file() else sorted(file for file in args.source.iterdir() if file.suffix in (".wav", ".bin") or file.name == "LICENSES.txt")
     client = bpk.Client(args.port, 921600)
     client.serial.timeout = 0.001
     try:

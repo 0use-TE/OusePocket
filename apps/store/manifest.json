@@ -8,12 +8,12 @@
     "en": "Store"
   },
   "icon": "icon.bin",
-  "versionCode": 1,
-  "versionName": "1.0.0",
-  "minNativeApi": 37,
+  "versionCode": 4,
+  "versionName": "1.1.0",
+  "minNativeApi": 41,
   "description": "分类发现应用，卡片展示图标，下载与更新 OusePocket 应用。",
   "author": "OusePocket",
-  "releasedAt": "2026-10-19",
+  "releasedAt": "2026-10-20",
   "capabilities": {
     "network": true,
     "packages": true

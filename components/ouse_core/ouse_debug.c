@@ -7,6 +7,7 @@
 #include <string.h>
 #include <stdarg.h>
 
+esp_err_t ouse_debug_touch_contact(unsigned slot,int x,int y,bool pressed){return ouse_screen_inject_contact(slot,x,y,pressed);}
 esp_err_t ouse_debug_touch(int x,int y,bool pressed) {return ouse_screen_inject(x,y,pressed);}
 esp_err_t ouse_debug_home(void)
 { esp_err_t e=ouse_core_wake_display();if(e!=ESP_OK)return e;ouse_shell_foreground();return ouse_app_background(); }

@@ -16,3 +16,5 @@ void ouse_debug_snapshot_free(ouse_debug_image_t *image);
 #ifdef __cplusplus
 }
 #endif
+
+esp_err_t ouse_debug_touch_contact(unsigned slot,int x,int y,bool pressed);

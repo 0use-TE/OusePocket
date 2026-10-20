@@ -1,0 +1,431 @@
+{
+  "evidence": "C:\\Users\\ouse\\FastProjects\\OusePocket\\.tools\\diagnostics\\canvas-device-20261020-114916",
+  "elfSha256": "f66c31079c270ec935cd44d459f8237347f59386adbe17a7169d9f6b09d11917",
+  "notes": [
+    "Real board; 480x222 game scene, 480x320 physical display, RGB565 SPI.",
+    "One complete run per mode; each stage has 200 deterministic updates. Timing includes occasional diagnostic screenshots.",
+    "Logic update rate and display refresh rate are different metrics; no claim of unique panel scanout frames.",
+    "LVGL render phase includes flush waits on the current display adapter; do not add flush-wait time to render-phase time.",
+    "Display windows crossing stage boundaries are excluded. Submitted bytes include the rest of the screen and matching HUD."
+  ],
+  "results": [
+    {
+      "mode": "canvas",
+      "entities": 8,
+      "width": 480,
+      "height": 222,
+      "logicFrames": 200,
+      "stageSeconds": 13.532,
+      "logicUpdatesPerSecond": 14.779781259237364,
+      "jsPrepareSubmitMeanMs": 2.18,
+      "jsPrepareSubmitMaxMs": 8,
+      "displayWindows": 2,
+      "displayWindowSeconds": 10.0,
+      "displayRefreshesPerSecond": 14.7,
+      "renderPhaseMeanMs": 3.0374489795918365,
+      "renderPhaseMaxMs": 7.19,
+      "flushWaitPerRefreshMs": 0.16432653061224492,
+      "submittedBytesPerRefresh": 6726.21768707483,
+      "submittedBytesPerSecond": 98875.4,
+      "windows": [
+        {
+          "startMs": 12901,
+          "endMs": 17901,
+          "renders": 73,
+          "phase_avg_us": 3045,
+          "phase_max_us": 7171,
+          "flush_wait_us": 12061,
+          "flushes": 592,
+          "submitted_bytes": 491802
+        },
+        {
+          "startMs": 17901,
+          "endMs": 22901,
+          "renders": 74,
+          "phase_avg_us": 3030,
+          "phase_max_us": 7190,
+          "flush_wait_us": 12095,
+          "flushes": 600,
+          "submitted_bytes": 496952
+        }
+      ]
+    },
+    {
+      "mode": "canvas",
+      "entities": 32,
+      "width": 480,
+      "height": 222,
+      "logicFrames": 200,
+      "stageSeconds": 11.9,
+      "logicUpdatesPerSecond": 16.80672268907563,
+      "jsPrepareSubmitMeanMs": 8.425,
+      "jsPrepareSubmitMaxMs": 27,
+      "displayWindows": 1,
+      "displayWindowSeconds": 5.002,
+      "displayRefreshesPerSecond": 16.79328268692523,
+      "renderPhaseMeanMs": 11.746,
+      "renderPhaseMaxMs": 34.115,
+      "flushWaitPerRefreshMs": 1.2135833333333332,
+      "submittedBytesPerRefresh": 33557.04761904762,
+      "submittedBytesPerSecond": 563532.9868052779,
+      "windows": [
+        {
+          "startMs": 27901,
+          "endMs": 32903,
+          "renders": 84,
+          "phase_avg_us": 11746,
+          "phase_max_us": 34115,
+          "flush_wait_us": 101941,
+          "flushes": 2512,
+          "submitted_bytes": 2818792
+        }
+      ]
+    },
+    {
+      "mode": "canvas",
+      "entities": 64,
+      "width": 480,
+      "height": 222,
+      "logicFrames": 200,
+      "stageSeconds": 11.925,
+      "logicUpdatesPerSecond": 16.771488469601678,
+      "jsPrepareSubmitMeanMs": 15.74,
+      "jsPrepareSubmitMaxMs": 67,
+      "displayWindows": 1,
+      "displayWindowSeconds": 5.013,
+      "displayRefreshesPerSecond": 17.15539597047676,
+      "renderPhaseMeanMs": 22.834,
+      "renderPhaseMaxMs": 26.914,
+      "flushWaitPerRefreshMs": 14.800313953488372,
+      "submittedBytesPerRefresh": 212115.3488372093,
+      "submittedBytesPerSecond": 3638922.800718133,
+      "windows": [
+        {
+          "startMs": 37917,
+          "endMs": 42930,
+          "renders": 86,
+          "phase_avg_us": 22834,
+          "phase_max_us": 26914,
+          "flush_wait_us": 1272827,
+          "flushes": 773,
+          "submitted_bytes": 18241920
+        }
+      ]
+    },
+    {
+      "mode": "canvas",
+      "entities": 96,
+      "width": 480,
+      "height": 222,
+      "logicFrames": 200,
+      "stageSeconds": 13.223,
+      "logicUpdatesPerSecond": 15.125160704832489,
+      "jsPrepareSubmitMeanMs": 22.18,
+      "jsPrepareSubmitMaxMs": 26,
+      "displayWindows": 2,
+      "displayWindowSeconds": 10.0,
+      "displayRefreshesPerSecond": 15.2,
+      "renderPhaseMeanMs": 23.284,
+      "renderPhaseMaxMs": 27.098,
+      "flushWaitPerRefreshMs": 13.104565789473686,
+      "submittedBytesPerRefresh": 214578.94736842104,
+      "submittedBytesPerSecond": 3261600.0,
+      "windows": [
+        {
+          "startMs": 47930,
+          "endMs": 52930,
+          "renders": 76,
+          "phase_avg_us": 23267,
+          "phase_max_us": 27067,
+          "flush_wait_us": 995934,
+          "flushes": 690,
+          "submitted_bytes": 16292160
+        },
+        {
+          "startMs": 52930,
+          "endMs": 57930,
+          "renders": 76,
+          "phase_avg_us": 23301,
+          "phase_max_us": 27098,
+          "flush_wait_us": 995960,
+          "flushes": 692,
+          "submitted_bytes": 16323840
+        }
+      ]
+    },
+    {
+      "mode": "json",
+      "entities": 8,
+      "width": 480,
+      "height": 222,
+      "logicFrames": 200,
+      "stageSeconds": 13.316,
+      "logicUpdatesPerSecond": 15.019525382997898,
+      "jsPrepareSubmitMeanMs": 2.055,
+      "jsPrepareSubmitMaxMs": 5,
+      "displayWindows": 2,
+      "displayWindowSeconds": 10.022,
+      "displayRefreshesPerSecond": 15.665535821193375,
+      "renderPhaseMeanMs": 3.9145859872611464,
+      "renderPhaseMaxMs": 7.84,
+      "flushWaitPerRefreshMs": 0.14519745222929936,
+      "submittedBytesPerRefresh": 6616.649681528663,
+      "submittedBytesPerSecond": 103653.362602275,
+      "windows": [
+        {
+          "startMs": 67930,
+          "endMs": 72949,
+          "renders": 78,
+          "phase_avg_us": 3901,
+          "phase_max_us": 7834,
+          "flush_wait_us": 11387,
+          "flushes": 632,
+          "submitted_bytes": 516832
+        },
+        {
+          "startMs": 72949,
+          "endMs": 77952,
+          "renders": 79,
+          "phase_avg_us": 3928,
+          "phase_max_us": 7840,
+          "flush_wait_us": 11409,
+          "flushes": 640,
+          "submitted_bytes": 521982
+        }
+      ]
+    },
+    {
+      "mode": "json",
+      "entities": 32,
+      "width": 480,
+      "height": 222,
+      "logicFrames": 200,
+      "stageSeconds": 20.494,
+      "logicUpdatesPerSecond": 9.758953840148337,
+      "jsPrepareSubmitMeanMs": 9.875,
+      "jsPrepareSubmitMaxMs": 85,
+      "displayWindows": 3,
+      "displayWindowSeconds": 15.094999999999999,
+      "displayRefreshesPerSecond": 9.738323948327261,
+      "renderPhaseMeanMs": 34.24633333333333,
+      "renderPhaseMaxMs": 35.46,
+      "flushWaitPerRefreshMs": 19.12348299319728,
+      "submittedBytesPerRefresh": 307200.0,
+      "submittedBytesPerSecond": 2991613.1169261346,
+      "windows": [
+        {
+          "startMs": 83009,
+          "endMs": 88070,
+          "renders": 49,
+          "phase_avg_us": 34263,
+          "phase_max_us": 35460,
+          "flush_wait_us": 933965,
+          "flushes": 637,
+          "submitted_bytes": 15052800
+        },
+        {
+          "startMs": 88070,
+          "endMs": 93075,
+          "renders": 49,
+          "phase_avg_us": 34228,
+          "phase_max_us": 35147,
+          "flush_wait_us": 940529,
+          "flushes": 637,
+          "submitted_bytes": 15052800
+        },
+        {
+          "startMs": 93075,
+          "endMs": 98104,
+          "renders": 49,
+          "phase_avg_us": 34248,
+          "phase_max_us": 35318,
+          "flush_wait_us": 936658,
+          "flushes": 637,
+          "submitted_bytes": 15052800
+        }
+      ]
+    },
+    {
+      "mode": "json",
+      "entities": 64,
+      "width": 480,
+      "height": 222,
+      "logicFrames": 200,
+      "stageSeconds": 33.561,
+      "logicUpdatesPerSecond": 5.959297994696224,
+      "jsPrepareSubmitMeanMs": 37.785,
+      "jsPrepareSubmitMaxMs": 206,
+      "displayWindows": 5,
+      "displayWindowSeconds": 25.232999999999997,
+      "displayRefreshesPerSecond": 6.182380216383308,
+      "renderPhaseMeanMs": 34.353448717948716,
+      "renderPhaseMaxMs": 36.586,
+      "flushWaitPerRefreshMs": 12.62520512820513,
+      "submittedBytesPerRefresh": 307200.0,
+      "submittedBytesPerSecond": 1899227.2024729524,
+      "windows": [
+        {
+          "startMs": 103122,
+          "endMs": 108196,
+          "renders": 31,
+          "phase_avg_us": 34366,
+          "phase_max_us": 36586,
+          "flush_wait_us": 392049,
+          "flushes": 403,
+          "submitted_bytes": 9523200
+        },
+        {
+          "startMs": 108196,
+          "endMs": 113231,
+          "renders": 30,
+          "phase_avg_us": 34409,
+          "phase_max_us": 36297,
+          "flush_wait_us": 379618,
+          "flushes": 390,
+          "submitted_bytes": 9216000
+        },
+        {
+          "startMs": 113231,
+          "endMs": 118284,
+          "renders": 30,
+          "phase_avg_us": 34382,
+          "phase_max_us": 35739,
+          "flush_wait_us": 377067,
+          "flushes": 390,
+          "submitted_bytes": 9216000
+        },
+        {
+          "startMs": 118284,
+          "endMs": 123295,
+          "renders": 33,
+          "phase_avg_us": 34318,
+          "phase_max_us": 34761,
+          "flush_wait_us": 414448,
+          "flushes": 429,
+          "submitted_bytes": 10137600
+        },
+        {
+          "startMs": 123295,
+          "endMs": 128355,
+          "renders": 32,
+          "phase_avg_us": 34299,
+          "phase_max_us": 34620,
+          "flush_wait_us": 406350,
+          "flushes": 416,
+          "submitted_bytes": 9830400
+        }
+      ]
+    },
+    {
+      "mode": "json",
+      "entities": 96,
+      "width": 480,
+      "height": 222,
+      "logicFrames": 200,
+      "stageSeconds": 47.461,
+      "logicUpdatesPerSecond": 4.21398622026506,
+      "jsPrepareSubmitMeanMs": 58.82,
+      "jsPrepareSubmitMaxMs": 410,
+      "displayWindows": 9,
+      "displayWindowSeconds": 45.668,
+      "displayRefreshesPerSecond": 4.291845493562231,
+      "renderPhaseMeanMs": 34.36458163265306,
+      "renderPhaseMaxMs": 36.891,
+      "flushWaitPerRefreshMs": 6.925964285714286,
+      "submittedBytesPerRefresh": 304238.78571428574,
+      "submittedBytesPerSecond": 1305745.8614347028,
+      "windows": [
+        {
+          "startMs": 133368,
+          "endMs": 138575,
+          "renders": 21,
+          "phase_avg_us": 34837,
+          "phase_max_us": 36497,
+          "flush_wait_us": 147417,
+          "flushes": 273,
+          "submitted_bytes": 6451200
+        },
+        {
+          "startMs": 138575,
+          "endMs": 143579,
+          "renders": 22,
+          "phase_avg_us": 34741,
+          "phase_max_us": 36118,
+          "flush_wait_us": 154028,
+          "flushes": 286,
+          "submitted_bytes": 6758400
+        },
+        {
+          "startMs": 143579,
+          "endMs": 148580,
+          "renders": 22,
+          "phase_avg_us": 34726,
+          "phase_max_us": 36838,
+          "flush_wait_us": 156178,
+          "flushes": 286,
+          "submitted_bytes": 6758400
+        },
+        {
+          "startMs": 148580,
+          "endMs": 153647,
+          "renders": 21,
+          "phase_avg_us": 34620,
+          "phase_max_us": 34908,
+          "flush_wait_us": 145463,
+          "flushes": 273,
+          "submitted_bytes": 6451200
+        },
+        {
+          "startMs": 153647,
+          "endMs": 158697,
+          "renders": 21,
+          "phase_avg_us": 34637,
+          "phase_max_us": 35217,
+          "flush_wait_us": 146898,
+          "flushes": 273,
+          "submitted_bytes": 6451200
+        },
+        {
+          "startMs": 158697,
+          "endMs": 163713,
+          "renders": 23,
+          "phase_avg_us": 31843,
+          "phase_max_us": 34976,
+          "flush_wait_us": 149765,
+          "flushes": 276,
+          "submitted_bytes": 6485202
+        },
+        {
+          "startMs": 163713,
+          "endMs": 168772,
+          "renders": 22,
+          "phase_avg_us": 34692,
+          "phase_max_us": 35081,
+          "flush_wait_us": 155035,
+          "flushes": 286,
+          "submitted_bytes": 6758400
+        },
+        {
+          "startMs": 168772,
+          "endMs": 173955,
+          "renders": 21,
+          "phase_avg_us": 34623,
+          "phase_max_us": 35296,
+          "flush_wait_us": 144910,
+          "flushes": 273,
+          "submitted_bytes": 6451200
+        },
+        {
+          "startMs": 173955,
+          "endMs": 179036,
+          "renders": 23,
+          "phase_avg_us": 34718,
+          "phase_max_us": 36891,
+          "flush_wait_us": 157795,
+          "flushes": 299,
+          "submitted_bytes": 7065600
+        }
+      ]
+    }
+  ]
+}

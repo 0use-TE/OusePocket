@@ -21,7 +21,7 @@ def function(source, signature):
     raise ValueError(signature)
 
 recorder = (ROOT / 'components/ouse_recorder/ouse_recorder.c').read_text(encoding='utf-8')
-files = (ROOT / 'components/ouse_files/ouse_files.c').read_text(encoding='utf-8')
+files = (ROOT / 'components/ouse_files/ouse_app_files.c').read_text(encoding='utf-8')
 fixture = r'''
 #include <assert.h>
 #include <stdbool.h>
@@ -32,11 +32,17 @@ fixture = r'''
 #include <sys/stat.h>
 #include <sys/utime.h>
 #include <io.h>
+#include <direct.h>
+#define mkdir(path,mode) _mkdir(path)
+#define S_ISDIR(mode) (((mode)&_S_IFDIR)!=0)
+#define strncasecmp _strnicmp
+#define OUSE_APP_FILES_ROOT "data/Apps"
 #include <fcntl.h>
 #include <time.h>
 #include "ouse_tasks.h"
 #define ESP_ERR_INVALID_SIZE 0x104
 #define OUSE_FILES_PATH_MAX 128
+#define OUSE_APP_FILE_PATH 192
 #define ROOT "data"
 #define strcasecmp _stricmp
 #define fsync _commit
@@ -48,6 +54,8 @@ fixture = r'''
 #define pdMS_TO_TICKS(value) (value)
 typedef struct {bool active,stopping;uint32_t task_id,revision,duration_ms;int64_t ended;esp_err_t error;char path[128];} state_t;
 static state_t snapshot,*state=&snapshot;
+static ouse_task_owner_t owner={.app_id="user.recorder",.instance=1};
+static esp_err_t ouse_app_files_prepare(const char *id){return ESP_OK;}
 static bool producer_done=true,ready=true,cancelled;
 static unsigned pcm_left,pcm_offset,receive_calls,finished;
 static esp_err_t finished_error;
@@ -84,18 +92,18 @@ static void verify(const char *path,unsigned bytes){
  assert(fgetc(file)==EOF);fclose(file);
 }
 int main(void){
- char absolute[180];assert(recording_path("Recordings/test.wav",absolute));assert(!recording_path("Music/test.wav",absolute));assert(!recording_path("Recordings/../test.wav",absolute));assert(!recording_path("Recordings/test.mp3",absolute));
- begin("Recordings/good.wav",64000);save_recording();assert(finished==1&&finished_error==ESP_OK&&!finished_cancel&&state->duration_ms==2000&&state->ended>1577836800&&receive_calls>10);verify("data/Recordings/good.wav",64000);assert(!fopen("data/Recordings/good.wav.part","rb"));
- begin("Recordings/closed.wav",32000);cancelled=true;save_recording();assert(finished_error==ESP_OK&&finished_cancel);verify("data/Recordings/closed.wav",32000);
- begin("Recordings/empty.wav",0);save_recording();assert(finished_error!=ESP_OK&&!state->path[0]);assert(!fopen("data/Recordings/empty.wav","rb"));assert(!fopen("data/Recordings/empty.wav.part","rb"));
- begin("Recordings/no-card.wav",4096);ready=false;save_recording();assert(finished_error!=ESP_OK&&!state->path[0]&&finished==1&&!state->active);
- begin("Recordings/good.wav",32000);save_recording();assert(finished_error!=ESP_OK);verify("data/Recordings/good.wav",64000);
+ char absolute[180];assert(recording_path("user.recorder","/Ouse/Apps/user.recorder/Recordings/test.wav",absolute));assert(!recording_path("user.recorder","Music/test.wav",absolute));assert(!recording_path("user.recorder","/Ouse/Apps/user.recorder/Recordings/../test.wav",absolute));assert(!recording_path("user.recorder","/Ouse/Apps/user.recorder/Recordings/test.mp3",absolute));
+ begin("/Ouse/Apps/user.recorder/Recordings/good.wav",64000);save_recording();assert(finished==1&&finished_error==ESP_OK&&!finished_cancel&&state->duration_ms==2000&&state->ended>1577836800&&receive_calls>10);verify("data/Apps/user.recorder/Recordings/good.wav",64000);assert(!fopen("data/Apps/user.recorder/Recordings/good.wav.part","rb"));
+ begin("/Ouse/Apps/user.recorder/Recordings/closed.wav",32000);cancelled=true;save_recording();assert(finished_error==ESP_OK&&finished_cancel);verify("data/Apps/user.recorder/Recordings/closed.wav",32000);
+ begin("/Ouse/Apps/user.recorder/Recordings/empty.wav",0);save_recording();assert(finished_error!=ESP_OK&&!state->path[0]);assert(!fopen("data/Apps/user.recorder/Recordings/empty.wav","rb"));assert(!fopen("data/Apps/user.recorder/Recordings/empty.wav.part","rb"));
+ begin("/Ouse/Apps/user.recorder/Recordings/no-card.wav",4096);ready=false;save_recording();assert(finished_error!=ESP_OK&&!state->path[0]&&finished==1&&!state->active);
+ begin("/Ouse/Apps/user.recorder/Recordings/good.wav",32000);save_recording();assert(finished_error!=ESP_OK);verify("data/Apps/user.recorder/Recordings/good.wav",64000);
  puts("PASS real recorder finalizer: bounded PCM chunks, WAV sizes/rate/payload, fsync/rename, end time, close retention, empty/absent-card failures, no overwrite, path isolation");
  return 0;
 }
 '''
-functions = function(files, 'bool ouse_files_path(') + '\n'
-for signature in ('static bool recording_path(', 'static void u32(', 'static bool wave_header(', 'static void save_recording('):
+functions = "\n".join(function(files, signature) for signature in ("static bool valid_app(","static bool relative_path(","bool ouse_app_files_path("))+"\n"
+for signature in ('static bool recording_path(', 'static bool prepare_recordings(', 'static void u32(', 'static bool wave_header(', 'static void save_recording('):
     functions += function(recorder, signature) + '\n'
 (OUT / 'check.c').write_text(fixture.replace('/* FUNCTIONS */', functions), encoding='utf-8')
 environment = dict(os.environ)
@@ -109,7 +117,7 @@ result = subprocess.run([str(compiler), '/nologo', '/std:c11', '/O2', '/utf-8', 
                          '/I' + str(ROOT / '.tools/ouse-core-check'), '/I' + str(ROOT / 'components/ouse_tasks/include'),
                          'check.c', '/Fecheck.exe'], cwd=OUT, env=environment, capture_output=True, text=True, errors='replace')
 assert result.returncode == 0, (result.stdout, result.stderr)
-(OUT / 'data/Recordings').mkdir(parents=True, exist_ok=True)
+(OUT / 'data/Apps/user.recorder/Recordings').mkdir(parents=True, exist_ok=True)
 for name in ('good.wav', 'good.wav.part', 'closed.wav', 'closed.wav.part', 'empty.wav', 'empty.wav.part', 'no-card.wav.part'):
-    (OUT / 'data/Recordings' / name).unlink(missing_ok=True)
+    (OUT / 'data/Apps/user.recorder/Recordings' / name).unlink(missing_ok=True)
 subprocess.run([str(OUT / 'check.exe')], cwd=OUT, check=True, timeout=15)

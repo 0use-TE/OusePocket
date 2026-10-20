@@ -2,7 +2,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 #define OUSE_POINTER_CAPACITY 8
-typedef struct {unsigned node,type;uint32_t generation,time;int x,y,dx,dy;} ouse_pointer_event_t;
+#define OUSE_POINTER_CONTACTS 2
+typedef struct {unsigned node,type,pointer_id;uint32_t generation,time;int x,y,dx,dy;} ouse_pointer_event_t;
 typedef struct {
     ouse_pointer_event_t events[OUSE_POINTER_CAPACITY];
     unsigned head,count,node;

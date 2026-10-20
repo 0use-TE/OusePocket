@@ -72,6 +72,7 @@ void ouse_health_ui_pause(void){}
 void ouse_health_ui_close(void){}
 void ouse_manager_ui_build(lv_obj_t *root,void (*back)(void)){(void)root;(void)back;}
 void ouse_manager_ui_update(void){}
+void ouse_manager_ui_select(const char *id){(void)id;}
 void ouse_manager_ui_refresh(void){}
 bool ouse_manager_ui_back(void){return false;}
 void ouse_manager_ui_release_icons(void){}

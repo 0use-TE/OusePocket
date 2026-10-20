@@ -151,7 +151,7 @@ static void tick(void) {
 static void flush(lv_display_t *display, const lv_area_t *a, uint8_t *data) {
     int width = a->x2 - a->x1 + 1;
     for (int y = a->y1; y <= a->y2; ++y)
-        memcpy(pixels + (y * 320 + a->x1) * 2, data + (y - a->y1) * width * 2, width * 2);
+        memcpy(pixels + (y * lv_display_get_horizontal_resolution(display) + a->x1) * 2, data + (y - a->y1) * width * 2, width * 2);
     ++flushes;
     lv_display_flush_ready(display);
 }
@@ -249,6 +249,8 @@ static lv_indev_t *touch_device;
 static lv_indev_state_t touch_state=LV_INDEV_STATE_RELEASED;
 static void read_touch(lv_indev_t *indev, lv_indev_data_t *data) {
     (void)indev; data->state=touch_state; data->point=touch_point;
+    if(lv_display_get_rotation(lv_display_get_default())==LV_DISPLAY_ROTATION_270)
+        data->point=(lv_point_t){319-touch_point.y,touch_point.x};
 }
 static void touch_step(int x, int y, bool down) {
     touch_point=(lv_point_t){x,y}; touch_state=down ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
@@ -367,7 +369,7 @@ static void screenshot(const char *name) {
     lv_refr_now(lv_display_get_default());
     FILE *file = NULL;
     assert(fopen_s(&file, name, "wb") == 0 && file);
-    fprintf(file, "P6\n320 480\n255\n");
+    fprintf(file, "P6\n%ld %ld\n255\n",(long)lv_display_get_horizontal_resolution(NULL),(long)lv_display_get_vertical_resolution(NULL));
     for (unsigned i = 0; i < 320 * 480; ++i) {
         uint16_t p = (uint16_t)(pixels[i*2] | ((uint16_t)pixels[i*2+1] << 8));
         uint8_t rgb[3] = {(uint8_t)(((p >> 11) & 31)*255/31),
@@ -658,6 +660,34 @@ int main(int argc, char **argv) {
     assert(brightness == 45);
     assert(ouse_core_start(&config) == ESP_ERR_INVALID_STATE);
     lv_obj_t *root = lv_screen_active();
+    if(argc>1 && !strcmp(argv[1],"--orientation")){
+        assert(ouse_app_open("ouse.counter")==ESP_OK);tick();
+        for(unsigned round=0;round<4;++round){
+            assert(ouse_core_set_orientation(true)==ESP_OK);tick();assert(ouse_core_landscape());assert(lv_obj_get_width(root)==480&&lv_obj_get_height(root)==320);lv_obj_t *opened=ouse_apps_root(round?"ouse.settings":"ouse.counter");if(opened)assert(lv_obj_get_width(opened)==480);
+            int w,h;ouse_core_app_size(&w,&h);assert(w==480&&h>=240&&h<=256);
+            ouse_shell_set_navigation(1);tick();assert(ouse_app_open("ouse.settings")==ESP_OK);tick();screenshot("orientation-settings-land.ppm");
+            if(round==0){
+                click(root,"Wi-Fi");tick();assert(ouse_wifi_set_enabled(true)==ESP_OK);ouse_wifi_request_t request;assert(ouse_devices_take_wifi(&request));
+                ouse_wifi_state_t wifi={.available=true,.enabled=true,.ready=true,.count=1,.completed_id=request.id};strcpy(wifi.aps[0].ssid,"Office");wifi.aps[0].secured=true;ouse_devices_publish_wifi(&wifi,request.id);tick();click(root,"Office");tick();
+                lv_obj_t *field=find_type(root,&lv_textarea_class);assert(field);ouse_ime_focus(field);tick();ouse_ime_state_t ime;ouse_ime_get_state(&ime);assert(ime.visible&&ime.keyboard_bounds.x1==0&&ime.keyboard_bounds.x2==479&&ime.keyboard_bounds.y2<280);screenshot("orientation-keyboard-land.ppm");ouse_ime_hide();ouse_device_ui_close_modal();
+            }
+            ouse_dialog_show("横屏系统弹窗","确定",NULL);tick();lv_obj_update_layout(root);lv_obj_t *button=label(root,"确定");lv_area_t area;lv_obj_get_coords(button,&area);assert(area.x1>=0&&area.x2<480&&area.y1>=0&&area.y2<320);ouse_dialog_dismiss();
+            assert(ouse_core_set_orientation(false)==ESP_OK);tick();assert(!ouse_core_landscape()&&lv_obj_get_width(root)==320&&lv_obj_get_height(root)==480);assert(lv_obj_get_width(ouse_apps_root("ouse.settings"))==320);
+            assert(ouse_app_close()==ESP_OK);ouse_shell_set_navigation(0);tick();
+        }
+        assert(ouse_core_set_orientation(true)==ESP_OK);tick();screenshot("orientation-home-land.ppm");
+        swipe(430,14,430,240);tick();
+        lv_obj_t *land_volume=find_type(root,&lv_slider_class);assert(land_volume);
+        lv_obj_t *land_quick=lv_obj_get_parent(lv_obj_get_parent(land_volume));
+        assert(lv_obj_get_scrollbar_mode(land_quick)==LV_SCROLLBAR_MODE_AUTO);
+        scroll_from_child_gap(land_quick,150,100);tick();
+        lv_obj_t *land_brightness=brightness_slider(root);assert(land_brightness);
+        lv_area_t brightness_area,body_area;lv_obj_get_coords(land_brightness,&brightness_area);lv_obj_get_coords(land_quick,&body_area);
+        assert(lv_obj_get_scroll_y(land_quick)>0 && brightness_area.y1>=body_area.y1 && brightness_area.y2<=body_area.y2);
+        screenshot("orientation-quick-scrolled.ppm");
+        swipe(240,310,240,190);tick();
+        assert(ouse_core_set_orientation(false)==ESP_OK);tick();puts("PASS repeated portrait/landscape: launcher, settings, navigation, app bounds, dialogs and preview cleanup");return 0;
+    }
     if(argc>1 && !strcmp(argv[1],"--device-setup-resume")){
         assert(ouse_core_locked() && ouse_app_open("ouse.settings")==ESP_ERR_INVALID_STATE);
         for(unsigned i=0;i<6;++i)click(root,"2");tick();assert(!ouse_core_locked() && label(root,"简单使用"));
@@ -665,7 +695,7 @@ int main(int argc, char **argv) {
         puts("PASS configured PIN protects interrupted setup after reboot");return 0;
     }
     if(argc>1 && !strcmp(argv[1],"--device-setup-skip")){
-        click(root,"开始使用");lv_textarea_set_text(find_type(root,&lv_textarea_class),"Pocket");click(root,"下一步");tick();
+        click(root,"开始使用");click(root,"跳过");click(root,"跳过");click(root,"跳过");lv_textarea_set_text(find_type(root,&lv_textarea_class),"Pocket");click(root,"下一步");tick();
         click(root,"跳过");tick();click(root,"稍后设置");tick();click(root,"进入桌面");tick();
         assert(host_identity.setup_done && !host_identity.pin_enabled && !ouse_core_access_blocked());
         assert(ouse_core_sleep_display()==ESP_OK && !ouse_core_locked());puts("PASS Wi-Fi and PIN optional; no lock when PIN disabled");return 0;
@@ -673,7 +703,11 @@ int main(int argc, char **argv) {
     if(argc>1 && !strcmp(argv[1],"--device-setup")){
         assert(ouse_core_access_blocked() && !ouse_core_locked());
         assert(ouse_app_open("ouse.settings")==ESP_ERR_INVALID_STATE);
-        click(root,"开始使用");tick();screenshot("setup-name.ppm");
+        click(root,"开始使用");tick();assert(label(root,"选择语言 / Language"));screenshot("setup-language.ppm");
+        click(root,"English");tick();assert(ouse_ui_locale()==1 && label(root,"Choose a theme"));screenshot("setup-theme-en.ppm");
+        click(root,"Dark");tick();assert(ouse_theme_get()==OUSE_THEME_DARK && label(root,"Choose navigation"));screenshot("setup-navigation-en.ppm");
+        click(root,"Gesture navigation");tick();assert(ouse_shell_navigation()==0 && label(root,"Name your device"));
+        assert(ouse_core_set_ui(0,100)==ESP_OK);ouse_shell_set_navigation(1);tick();screenshot("setup-name.ppm");
         click(root,"下一步");tick();assert(!host_identity.name[0]);
         lv_textarea_set_text(find_type(root,&lv_textarea_class),"Pocket Test");
         click(root,"下一步");tick();assert(!strcmp(host_identity.name,"Pocket Test"));
@@ -703,15 +737,16 @@ int main(int argc, char **argv) {
         click(root,"修改密码");tick();for(unsigned i=0;i<6;++i)click(root,"1");tick();assert(label(root,"验证原密码"));
         for(unsigned i=0;i<6;++i)click(root,"2");tick();
         for(unsigned pass=0;pass<2;++pass)for(unsigned i=0;i<6;++i)click(root,"3");tick();
-        assert(!strcmp(host_pin,"333333"));click(root,"返回");tick();
+        assert(!strcmp(host_pin,"333333"));click(root,"返回");tick();assert(ouse_core_set_orientation(true)==ESP_OK);tick();
         assert(ouse_core_sleep_display()==ESP_OK && ouse_core_locked());
         assert(ouse_app_open("ouse.counter")==ESP_ERR_INVALID_STATE);
         assert(ouse_core_wake_display()==ESP_OK);tick();screenshot("setup-locked.ppm");
+        lv_obj_update_layout(root);lv_area_t landscape_key;lv_obj_get_coords(lv_obj_get_parent(label(root,"0")),&landscape_key);assert(landscape_key.y2<320&&landscape_key.x2<480);lv_obj_t *digits=label(root,"_ _ _ _ _ _ ");assert(digits&&lv_obj_get_height(lv_obj_get_parent(digits))>=lv_obj_get_height(digits));
         assert(ouse_debug_open("ouse.counter")==ESP_ERR_INVALID_STATE);
         lv_obj_t *lock_layer=lv_obj_get_parent(label(root,"输入锁屏密码"));assert(lv_obj_get_parent(lock_layer)==root && lv_obj_get_index(lock_layer)==(int32_t)lv_obj_get_child_count(root)-1);
         swipe(160,1,160,250);assert(ouse_core_locked());
         for(unsigned i=0;i<6;++i)click(root,"2");tick();assert(ouse_core_locked());
-        for(unsigned i=0;i<6;++i)click(root,"3");tick();assert(!ouse_core_locked() && !ouse_core_access_blocked());
+        for(unsigned i=0;i<6;++i)click(root,"3");tick();assert(!ouse_core_locked() && !ouse_core_access_blocked());assert(ouse_core_set_orientation(false)==ESP_OK);tick();
         click(root,"密钥");click(root,"关闭密码");for(unsigned i=0;i<6;++i)click(root,"3");tick();
         assert(!host_identity.pin_enabled);click(root,"返回");tick();assert(ouse_core_sleep_display()==ESP_OK && !ouse_core_locked());
         puts("PASS first-run required name, optional Wi-Fi, six-digit confirmation, change/disable authentication, lock on sleep, gesture/app-open gate");return 0;
@@ -1289,6 +1324,7 @@ if not focused:
     subprocess.run([str(OUT / "check.exe")], check=True, cwd=OUT, timeout=180)
     subprocess.run([str(OUT / "check.exe"), "--lifecycle-errors"], check=True, cwd=OUT, timeout=60)
     subprocess.run([str(OUT / "check.exe"), "--launch-animation"], check=True, cwd=OUT, timeout=60)
+    subprocess.run([str(OUT / "check.exe"), "--orientation"], check=True, cwd=OUT, timeout=60)
     subprocess.run([str(OUT / "check.exe"), "--device-setup"], check=True, cwd=OUT, timeout=60)
     subprocess.run([str(OUT / "check.exe"), "--device-setup-skip"], check=True, cwd=OUT, timeout=60)
     subprocess.run([str(OUT / "check.exe"), "--device-setup-resume"], check=True, cwd=OUT, timeout=60)

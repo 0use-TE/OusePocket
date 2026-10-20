@@ -1,3 +1,4 @@
+#include "ouse_journal.h"
 // SPDX-License-Identifier: MIT
 // Native coordinator. No hardware I/O, JS execution or filesystem work on UI.
 #include "ouse_core.h"
@@ -160,6 +161,7 @@ static void worker(void *unused)
             snprintf(blocker,sizeof(blocker),"%s",reason ? reason : "");
             if(reason)settled=0;else if(!settled)settled=now;
             if(settled && now-settled>=500000){
+                (void)ouse_journal_flush(2000);
                 if(!poweroff)esp_restart();
                 esp_err_t error=ouse_board_power_off();
                 if(error==ESP_OK)vTaskDelay(pdMS_TO_TICKS(1000));

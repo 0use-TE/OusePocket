@@ -1,0 +1,564 @@
+{
+  "success": true,
+  "physicalFitVerified": false,
+  "units": "mm",
+  "parameters": {
+    "CaseWidth": 110.0,
+    "CaseHeight": 168.0,
+    "CaseDepth": 28.0,
+    "Wall": 2.4,
+    "CornerRadius": 9.0,
+    "HostCenterY": 46.0,
+    "HostFrontZ": -2.65,
+    "HostClearance": 0.3,
+    "MainPcbWidth": 96.0,
+    "MainPcbHeight": 88.0,
+    "MainPcbCenterY": -34.0,
+    "MainPcbTopZ": -8.0,
+    "PcbThickness": 1.6,
+    "StickPcbTopZ": -18.8,
+    "SwitchHeight": 4.3,
+    "SwitchStroke": 0.25,
+    "ButtonFreeGap": 0.15,
+    "ButtonTravelStop": 0.4,
+    "ButtonDiameter": 10.0,
+    "ButtonHoleDiameter": 10.5,
+    "ButtonFlangeDiameter": 12.4,
+    "ButtonTopZ": 1.6,
+    "StickX": -28.0,
+    "StickY": -8.0,
+    "StickBodyWidth": 18.2,
+    "StickBodyDepth": 21.7,
+    "StickBodyHeight": 11.2,
+    "StickLeverHeight": 18.95,
+    "StickTiltDeg": 23.0,
+    "StickPushMax": 0.9,
+    "StickHoleDiameter": 18.5,
+    "StickCapDiameter": 20.0,
+    "StickCapBottomZ": 6.5,
+    "StickCapTopZ": 9.5,
+    "DpadX": -28.0,
+    "DpadY": -47.0,
+    "DpadLength": 27.0,
+    "DpadWidth": 8.0,
+    "DpadSwitchPitch": 9.0,
+    "DpadPivotZ": -6.5,
+    "AbxyCenterX": 28.0,
+    "AbxyCenterY": -25.0,
+    "AbxyPitch": 12.5,
+    "MenuX": 7.0,
+    "StartX": 31.0,
+    "FunctionY": -65.0
+  },
+  "shapes": {
+    "HostFrontFrame": {
+      "valid": true,
+      "solids": 1,
+      "volume": 32453.5095
+    },
+    "HostRearShell": {
+      "valid": true,
+      "solids": 1,
+      "volume": 38090.6442
+    },
+    "HostSocketHousing": {
+      "valid": true,
+      "solids": 1,
+      "volume": 1053.6035
+    },
+    "HostDisplayArea": {
+      "valid": true,
+      "solids": 1,
+      "volume": 143.8249
+    },
+    "HostCamera": {
+      "valid": true,
+      "solids": 1,
+      "volume": 38.1704
+    },
+    "HostFoot1": {
+      "valid": true,
+      "solids": 1,
+      "volume": 13.7413
+    },
+    "HostFoot2": {
+      "valid": true,
+      "solids": 1,
+      "volume": 13.7413
+    },
+    "HostFoot3": {
+      "valid": true,
+      "solids": 1,
+      "volume": 13.7413
+    },
+    "HostFoot4": {
+      "valid": true,
+      "solids": 1,
+      "volume": 13.7413
+    },
+    "FrontShell": {
+      "valid": true,
+      "solids": 1,
+      "volume": 56577.7331
+    },
+    "RearCover": {
+      "valid": true,
+      "solids": 1,
+      "volume": 29547.4356
+    },
+    "MainPCB": {
+      "valid": true,
+      "solids": 1,
+      "volume": 11394.4366
+    },
+    "StickPCB": {
+      "valid": true,
+      "solids": 1,
+      "volume": 1608.5777
+    },
+    "MainStandoff0": {
+      "valid": true,
+      "solids": 1,
+      "volume": 194.0326
+    },
+    "HeightShim0": {
+      "valid": true,
+      "solids": 1,
+      "volume": 16.7133
+    },
+    "MainStandoff1": {
+      "valid": true,
+      "solids": 1,
+      "volume": 194.0326
+    },
+    "HeightShim1": {
+      "valid": true,
+      "solids": 1,
+      "volume": 16.7133
+    },
+    "MainStandoff2": {
+      "valid": true,
+      "solids": 1,
+      "volume": 194.0326
+    },
+    "HeightShim2": {
+      "valid": true,
+      "solids": 1,
+      "volume": 16.7133
+    },
+    "MainStandoff3": {
+      "valid": true,
+      "solids": 1,
+      "volume": 194.0326
+    },
+    "HeightShim3": {
+      "valid": true,
+      "solids": 1,
+      "volume": 16.7133
+    },
+    "MainStandoff4": {
+      "valid": true,
+      "solids": 1,
+      "volume": 194.0326
+    },
+    "HeightShim4": {
+      "valid": true,
+      "solids": 1,
+      "volume": 16.7133
+    },
+    "SWA": {
+      "valid": true,
+      "solids": 1,
+      "volume": 126.0
+    },
+    "ActuatorA": {
+      "valid": true,
+      "solids": 1,
+      "volume": 7.6969
+    },
+    "PinsA": {
+      "valid": true,
+      "solids": 4,
+      "volume": 4.41
+    },
+    "SWB": {
+      "valid": true,
+      "solids": 1,
+      "volume": 126.0
+    },
+    "ActuatorB": {
+      "valid": true,
+      "solids": 1,
+      "volume": 7.6969
+    },
+    "PinsB": {
+      "valid": true,
+      "solids": 4,
+      "volume": 4.41
+    },
+    "SWX": {
+      "valid": true,
+      "solids": 1,
+      "volume": 126.0
+    },
+    "ActuatorX": {
+      "valid": true,
+      "solids": 1,
+      "volume": 7.6969
+    },
+    "PinsX": {
+      "valid": true,
+      "solids": 4,
+      "volume": 4.41
+    },
+    "SWY": {
+      "valid": true,
+      "solids": 1,
+      "volume": 126.0
+    },
+    "ActuatorY": {
+      "valid": true,
+      "solids": 1,
+      "volume": 7.6969
+    },
+    "PinsY": {
+      "valid": true,
+      "solids": 4,
+      "volume": 4.41
+    },
+    "SWMenu": {
+      "valid": true,
+      "solids": 1,
+      "volume": 126.0
+    },
+    "ActuatorMenu": {
+      "valid": true,
+      "solids": 1,
+      "volume": 7.6969
+    },
+    "PinsMenu": {
+      "valid": true,
+      "solids": 4,
+      "volume": 4.41
+    },
+    "SWStart": {
+      "valid": true,
+      "solids": 1,
+      "volume": 126.0
+    },
+    "ActuatorStart": {
+      "valid": true,
+      "solids": 1,
+      "volume": 7.6969
+    },
+    "PinsStart": {
+      "valid": true,
+      "solids": 4,
+      "volume": 4.41
+    },
+    "SWUp": {
+      "valid": true,
+      "solids": 1,
+      "volume": 126.0
+    },
+    "ActuatorUp": {
+      "valid": true,
+      "solids": 1,
+      "volume": 7.6969
+    },
+    "PinsUp": {
+      "valid": true,
+      "solids": 4,
+      "volume": 4.41
+    },
+    "SWDown": {
+      "valid": true,
+      "solids": 1,
+      "volume": 126.0
+    },
+    "ActuatorDown": {
+      "valid": true,
+      "solids": 1,
+      "volume": 7.6969
+    },
+    "PinsDown": {
+      "valid": true,
+      "solids": 4,
+      "volume": 4.41
+    },
+    "SWLeft": {
+      "valid": true,
+      "solids": 1,
+      "volume": 126.0
+    },
+    "ActuatorLeft": {
+      "valid": true,
+      "solids": 1,
+      "volume": 7.6969
+    },
+    "PinsLeft": {
+      "valid": true,
+      "solids": 4,
+      "volume": 4.41
+    },
+    "SWRight": {
+      "valid": true,
+      "solids": 1,
+      "volume": 126.0
+    },
+    "ActuatorRight": {
+      "valid": true,
+      "solids": 1,
+      "volume": 7.6969
+    },
+    "PinsRight": {
+      "valid": true,
+      "solids": 4,
+      "volume": 4.41
+    },
+    "CapA": {
+      "valid": true,
+      "solids": 1,
+      "volume": 412.9247
+    },
+    "CapB": {
+      "valid": true,
+      "solids": 1,
+      "volume": 412.9247
+    },
+    "CapX": {
+      "valid": true,
+      "solids": 1,
+      "volume": 412.9247
+    },
+    "CapY": {
+      "valid": true,
+      "solids": 1,
+      "volume": 412.9247
+    },
+    "CapMenu": {
+      "valid": true,
+      "solids": 1,
+      "volume": 268.5873
+    },
+    "CapStart": {
+      "valid": true,
+      "solids": 1,
+      "volume": 268.5873
+    },
+    "DpadCap": {
+      "valid": true,
+      "solids": 1,
+      "volume": 2198.0558
+    },
+    "DpadPivot": {
+      "valid": true,
+      "solids": 1,
+      "volume": 25.3684
+    },
+    "JoystickBody": {
+      "valid": true,
+      "solids": 1,
+      "volume": 4423.328
+    },
+    "JoystickShaft": {
+      "valid": true,
+      "solids": 1,
+      "volume": 83.3367
+    },
+    "JoystickCap": {
+      "valid": true,
+      "solids": 1,
+      "volume": 1229.9363
+    },
+    "UpperRetainer": {
+      "valid": true,
+      "solids": 1,
+      "volume": 1752.6165
+    },
+    "LowerRetainer": {
+      "valid": true,
+      "solids": 1,
+      "volume": 6119.6247
+    },
+    "HostPad0": {
+      "valid": true,
+      "solids": 1,
+      "volume": 64.0
+    },
+    "HostPad1": {
+      "valid": true,
+      "solids": 1,
+      "volume": 64.0
+    },
+    "HostPad2": {
+      "valid": true,
+      "solids": 1,
+      "volume": 64.0
+    },
+    "HostPad3": {
+      "valid": true,
+      "solids": 1,
+      "volume": 64.0
+    },
+    "GPIOAdapter": {
+      "valid": true,
+      "solids": 1,
+      "volume": 1646.3419
+    },
+    "MaleHeader": {
+      "valid": true,
+      "solids": 1,
+      "volume": 509.2312
+    },
+    "MalePins": {
+      "valid": true,
+      "solids": 32,
+      "volume": 53.7395
+    },
+    "CableEnvelope": {
+      "valid": true,
+      "solids": 3,
+      "volume": 225.026
+    },
+    "CaseScrew0": {
+      "valid": true,
+      "solids": 1,
+      "volume": 48.4591
+    },
+    "CaseScrew1": {
+      "valid": true,
+      "solids": 1,
+      "volume": 48.4591
+    },
+    "CaseScrew2": {
+      "valid": true,
+      "solids": 1,
+      "volume": 48.4591
+    },
+    "CaseScrew3": {
+      "valid": true,
+      "solids": 1,
+      "volume": 48.4591
+    },
+    "RetainScrew0": {
+      "valid": true,
+      "solids": 1,
+      "volume": 42.7885
+    },
+    "RetainScrew1": {
+      "valid": true,
+      "solids": 1,
+      "volume": 42.7885
+    },
+    "RetainScrew2": {
+      "valid": true,
+      "solids": 1,
+      "volume": 42.7885
+    },
+    "RetainScrew3": {
+      "valid": true,
+      "solids": 1,
+      "volume": 42.7885
+    },
+    "BoardScrew0": {
+      "valid": true,
+      "solids": 1,
+      "volume": 37.1179
+    },
+    "BoardScrew1": {
+      "valid": true,
+      "solids": 1,
+      "volume": 37.1179
+    },
+    "BoardScrew2": {
+      "valid": true,
+      "solids": 1,
+      "volume": 37.1179
+    },
+    "BoardScrew3": {
+      "valid": true,
+      "solids": 1,
+      "volume": 37.1179
+    },
+    "BoardScrew4": {
+      "valid": true,
+      "solids": 1,
+      "volume": 37.1179
+    },
+    "StickScrew0": {
+      "valid": true,
+      "solids": 1,
+      "volume": 37.1179
+    },
+    "StickScrew1": {
+      "valid": true,
+      "solids": 1,
+      "volume": 37.1179
+    },
+    "StickScrew2": {
+      "valid": true,
+      "solids": 1,
+      "volume": 37.1179
+    },
+    "StickScrew3": {
+      "valid": true,
+      "solids": 1,
+      "volume": 37.1179
+    },
+    "StandoffBaseScrew0": {
+      "valid": true,
+      "solids": 1,
+      "volume": 37.1179
+    },
+    "StandoffBaseScrew1": {
+      "valid": true,
+      "solids": 1,
+      "volume": 37.1179
+    },
+    "StandoffBaseScrew2": {
+      "valid": true,
+      "solids": 1,
+      "volume": 37.1179
+    },
+    "StandoffBaseScrew3": {
+      "valid": true,
+      "solids": 1,
+      "volume": 37.1179
+    },
+    "StandoffBaseScrew4": {
+      "valid": true,
+      "solids": 1,
+      "volume": 37.1179
+    },
+    "AdapterScrew0": {
+      "valid": true,
+      "solids": 1,
+      "volume": 31.4473
+    },
+    "AdapterScrew1": {
+      "valid": true,
+      "solids": 1,
+      "volume": 31.4473
+    },
+    "PivotScrew": {
+      "valid": true,
+      "solids": 1,
+      "volume": 31.4473
+    }
+  },
+  "interferences": [],
+  "movement": {
+    "joystickMaxShellIntersection_mm3": 0,
+    "dpadMaxShellIntersection_mm3": 0.0,
+    "buttonFreeGap_mm": 0.15,
+    "switchTravel_mm": 0.25,
+    "buttonStopTravel_mm": 0.4
+  },
+  "notes": [
+    "OEM shell outline uses official dimensions; socket/camera details still estimated.",
+    "PCB and electronics are mechanical placeholders, not routed boards.",
+    "Button gaps and cap socket require a printed tolerance sample.",
+    "Joystick pivot location is conservatively checked over 6..11.2 mm above PCB."
+  ]
+}

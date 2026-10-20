@@ -21,7 +21,9 @@
     "layout": "column",
     "padding": 20,
     "gap": 20,
-    "style": { "backgroundColor": "$background" },
+    "style": {
+      "backgroundColor": "$background"
+    },
     "children": [
       {
         "type": "toolbar",
@@ -37,7 +39,7 @@
         "height": "content",
         "layout": "column",
         "gap": 8,
-        "style": { "flexGrow": 1 },
+        "style": {},
         "children": [
           {
             "type": "container",
@@ -60,7 +62,10 @@
                 "height": "content",
                 "fontSize": 32,
                 "text": "0",
-                "style": { "textColor": "$text", "textAlign": "center" }
+                "style": {
+                  "textColor": "$text",
+                  "textAlign": "center"
+                }
               }
             ]
           },
@@ -84,7 +89,9 @@
                     "id": "circleSpacerL",
                     "width": 1,
                     "height": 1,
-                    "style": { "flexGrow": 1 }
+                    "style": {
+                      "flexGrow": 1
+                    }
                   },
                   {
                     "type": "button",
@@ -99,7 +106,9 @@
                       "textAlign": "center",
                       "radius": 56,
                       "states": {
-                        "pressed": { "backgroundColor": "$pressed" }
+                        "pressed": {
+                          "backgroundColor": "$pressed"
+                        }
                       }
                     }
                   },
@@ -108,7 +117,9 @@
                     "id": "circleSpacerR",
                     "width": 1,
                     "height": 1,
-                    "style": { "flexGrow": 1 }
+                    "style": {
+                      "flexGrow": 1
+                    }
                   }
                 ]
               },
@@ -125,7 +136,9 @@
                   "borderWidth": 1,
                   "radius": 14,
                   "states": {
-                    "pressed": { "backgroundColor": "$pressed" }
+                    "pressed": {
+                      "backgroundColor": "$pressed"
+                    }
                   }
                 }
               }
@@ -133,6 +146,7 @@
           }
         ]
       }
-    ]
+    ],
+    "scroll": true
   }
 }

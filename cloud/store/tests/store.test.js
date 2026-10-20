@@ -5,12 +5,13 @@ import os from "node:os";
 import path from "node:path";
 import {createHash} from "node:crypto";
 import {zip,unpack,validate,release} from "../lib/bpk.js";
-import {publish,list,detail,object} from "../lib/store.js";
+import {publish,list,detail,object,updateReleaseNotes} from "../lib/store.js";
 import {authorized,boundedBody} from "../lib/http.js";
 import {iconPNG} from "../lib/icon.js";
 import {readPackage,iconPixels} from "../lib/preview.js";
 import {inflateSync} from "node:zlib";
 import {database} from "../lib/database.js";
+import {POST,PATCH} from "../app/api/admin/releases/route.js";
 const icon=Buffer.alloc(12);icon.write("OIC1");icon.writeUInt16LE(1,4);icon.writeUInt16LE(1,6);icon[11]=255;
 const original=zip(new Map([["manifest.json",Buffer.from(JSON.stringify({runtime:"ouse-core",api:1,id:"user.test-store",name:"测试应用",icon:"icon.bin"}))],["page.json",Buffer.from(JSON.stringify({api:1,root:{type:"label",id:"hello",text:"Hello"}}))],["app.js",Buffer.from('globalThis.app={};')],["icon.bin",icon]]));
 test("stored BPK release preserves payload and validates metadata",()=>{
@@ -29,7 +30,7 @@ test("file handlers preserve declared MIME types and reject unsupported or under
 });
 test("atomic publication, increasing versions, immutable downloads and pagination",async()=>{
  const directory=await mkdtemp(path.join(os.tmpdir(),"ouse-store-test-"));process.env.STORE_DATA_DIR=directory;
- try{const metadata={versionCode:1,versionName:"1.0",minNativeApi:36,description:"测试应用",author:"测试作者",releasedAt:"2026-10-19",category:"tools"};const app=await publish(original,metadata);assert.equal((await detail(app.id)).sha256,app.sha256);assert.equal((await list()).items.length,1);assert.equal((await list({q:"不存在"})).items.length,0);assert.equal(await object("../../secret"),null);assert.equal(createHash("sha256").update(await object(app.sha256+".bpk")).digest("hex"),app.sha256);await assert.rejects(publish(original,metadata),/increase/);assert.equal((await publish(original,{...metadata,versionCode:2})).versionCode,2);assert.ok(await object(app.sha256+".bpk"));await assert.rejects(list({limit:"13"}));await assert.rejects(list({cursor:"-1"}));
+ try{const metadata={versionCode:1,versionName:"1.0",minNativeApi:36,description:"测试应用",author:"测试作者",releasedAt:"2026-10-19",category:"tools"};const app=await publish(original,metadata);assert.equal((await detail(app.id)).sha256,app.sha256);assert.equal((await list()).items.length,1);assert.equal((await list({q:"不存在"})).items.length,0);assert.equal(await object("../../secret"),null);assert.equal(createHash("sha256").update(await object(app.sha256+".bpk")).digest("hex"),app.sha256);await assert.rejects(publish(original,metadata),/increase/);assert.equal((await publish(original,{...metadata,versionCode:2})).versionCode,2);assert.ok(await object(app.sha256+".bpk"));await assert.rejects(list({limit:"101"}));await assert.rejects(list({cursor:"-1"}));
   const downloaded=validate(await object(app.sha256+".bpk")).manifest;assert.equal(downloaded.author,metadata.author);assert.equal(downloaded.description,metadata.description);assert.equal(downloaded.releasedAt,metadata.releasedAt);assert.equal((await list({q:"测试作者"})).total,1);assert.equal((await list({category:"games"})).total,0);assert.equal((await detail(app.id)).publishedAt,app.publishedAt);await assert.rejects(list({sort:"unknown"}));await assert.rejects(publish(original,{...metadata,versionCode:3,releasedAt:"2026-02-30"}));await assert.rejects(publish(original,{...metadata,versionCode:3,author:"x".repeat(65)}));
   for(let index=0;index<13;++index){const files=unpack(original),manifest=JSON.parse(files.get("manifest.json"));manifest.id="user.test"+index;files.set("manifest.json",Buffer.from(JSON.stringify(manifest)));await publish(zip(files),metadata);}
   const first=await list();assert.equal(first.items.length,12);assert.equal(first.nextCursor,"12");assert.equal((await list({cursor:first.nextCursor})).items.length,2);
@@ -44,4 +45,54 @@ test("BPK metadata preview and PNG preserve BGRA colors and alpha",()=>{
 test("admin authentication and bounded streaming body",async()=>{
  process.env.STORE_ADMIN_TOKEN="a".repeat(32);assert.equal(authorized(new Request("http://localhost")),false);assert.equal(authorized(new Request("http://localhost",{headers:{Authorization:"Bearer "+"a".repeat(32)}})),true);delete process.env.STORE_ADMIN_TOKEN;
  assert.equal(authorized(new Request("http://localhost")),false);assert.equal((await boundedBody(new Request("http://localhost",{method:"POST",body:"abc"}),3)).toString(),"abc");await assert.rejects(boundedBody(new Request("http://localhost",{method:"POST",body:"abcdef"}),3),/large/);
+});
+
+test("release notes remain version-specific and metadata edits preserve packages",async()=>{
+ const directory=await mkdtemp(path.join(os.tmpdir(),"ouse-notes-test-"));process.env.STORE_DATA_DIR=directory;
+ const metadata={versionCode:1,versionName:"1.0",minNativeApi:41,description:"应用介绍",author:"作者",releasedAt:"2026-10-20",category:"tools"};
+ try{
+  const first=await publish(original,{...metadata,releaseNotes:"  新增功能\r\n修复问题  "});
+  assert.equal(first.releaseNotes,"新增功能\n修复问题");assert.equal((await list()).items[0].releaseNotes,first.releaseNotes);
+  const second=await publish(original,{...metadata,versionCode:2,versionName:"1.1",releaseNotes:"第二版说明"});
+  const edited=await updateReleaseNotes(first.id,2,"修复横屏\n<script>literal text</script>");
+  assert.equal(edited.sha256,second.sha256);assert.equal(edited.updatedAt,second.updatedAt);assert.equal(edited.description,metadata.description);
+  assert.deepEqual(await object(edited.sha256+".bpk"),await object(second.sha256+".bpk"));
+  await assert.rejects(updateReleaseNotes(first.id,1,"过期编辑"),/版本已变化/);
+  await assert.rejects(updateReleaseNotes(first.id,2,undefined));
+  for(const notes of ["中".repeat(342),"nul\0",{},"bad\x01", "bad\x7f"])await assert.rejects(publish(original,{...metadata,versionCode:3,releaseNotes:notes}));
+  assert.equal((await detail(first.id)).versionCode,2);
+  const db=await database();try{
+   const releases=db.prepare("SELECT versionCode,releaseNotes FROM releases ORDER BY versionCode").all();
+   assert.equal(releases[0].releaseNotes,first.releaseNotes);assert.equal(releases[1].releaseNotes,edited.releaseNotes);
+  }finally{db.close();}
+  const third=await publish(original,{...metadata,versionCode:3});assert.equal(third.releaseNotes,"");
+  assert.equal((await updateReleaseNotes(first.id,3,"中".repeat(341))).releaseNotes.length,341);
+ }finally{delete process.env.STORE_DATA_DIR;await rm(directory,{recursive:true,force:true});}
+});
+
+test("v1 SQLite migration preserves existing apps/releases and is repeatable",async()=>{
+ const directory=await mkdtemp(path.join(os.tmpdir(),"ouse-notes-migration-"));process.env.STORE_DATA_DIR=directory;
+ try{
+  const app=await publish(original,{versionCode:1,versionName:"1.0",minNativeApi:41,description:"原介绍",author:"原作者",releasedAt:"2026-10-20",category:"tools"});
+  const old=await database();try{old.exec("ALTER TABLE apps DROP COLUMN releaseNotes; ALTER TABLE releases DROP COLUMN releaseNotes; PRAGMA user_version=1;");}finally{old.close();}
+  for(let i=0;i<2;i++){
+   const migrated=await detail(app.id);assert.equal(migrated.sha256,app.sha256);assert.equal(migrated.releaseNotes,"");assert.equal(migrated.description,"原介绍");
+   const db=await database();try{assert.equal(db.prepare("PRAGMA user_version").get().user_version,2);assert.equal(db.prepare("SELECT count(*) AS n FROM releases").get().n,1);assert.equal(db.prepare("SELECT releaseNotes FROM releases").get().releaseNotes,"");assert.equal(db.prepare("PRAGMA integrity_check").get().integrity_check,"ok");}finally{db.close();}
+  }
+ }finally{delete process.env.STORE_DATA_DIR;await rm(directory,{recursive:true,force:true});}
+});
+
+test("authenticated publish and note editing APIs validate versions and request bounds",async()=>{
+ const directory=await mkdtemp(path.join(os.tmpdir(),"ouse-notes-api-"));process.env.STORE_DATA_DIR=directory;process.env.STORE_ADMIN_TOKEN="test-token-".repeat(4);
+ try{
+  const headers={Authorization:"Bearer "+process.env.STORE_ADMIN_TOKEN,"Content-Type":"application/json"};
+  const q=new URLSearchParams({versionCode:"1",versionName:"1.0",minNativeApi:"41",description:"介绍",author:"作者",releasedAt:"2026-10-20",category:"tools",releaseNotes:"新增日志"});
+  const published=await POST(new Request("http://localhost/api/admin/releases?"+q,{method:"POST",headers,body:original}));assert.equal(published.status,201);const {app}=await published.json();assert.equal(app.releaseNotes,"新增日志");
+  const patch=(body,auth=headers)=>PATCH(new Request("http://localhost/api/admin/releases",{method:"PATCH",headers:auth,body:JSON.stringify(body)}));
+  assert.equal((await patch({id:app.id,versionCode:1,releaseNotes:"改好了"},{})).status,401);
+  assert.equal((await patch({id:app.id,versionCode:2,releaseNotes:"过期编辑"})).status,400);
+  assert.equal((await patch({id:app.id,versionCode:1})).status,400);
+  assert.equal((await patch({id:app.id,versionCode:1,releaseNotes:"x".repeat(5000)})).status,400);
+  const response=await patch({id:app.id,versionCode:1,releaseNotes:"修复横屏"});assert.equal(response.status,200);assert.equal((await response.json()).app.sha256,app.sha256);assert.equal((await detail(app.id)).releaseNotes,"修复横屏");
+ }finally{delete process.env.STORE_DATA_DIR;delete process.env.STORE_ADMIN_TOKEN;await rm(directory,{recursive:true,force:true});}
 });

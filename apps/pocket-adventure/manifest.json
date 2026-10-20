@@ -1,0 +1,27 @@
+{
+  "runtime": "ouse-core",
+  "api": 1,
+  "id": "user.adventure",
+  "name": "Pocket Adventure",
+  "names": {
+    "zh_CN": "小小冒险",
+    "en": "Pocket Adventure"
+  },
+  "icon": "icon.bin",
+  "versionCode": 1,
+  "versionName": "1.0.0",
+  "minNativeApi": 41,
+  "author": "OusePocket",
+  "description": "精灵动画与专属 SD 存档验证：点击移动，收集金币。",
+  "releasedAt": "2026-10-20",
+  "capabilities": {
+    "sdcard": true
+  },
+  "assets": [
+    {
+      "id": "actors",
+      "type": "image",
+      "path": "assets/actors.bin"
+    }
+  ]
+}

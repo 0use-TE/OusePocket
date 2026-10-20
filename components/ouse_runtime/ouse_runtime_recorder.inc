@@ -1,9 +1,9 @@
 static JSValue recorder_api(JSContext *context,JSValueConst self,int argc,JSValueConst *argv,int operation)
 {
     (void)self;instance_t *app=from_js(context);
-    if(!app->files_allowed || !app->media_allowed)return operation==0 ? JS_NULL : JS_FALSE;
+    if((!app->sdcard_allowed&&!app->files_allowed) || !app->media_allowed)return operation==0 ? JS_NULL : JS_FALSE;
     if(operation==0){
-        ouse_recorder_state_t state={0};if(!app->validation_only)ouse_recorder_get(&state);
+        ouse_recorder_state_t state={0};if(!app->validation_only)ouse_recorder_get_owned(&app->owner,&state);
         JSValue value=JS_NewObject(context);
         JS_SetPropertyStr(context,value,"active",JS_NewBool(context,state.active));JS_SetPropertyStr(context,value,"stopping",JS_NewBool(context,state.stopping));
         JS_SetPropertyStr(context,value,"busy",JS_NewBool(context,state.busy));JS_SetPropertyStr(context,value,"more",JS_NewBool(context,state.more));
@@ -19,7 +19,6 @@ static JSValue recorder_api(JSContext *context,JSValueConst self,int argc,JSValu
     if(app->validation_only)return JS_FALSE;
     if(operation==2)return JS_NewBool(context,ouse_recorder_stop(&app->owner));
     if(operation==1 && ouse_permissions_get(app->id,OUSE_PERMISSION_MICROPHONE)!=OUSE_PERMISSION_ALLOW)return JS_FALSE;
-    if(operation==5 && ouse_permissions_get(app->id,OUSE_PERMISSION_DELETE)!=OUSE_PERMISSION_ALLOW)return JS_FALSE;
     char path[128]="",name[80]="";uint32_t offset=0;
     if(operation==3){double number;if(argc!=1 || !JS_IsNumber(argv[0]) || JS_ToFloat64(context,&number,argv[0]) || !isfinite(number) || number<0 || number>1024 || floor(number)!=number)return JS_ThrowTypeError(context,"Expected recording offset 0..1024");offset=number;}
     if(operation>=4 && (argc!=(operation==4 ? 2 : 1) || !copy_string(context,argv[0],path,sizeof(path)) || (operation==4 && !copy_string(context,argv[1],name,sizeof(name)))))return JS_ThrowTypeError(context,"Expected recording path and optional name");

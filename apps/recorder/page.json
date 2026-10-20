@@ -273,6 +273,16 @@
           },
           {
             "type": "button",
+            "id": "permissionSettings",
+            "text": "权限设置",
+            "width": "fill",
+            "height": 40,
+            "style": {
+              "hidden": true
+            }
+          },
+          {
+            "type": "button",
             "id": "dismiss",
             "text": "知道了",
             "width": "fill",
@@ -404,6 +414,7 @@
         "padding": 12,
         "gap": 8
       }
-    ]
+    ],
+    "scroll": true
   }
 }

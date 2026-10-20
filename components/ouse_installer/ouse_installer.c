@@ -353,8 +353,11 @@ static esp_err_t package_read(void)
 static void package_finish(esp_err_t error,bool cancelled)
 {
     if(package_job.waiting)(void)on_ui(9,NULL,NULL);
-    ouse_bpk_free(package_job.parsed);free(package_job.bytes);memset(&package_job,0,sizeof(package_job));ouse_packages_finish(error,cancelled);
-    publish_status(false,error);(void)refresh_manager();
+    ouse_bpk_free(package_job.parsed);free(package_job.bytes);memset(&package_job,0,sizeof(package_job));
+    // Readers of a terminal package state must already see the committed
+    // version in packages.list(), including its native catalog cache.
+    (void)refresh_manager();ouse_packages_finish(error,cancelled);
+    publish_status(false,error);
 }
 static void process_package(void)
 {

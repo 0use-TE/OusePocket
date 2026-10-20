@@ -56,11 +56,29 @@
         ]
       },
       {
-        "type": "container", "id": "wifiCard", "width": "fill", "height": "content",
-        "layout": "column", "gap": 2,
+        "type": "container",
+        "id": "wifiCard",
+        "width": "fill",
+        "height": "content",
+        "layout": "column",
+        "gap": 2,
         "children": [
-          { "type": "label", "id": "wifiName", "text": "未连接", "width": "fill", "height": 24, "fontSize": 16 },
-          { "type": "label", "id": "wifiAddress", "text": "IP: --", "width": "fill", "height": 24, "fontSize": 16 }
+          {
+            "type": "label",
+            "id": "wifiName",
+            "text": "未连接",
+            "width": "fill",
+            "height": 24,
+            "fontSize": 16
+          },
+          {
+            "type": "label",
+            "id": "wifiAddress",
+            "text": "IP: --",
+            "width": "fill",
+            "height": 24,
+            "fontSize": 16
+          }
         ]
       },
       {
@@ -174,7 +192,7 @@
         "id": "results",
         "scroll": true,
         "width": "fill",
-        "height": "fill",
+        "height": 160,
         "layout": "column",
         "gap": 4,
         "padding": 8,
@@ -271,22 +289,72 @@
             "fontSize": 16
           },
           {
-            "type": "button", "id": "networkInfo", "text": "网络信息",
-            "width": "fill", "height": 40, "fontSize": 16
+            "type": "button",
+            "id": "networkInfo",
+            "text": "网络信息",
+            "width": "fill",
+            "height": 40,
+            "fontSize": 16
           }
         ]
       },
       {
         "type": "bottomSheet",
         "id": "infoSheet",
-        "text": "网络信息", "width": "fill", "height": "content", "padding": 12, "gap": 8,
+        "text": "网络信息",
+        "width": "fill",
+        "height": "content",
+        "padding": 12,
+        "gap": 8,
         "children": [
-          { "type": "label", "id": "infoState", "text": "", "width": "fill", "height": "content", "fontSize": 16 },
-          { "type": "label", "id": "infoName", "text": "", "width": "fill", "height": "content", "fontSize": 16 },
-          { "type": "label", "id": "infoAddress", "text": "", "width": "fill", "height": "content", "fontSize": 16 },
-          { "type": "label", "id": "infoSignal", "text": "", "width": "fill", "height": "content", "fontSize": 16 },
-          { "type": "label", "id": "infoTime", "text": "", "width": "fill", "height": "content", "fontSize": 16 },
-          { "type": "button", "id": "infoDone", "text": "完成", "width": "fill", "height": 40, "fontSize": 16 }
+          {
+            "type": "label",
+            "id": "infoState",
+            "text": "",
+            "width": "fill",
+            "height": "content",
+            "fontSize": 16
+          },
+          {
+            "type": "label",
+            "id": "infoName",
+            "text": "",
+            "width": "fill",
+            "height": "content",
+            "fontSize": 16
+          },
+          {
+            "type": "label",
+            "id": "infoAddress",
+            "text": "",
+            "width": "fill",
+            "height": "content",
+            "fontSize": 16
+          },
+          {
+            "type": "label",
+            "id": "infoSignal",
+            "text": "",
+            "width": "fill",
+            "height": "content",
+            "fontSize": 16
+          },
+          {
+            "type": "label",
+            "id": "infoTime",
+            "text": "",
+            "width": "fill",
+            "height": "content",
+            "fontSize": 16
+          },
+          {
+            "type": "button",
+            "id": "infoDone",
+            "text": "完成",
+            "width": "fill",
+            "height": 40,
+            "fontSize": 16
+          }
         ]
       },
       {
@@ -325,6 +393,7 @@
           }
         ]
       }
-    ]
+    ],
+    "scroll": true
   }
 }

@@ -4,6 +4,7 @@
 #include "ouse_identity.h"
 #include "esp_hosted.h"
 #include "esp_timer.h"
+#include "esp_log.h"
 #include "esp_heap_caps.h"
 #include "esp_attr.h"
 #include "freertos/FreeRTOS.h"
@@ -32,6 +33,8 @@ static portMUX_TYPE lock=portMUX_INITIALIZER_UNLOCKED;
 static ouse_ble_state_t state;
 static bool initialized;
 static atomic_bool synced,enabled,initiating,secure_connect,plain_connection;
+// Explicit disconnect pauses inbound reconnects until a new user request.
+static atomic_bool reconnect_paused;
 static uint8_t own_type;
 static atomic_uint_least16_t connection=BLE_HS_CONN_HANDLE_NONE;
 static atomic_uint_least32_t pair_until,prompt_until,connection_since;
@@ -98,7 +101,7 @@ static void bonds_refresh(void)
 }
 static int advertise(void)
 {
-    if(!enabled || !synced || connection!=BLE_HS_CONN_HANDLE_NONE || ble_gap_adv_active() || app_central_active())return 0;
+    if(reconnect_paused || !enabled || !synced || connection!=BLE_HS_CONN_HANDLE_NONE || ble_gap_adv_active() || app_central_active())return 0;
     static const ble_uuid16_t hid_uuid=BLE_UUID16_INIT(0x1812);
     struct ble_hs_adv_fields fields={.flags=BLE_HS_ADV_F_DISC_GEN|BLE_HS_ADV_F_BREDR_UNSUP,.uuids16=(ble_uuid16_t *)&hid_uuid,.num_uuids16=1,.uuids16_is_complete=0,.appearance=0x03c1,.appearance_is_present=1};
     int error=ble_gap_adv_set_fields(&fields);
@@ -140,14 +143,21 @@ static int gap_event(struct ble_gap_event *event,void *context)
     (void)context;
     switch(event->type){
     case BLE_GAP_EVENT_CONNECT:
+        if(!event->connect.status && reconnect_paused){
+            connection=event->connect.conn_handle;initiating=false;
+            (void)ble_gap_terminate(connection,BLE_ERR_REM_USER_CONN_TERM);
+            break;
+        }
         portENTER_CRITICAL(&lock);state.advertising=false;state.error=event->connect.status;changed();portEXIT_CRITICAL(&lock);
-        if(!event->connect.status){bool outgoing=atomic_exchange(&initiating,false);plain_connection=outgoing && !secure_connect;connection=event->connect.conn_handle;connection_since=clock_ms();connected_refresh(connection);if(outgoing && secure_connect)(void)ble_gap_security_initiate(connection);}
+        if(!event->connect.status){bool outgoing=atomic_exchange(&initiating,false);plain_connection=outgoing && !secure_connect;connection=event->connect.conn_handle;connection_since=clock_ms();connected_refresh(connection);if(!plain_connection){int rc=ble_gap_security_initiate(connection);ESP_LOGI("OuseBLE","Connected handle=%u; security start=%d",(unsigned)connection,rc);}}
         else{initiating=false;(void)advertise();}
         break;
     case BLE_GAP_EVENT_DISCONNECT:
+        ESP_LOGW("OuseBLE","Disconnected handle=%u reason=0x%x",(unsigned)event->disconnect.conn.conn_handle,event->disconnect.reason);
         connection=BLE_HS_CONN_HANDLE_NONE;prompt_until=0;
         portENTER_CRITICAL(&lock);state.connected=false;state.encrypted=false;state.authenticated=false;state.bonded=false;state.pair_pending=false;state.peer[0]=0;changed();portEXIT_CRITICAL(&lock);
-        (void)advertise();break;
+        /* The host releases its connection slot after this callback returns. */
+        break;
     case BLE_GAP_EVENT_DISC:discovered(&event->disc);break;
     case BLE_GAP_EVENT_DISC_COMPLETE:
         portENTER_CRITICAL(&lock);state.scanning=false;changed();portEXIT_CRITICAL(&lock);break;
@@ -155,14 +165,22 @@ static int gap_event(struct ble_gap_event *event,void *context)
         portENTER_CRITICAL(&lock);state.advertising=false;changed();portEXIT_CRITICAL(&lock);break;
     case BLE_GAP_EVENT_ENC_CHANGE:
         portENTER_CRITICAL(&lock);state.pair_pending=false;changed();portEXIT_CRITICAL(&lock);
-        connected_refresh(event->enc_change.conn_handle);error_set(event->enc_change.status);break;
+        connected_refresh(event->enc_change.conn_handle);error_set(event->enc_change.status);
+        ESP_LOGI("OuseBLE","Encryption handle=%u status=%d",event->enc_change.conn_handle,event->enc_change.status);break;
     case BLE_GAP_EVENT_PASSKEY_ACTION:
         if(event->passkey.params.action==BLE_SM_IOACT_NUMCMP && before(pair_until)){
             prompt_until=clock_ms()+30000;
             portENTER_CRITICAL(&lock);state.pair_pending=true;state.pair_id=++next_pair_id;state.number=event->passkey.params.numcmp;changed();portEXIT_CRITICAL(&lock);
         }else{(void)ble_gap_terminate(event->passkey.conn_handle,BLE_ERR_REM_USER_CONN_TERM);}
         break;
-    case BLE_GAP_EVENT_REPEAT_PAIRING:return BLE_GAP_REPEAT_PAIRING_IGNORE;
+    case BLE_GAP_EVENT_REPEAT_PAIRING:{
+        /* Only replace stale keys during an explicitly opened pairing window. */
+        struct ble_gap_conn_desc peer;
+        if(!before(pair_until) || ble_gap_conn_find(event->repeat_pairing.conn_handle,&peer))return BLE_GAP_REPEAT_PAIRING_IGNORE;
+        int rc=ble_store_util_delete_peer(&peer.peer_id_addr);
+        ESP_LOGW("OuseBLE","Repeat pairing; stale key removal=%d",rc);
+        return rc ? BLE_GAP_REPEAT_PAIRING_IGNORE : BLE_GAP_REPEAT_PAIRING_RETRY;
+    }
     default:break;
     }
     app_gap_event(event);
@@ -224,6 +242,7 @@ static void process(command_t *command)
     if(command->operation==APPLICATION){app_process(command);return;}
     int error=0;
     if(command->operation==ENABLE){
+        if(command->enabled && !command->temporary)reconnect_paused=false;
         enabled=command->enabled;pair_until=enabled && !command->temporary ? clock_ms()+120000 : 0;
         portENTER_CRITICAL(&lock);state.enabled=enabled;state.starting=enabled&&!synced;state.error=0;changed();portEXIT_CRITICAL(&lock);
         if(enabled){error=initialize();if(!error && synced)error=advertise();}
@@ -243,12 +262,15 @@ static void process(command_t *command)
             error=ble_gap_disc(own_type,10000,&parameters,gap_event,NULL);
             portENTER_CRITICAL(&lock);state.scanning=!error;changed();portEXIT_CRITICAL(&lock);
         }
-    }else if(command->operation==DISCOVER){pair_until=clock_ms()+120000;error=advertise();}
+    }else if(command->operation==DISCOVER){reconnect_paused=false;pair_until=clock_ms()+120000;error=advertise();}
     else if(command->operation==CONNECT){
         if(connection!=BLE_HS_CONN_HANDLE_NONE)error=BLE_HS_EALREADY;
-        else{(void)ble_gap_disc_cancel();(void)ble_gap_adv_stop();pair_until=clock_ms()+120000;initiating=true;secure_connect=!command->plain;
+        else{reconnect_paused=false;(void)ble_gap_disc_cancel();(void)ble_gap_adv_stop();pair_until=clock_ms()+120000;initiating=true;secure_connect=!command->plain;
             error=ble_gap_connect(own_type,&command->address,10000,NULL,gap_event,NULL);if(error)initiating=false;}
     }else if(command->operation==DISCONNECT){
+        reconnect_paused=true;pair_until=0;prompt_until=0;
+        (void)ble_gap_adv_stop();
+        portENTER_CRITICAL(&lock);state.advertising=false;state.pair_pending=false;changed();portEXIT_CRITICAL(&lock);
         hid_release();
         (void)ble_gap_conn_cancel();if(connection!=BLE_HS_CONN_HANDLE_NONE)error=ble_gap_terminate(connection,BLE_ERR_REM_USER_CONN_TERM);
     }else if(command->operation==FORGET){
@@ -275,11 +297,13 @@ static void worker(void *unused)
         }
         command_t command;if(xQueueReceive(commands,&command,pdMS_TO_TICKS(200))==pdTRUE)process(&command);
         int64_t now=esp_timer_get_time();
-        if(initialized && synced && now>=refresh_at){bonds_refresh();if(connection!=BLE_HS_CONN_HANDLE_NONE)connected_refresh(connection);refresh_at=now+2000000;}
+        if(initialized && synced && now>=refresh_at){bonds_refresh();if(connection!=BLE_HS_CONN_HANDLE_NONE)connected_refresh(connection);refresh_at=now+2000000;
+            if(enabled && connection==BLE_HS_CONN_HANDLE_NONE && !initiating && !ble_gap_disc_active())(void)advertise();}
         ouse_ble_state_t snapshot;ouse_ble_get(&snapshot);
         if(snapshot.pair_pending && (!before(prompt_until) || ouse_tasks_quiescing())){command_t rejection={.operation=CONFIRM,.pair_id=snapshot.pair_id};process(&rejection);}
         if(connection!=BLE_HS_CONN_HANDLE_NONE && !plain_connection && !snapshot.encrypted && !snapshot.pair_pending && (uint32_t)(clock_ms()-connection_since)>30000)
-            (void)ble_gap_terminate(connection,BLE_ERR_REM_USER_CONN_TERM);
+            {ESP_LOGW("OuseBLE","Disconnecting unencrypted link after 30s; pairing window=%u",before(pair_until));
+            (void)ble_gap_terminate(connection,BLE_ERR_REM_USER_CONN_TERM);connection_since=clock_ms();}
         if(ouse_tasks_quiescing() && enabled){command_t disable={.operation=ENABLE,.temporary=true};process(&disable);}
         app_tick();
     }

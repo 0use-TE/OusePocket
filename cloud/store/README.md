@@ -38,7 +38,7 @@ npm run start
 | `GET icons/{iconSha256}.png` | 浏览器使用的 PNG 图标 |
 | `POST api/admin/releases?versionCode=1&versionName=1.0&minNativeApi=36&description=介绍&author=作者&releasedAt=2026-10-19&category=tools` | 请求体原始 BPK，Authorization: Bearer 管理员令牌 |
 
-索引条目含 `id,name,versionCode,versionName,minNativeApi,size,sha256,url,icon,iconPng,description,author,releasedAt,category,capabilities,publishedAt,updatedAt`。每页最多 12 条，介绍最多 512 UTF-8 字节、作者最多 64 UTF-8 字节，BPK 最多 512 KiB。releasedAt 是包内 YYYY-MM-DD 发布日期；publishedAt 是商店首次上架时间，更新保留；updatedAt 是商店本次更新时间，两个商店时间均自动记录。分类为 tools/life/media/games/development/other，查询 all 表示不限制；排序为 name/newest/size。
+索引条目含 `id,name,versionCode,versionName,minNativeApi,size,sha256,url,icon,iconPng,description,author,releasedAt,category,capabilities,publishedAt,updatedAt,releaseNotes`。每页最多 100 条，介绍最多 512 UTF-8 字节、作者最多 64 UTF-8 字节，BPK 最多 512 KiB。releasedAt 是包内 YYYY-MM-DD 发布日期；publishedAt 是商店首次上架时间，更新保留；updatedAt 是商店本次更新时间，两个商店时间均自动记录。分类为 tools/life/media/games/development/other，查询 all 表示不限制；排序为 name/newest/size。
 
 内核解析 ZIP、CRC、资源限制、页面结构和 JS 语法后，显示系统安装确认。取消、校验失败或 Flash 写入失败不覆盖旧包；完成暂存后原子替换包文件，安装激活异常时提示失败，重启从已提交包恢复。降级安装被拒绝；同版本可以重装。SD 卡在资源管理器点击 `.bpk` 即可使用同一安装流程，无需联网，应用仍安装在内部 Flash。
 
@@ -56,3 +56,11 @@ npm run build
 ```
 
 主仓库还提供 `node tools/test-store-app.cjs` 和原生 BPK/内核回归测试。
+
+## 版本变更日志（服务端 1.2.0）
+
+发布页提供可选的版本变更日志，网页详情独立展示并保留换行。`POST api/admin/releases` 可通过 `releaseNotes` 查询参数填写，最多 1024 UTF-8 字节；省略时为空。日志只存云端，不写入 BPK，设备端需后续增加对应展示。
+
+管理员可用 `PATCH api/admin/releases` 和同一 Bearer 令牌提交 JSON：`{"id":"user.example","versionCode":2,"releaseNotes":"更新说明"}`。只能修改当前版本，版本不匹配会拒绝；不改变包、哈希、版本号或上架时间。日志同时保存在各版本记录中。
+
+首次启动会事务升级 SQLite 到 schema 2，保留旧应用及版本记录，旧日志默认为空。升级前可用 Node 内置 SQLite backup API 在线备份数据库；完整灾备还需保留 objects 目录。

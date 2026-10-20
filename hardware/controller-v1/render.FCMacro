@@ -1,0 +1,45 @@
+import FreeCAD as App, FreeCADGui as Gui, Part, os, traceback, json
+from pathlib import Path
+OUT=Path(r'C:/Users/ouse/FastProjects/OusePocket/hardware/controller-v1')
+try:
+ doc=App.openDocument(str(OUT/'controller-v1.FCStd'));Gui.activeDocument().activeView().setAnimationEnabled(False) if hasattr(Gui.activeDocument().activeView(),'setAnimationEnabled') else None
+ for o in doc.Objects:
+  if 'RenderColor' in o.PropertiesList:
+   o.Visibility=True;o.ViewObject.ShapeColor=o.RenderColor;o.ViewObject.LineColor=(.13,.14,.17);o.ViewObject.DisplayMode='Flat Lines';o.ViewObject.LineWidth=1.0
+   o.ViewObject.AngularDeflection=10;o.ViewObject.Deviation=.10
+ import Draft
+ coords={'A':(40.5,-25),'B':(28,-37.5),'X':(28,-12.5),'Y':(15.5,-25),'MENU':(7,-74),'START':(31,-74)}
+ for text,(x,y) in coords.items():
+  glyph=Draft.make_shapestring(String=text,FontFile='C:/Windows/Fonts/arial.ttf',Size=3.2 if len(text)==1 else 2.4,Tracking=0)
+  doc.recompute();b=glyph.Shape.BoundBox;glyph.Placement.Base=App.Vector(x-(b.XMin+b.XMax)/2,y-(b.YMin+b.YMax)/2,1.65 if len(text)==1 else .05)
+  glyph.Label=text+' 标识';glyph.ViewObject.ShapeColor=(.95,.95,.96) if len(text)==1 else (.1,.11,.12);doc.getObject('Labels').addObject(glyph)
+ doc.recompute();Gui.Selection.clearSelection();view=Gui.activeDocument().activeView();view.setCameraType('Orthographic')
+ # Keep all intended parts visible, not their group-only helpers.
+ view.viewTop();view.fitAll();Gui.updateGui();view.saveImage(str(OUT/'front.png'),1200,1700,'White')
+ view.viewAxonometric();view.fitAll();Gui.updateGui();view.saveImage(str(OUT/'assembly.png'),1500,1700,'White')
+ view.viewBottom();view.fitAll();Gui.updateGui();view.saveImage(str(OUT/'rear.png'),1200,1700,'White')
+ # Open housing to reveal actual PCB height steps and switches.
+ for n in ['FrontShell','RearCover']:doc.getObject(n).Visibility=False
+ doc.getObject('Labels').Visibility=False
+ view.viewAxonometric();view.fitAll();Gui.updateGui();view.saveImage(str(OUT/'inside.png'),1500,1700,'White')
+ for n in ['FrontShell','RearCover']:doc.getObject(n).Visibility=True
+ doc.getObject('Labels').Visibility=True
+ original={}
+ for o in doc.Objects:
+  if o.TypeId!='Part::Feature' or not hasattr(o,'Shape'):continue
+  original[o.Name]=o.Placement
+  dz=0
+  if o in doc.getObject('Host').Group:dz=60
+  elif o in doc.getObject('Caps').Group:dz=30
+  elif o.Name=='FrontShell':dz=25
+  elif o.Name=='RearCover':dz=-35
+  elif o in doc.getObject('Wiring').Group:dz=-12
+  elif o.Name in ['UpperRetainer','LowerRetainer'] or o.Name.startswith('HostPad'):dz=-25
+  pl=App.Placement(o.Placement);pl.Base.z+=dz;o.Placement=pl
+ doc.getObject('Labels').Visibility=False;doc.getObject('Fasteners').Visibility=False
+ view.viewAxonometric();view.fitAll();Gui.updateGui();view.saveImage(str(OUT/'exploded.png'),1500,1700,'White')
+ for name,pl in original.items():doc.getObject(name).Placement=pl
+ doc.getObject('Labels').Visibility=True;doc.getObject('Fasteners').Visibility=True
+ view.viewTop();view.fitAll();doc.recompute();doc.save()
+ (OUT/'render-result.json').write_text(json.dumps({'success':True,'files':['front.png','assembly.png','rear.png','inside.png','exploded.png']}),encoding='utf-8')
+except Exception:(OUT/'render-error.txt').write_text(traceback.format_exc(),encoding='utf-8');raise

@@ -1,0 +1,19 @@
+{
+  "runtime": "ouse-core",
+  "api": 1,
+  "id": "user.benchmark-json",
+  "name": "Render benchmark json",
+  "icon": "icon.bin",
+  "versionCode": 1,
+  "versionName": "1.0.0",
+  "minNativeApi": 42,
+  "author": "OusePocket",
+  "description": "Deterministic matching Canvas/JSON-sprite benchmark. 8/32/64/96 actors.",
+  "assets": [
+    {
+      "id": "actors",
+      "type": "image",
+      "path": "assets/actors.bin"
+    }
+  ]
+}
