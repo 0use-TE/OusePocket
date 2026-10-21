@@ -12,6 +12,11 @@ bool ouse_core_launch_active(void);
 void ouse_core_launch_cancel(void);
 void ouse_apps_swipe_offset(int offset);
 void ouse_apps_resize(int height);
+void ouse_apps_layout(int top,int height);
+bool ouse_apps_fullscreen(void);
+esp_err_t ouse_apps_set_game_mode(bool enabled);
+bool ouse_apps_confirm_exit(void);
+esp_err_t ouse_apps_set_fullscreen(bool enabled);
 esp_err_t ouse_apps_background_fast(void);
 
 esp_err_t ouse_apps_user_check(const char *id);

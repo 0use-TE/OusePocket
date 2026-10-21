@@ -1,0 +1,1 @@
+Original procedural pixel artwork and synthesized audio produced by OusePocket build scripts. No external songs or recordings. See tools/generate-survivor-assets.py, tools/build-survivor.py and tools/build-manor-audio.py. The shared game scheduler is tools/app-shared/game-runtime.js.

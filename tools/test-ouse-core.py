@@ -627,7 +627,7 @@ int main(int argc, char **argv) {
         .set_brightness = set_brightness, .save_brightness = save_setting, .save_theme = save_theme,
         .get_settings_state = settings_state, .get_system_info = system_info, .board_name = "Waveshare P4 LCD 3.5"}, .initial_brightness = 45, .initial_font_percent=100, .apps = definitions, .app_count = (pages ? OUSE_APP_CAPACITY-1 : argc>1 ? 2 : 1)};
     if(argc>1 && !strcmp(argv[1],"--focused-native-ui"))config.port.save_ui=audit_save_ui;
-    if(argc>1 && !strcmp(argv[1],"--hardware-keys")){config.port.read_key=host_read_key;host_side_keys[0]=true;}
+    if(argc>1 && (!strcmp(argv[1],"--hardware-keys") || !strcmp(argv[1],"--volume-slider"))){config.port.read_key=host_read_key;host_side_keys[0]=true;}
     if(argc>1 && !strncmp(argv[1],"--boot-animation",16))config.boot_animation=true;
     if(argc>1 && !strncmp(argv[1],"--device-setup",14))config.device_setup=true;
     if(argc>1 && !strcmp(argv[1],"--device-setup-resume")){strcpy(host_identity.name,"Pocket");host_identity.setup_step=3;host_identity.pin_enabled=true;strcpy(host_pin,"222222");}
@@ -818,7 +818,7 @@ int main(int argc, char **argv) {
     }
     if(argc>1 && !strcmp(argv[1],"--hardware-keys")){
         ouse_audio_state_t audio;tick();host_side_keys[0]=false;tick();ouse_audio_get(&audio);assert(audio.volume==40);
-        host_side_keys[0]=true;tick();host_side_keys[0]=false;tick();ouse_audio_get(&audio);assert(audio.volume==45);
+        host_side_keys[0]=true;tick();host_side_keys[0]=false;tick();ouse_audio_get(&audio);assert(audio.volume==50);
         host_side_keys[1]=true;tick();host_side_keys[1]=false;tick();ouse_audio_get(&audio);assert(audio.volume==40);
         ouse_app_definition_t camera={.id="user.key-camera",.name="Camera",.icon=LV_SYMBOL_IMAGE,.open=file_test_open,.close=file_test_close,.key=host_app_key};
         assert(ouse_core_user_apply(&camera)==ESP_OK);assert(ouse_app_open(camera.id)==ESP_OK);
@@ -828,7 +828,7 @@ int main(int argc, char **argv) {
         host_side_keys[1]=true;tick();tick();host_side_keys[1]=false;tick();click(root,"关机");click(root,"关机");assert(host_control_requests==1 && host_control_action==OUSE_CONTROL_SHUTDOWN && host_side_clicks==1);
         assert(ouse_app_background()==ESP_OK);assert(ouse_core_sleep_display()==ESP_OK);host_side_keys[0]=true;tick();host_side_keys[0]=false;tick();
         ouse_power_state_t power;ouse_power_get(&power);ouse_audio_get(&audio);assert(!power.asleep && audio.volume==40);
-        host_side_keys[1]=true;tick();host_side_keys[1]=false;tick();ouse_audio_get(&audio);assert(audio.volume==35 && host_side_clicks==1);
+        host_side_keys[1]=true;tick();host_side_keys[1]=false;tick();ouse_audio_get(&audio);assert(audio.volume==30 && host_side_clicks==1);
         puts("PASS hardware keys: boot-held suppression, short volume keys, foreground override, reserved long hold, shutdown confirmation and wake-contact consumption");return 0;
     }
     if(argc>1 && !strcmp(argv[1],"--file-associations")){
@@ -913,6 +913,62 @@ int main(int argc, char **argv) {
         assert(ouse_app_close_id("ouse.counter")==ESP_OK);
         assert(ouse_app_close_id("ouse.settings")==ESP_OK);
         puts("PASS memory pressure: boundary classification, reserve rejection before allocation, current app retained, settings/resume admitted, preview allocation skipped, no background app killed");return 0;
+    }
+    if(argc>1 && !strcmp(argv[1],"--volume-slider")){
+        ouse_audio_state_t audio;tick();host_side_keys[0]=false;tick();
+        host_side_keys[0]=true;tick();host_side_keys[0]=false;tick();
+        ouse_audio_get(&audio);assert(audio.volume==50);
+        lv_obj_t *control=find_type(root,&lv_slider_class);assert(control);
+        assert(lv_obj_get_child_count(lv_obj_get_parent(control))==1); // Slider only: no caption/value.
+        lv_area_t a;lv_obj_get_coords(control,&a);assert(a.y2-a.y1>a.x2-a.x1);int cx=(a.x1+a.x2)/2,cy=a.y1+(a.y2-a.y1)/4;
+        touch_step(cx,(a.y1+a.y2)/2,true);touch_step(cx,cy,true);
+        tick();tick();assert(lv_obj_is_visible(control));
+        touch_step(cx,cy,false);
+        ouse_audio_get(&audio);assert(audio.volume>=70 && audio.volume<=80);
+        screenshot("volume-slider.ppm");tick();assert(lv_obj_is_visible(control));tick();assert(!lv_obj_is_visible(control));
+        assert(ouse_audio_set_volume(95)==ESP_OK);host_side_keys[0]=true;tick();host_side_keys[0]=false;tick();ouse_audio_get(&audio);assert(audio.volume==100);
+        assert(ouse_audio_set_volume(5)==ESP_OK);host_side_keys[1]=true;tick();host_side_keys[1]=false;tick();ouse_audio_get(&audio);assert(audio.volume==0);
+        assert(ouse_core_set_orientation(true)==ESP_OK);tick();host_side_keys[0]=true;tick();host_side_keys[0]=false;tick();
+        control=find_type(root,&lv_slider_class);assert(control);lv_obj_get_coords(control,&a);assert(a.x1>=0&&a.x2<480&&a.y1>=0&&a.y2<320);assert(a.x2-a.x1>a.y2-a.y1);
+        puts("PASS volume popup: +/-10, 0..100 clamp, physical slider drag, held touch keeps popup, delayed dismiss and landscape bounds");return 0;
+    }
+    if(argc>1 && !strcmp(argv[1],"--game-mode")){
+        assert(ouse_app_open("ouse.counter")==ESP_OK);tick();
+        assert(ouse_core_set_game_mode(true)==ESP_OK);
+        assert(!ouse_apps_confirm_exit());assert(label(root,"请再次退出"));
+        lv_tick_inc(2000);assert(!ouse_apps_confirm_exit());assert(ouse_apps_confirm_exit());
+        assert(!ouse_apps_confirm_exit());assert(ouse_app_open("ouse.settings")==ESP_OK);assert(ouse_apps_confirm_exit());
+        assert(ouse_app_open("ouse.counter")==ESP_OK);assert(!ouse_apps_confirm_exit());
+        assert(ouse_core_set_game_mode(false)==ESP_OK);assert(ouse_apps_confirm_exit());
+        assert(ouse_core_set_game_mode(true)==ESP_OK);assert(ouse_core_set_fullscreen(true)==ESP_OK);tick();
+        swipe(160,478,160,350);ouse_app_stats_t s;ouse_app_get_stats(&s);assert(!strcmp(s.active_id,"ouse.counter"));
+        int width,height;ouse_core_app_size(&width,&height);assert(width==320 && height==480);
+        swipe(160,478,160,350);ouse_app_get_stats(&s);assert(!s.active_id[0]);
+        assert(ouse_app_open("ouse.counter")==ESP_OK);assert(!ouse_apps_confirm_exit());assert(ouse_app_close()==ESP_OK);
+        assert(ouse_app_open("ouse.counter")==ESP_OK);assert(ouse_apps_confirm_exit());
+        assert(ouse_app_background()==ESP_OK);assert(ouse_core_set_game_mode(true)==ESP_ERR_INVALID_STATE);
+        puts("PASS game protection: first exit hint, second confirmation, expiry, app isolation, fullscreen Home gesture and close/reset");return 0;
+    }
+    if(argc>1 && !strcmp(argv[1],"--fullscreen")){
+        int width,height;ouse_shell_state_t shell;
+        assert(ouse_app_open("ouse.counter")==ESP_OK);tick();
+        assert(ouse_core_set_fullscreen(true)==ESP_OK);tick();
+        ouse_core_app_size(&width,&height);assert(width==320 && height==480);
+        ouse_shell_get_state(&shell);assert(shell.fullscreen);
+        assert(ouse_core_set_orientation(true)==ESP_OK);tick();
+        ouse_core_app_size(&width,&height);assert(width==480 && height==320);
+        assert(ouse_app_open("ouse.settings")==ESP_OK);tick();
+        ouse_core_app_size(&width,&height);assert(width==480 && height==256);
+        ouse_shell_get_state(&shell);assert(!shell.fullscreen);
+        assert(ouse_app_open("ouse.counter")==ESP_OK);tick();
+        ouse_core_app_size(&width,&height);assert(width==480 && height==320);
+        assert(ouse_app_background()==ESP_OK);tick();
+        ouse_core_app_size(&width,&height);assert(width==480 && height==256);
+        assert(ouse_core_set_fullscreen(true)==ESP_ERR_INVALID_STATE);
+        assert(ouse_app_open("ouse.counter")==ESP_OK);tick();
+        assert(ouse_app_close()==ESP_OK);tick();
+        ouse_shell_get_state(&shell);assert(!shell.fullscreen);
+        puts("PASS fullscreen viewport, rotation, app switch, resume, background and close restore system chrome");return 0;
     }
     if(argc>1 && !strcmp(argv[1],"--focused-native-ui")) {focused_native_ui(root);return 0;}
     assert(label(root, LV_SYMBOL_SETTINGS) && !label(root, "屏幕亮度"));
@@ -1320,6 +1376,8 @@ os.environ["PATH"] = str(compiler.parent)+os.pathsep+env["PATH"]
 widget_only="--focused-widgets" in sys.argv[1:]
 current_ui="--focused-current-ui" in sys.argv[1:]
 focused=widget_only or current_ui or "--focused-native-ui" in sys.argv[1:]
+for new_case in ['--volume-slider','--game-mode','--fullscreen']:
+    subprocess.run([str(OUT / "check.exe"),new_case],check=True,cwd=OUT,timeout=60)
 if not focused:
     subprocess.run([str(OUT / "check.exe")], check=True, cwd=OUT, timeout=180)
     subprocess.run([str(OUT / "check.exe"), "--lifecycle-errors"], check=True, cwd=OUT, timeout=60)

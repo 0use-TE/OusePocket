@@ -24,7 +24,8 @@ typedef struct {
     lv_draw_buf_t *preview;
     lv_image_dsc_t image;
     uint32_t preview_generation;
-    bool preview_deferred,maintenance;
+    bool preview_deferred,maintenance,fullscreen,game_mode,exit_armed;
+    uint32_t exit_at;
     uint64_t touched;
     void *context;
 } entry_t;
@@ -176,6 +177,8 @@ static void background_instance(void)
     if (apps.active<0) return;
     entry_t *entry=&apps.entries[apps.active];
     ouse_ime_hide_root(entry->root);
+    entry->exit_armed=false;
+    ouse_shell_game_hint(false);
     if (entry->pause) entry->pause(entry->context);
     if(apps.skip_preview){free_preview(entry);entry->preview_deferred=true;entry->preview_generation=ouse_ui_generation();}
     else capture_preview(entry);
@@ -190,6 +193,7 @@ static void close_instance(int index)
     ouse_ime_hide_root(entry->root);
     if (apps.active==index) apps.active=-1;
     entry->close(entry->context);
+    entry->game_mode=false;entry->exit_armed=false;entry->fullscreen=false;
     lv_obj_delete(entry->root); entry->root=NULL;
     free_preview(entry);
     ++apps.closed;
@@ -282,6 +286,34 @@ esp_err_t ouse_app_background(void)
     apps.changed(false);
     apps.transitioning=false;
     return ESP_OK;
+}
+bool ouse_apps_fullscreen(void)
+{return apps.active>=0 && apps.entries[apps.active].fullscreen;}
+esp_err_t ouse_apps_set_game_mode(bool enabled)
+{
+    if(apps.active<0)return ESP_ERR_INVALID_STATE;
+    entry_t *entry=&apps.entries[apps.active];
+    if(entry->game_mode!=enabled)entry->exit_armed=false;
+    if(!enabled)ouse_shell_game_hint(false);
+    entry->game_mode=enabled;return ESP_OK;
+}
+bool ouse_apps_confirm_exit(void)
+{
+    if(apps.active<0)return true;
+    entry_t *entry=&apps.entries[apps.active];
+    if(!entry->game_mode)return true;
+    uint32_t now=lv_tick_get();
+    if(entry->exit_armed && (uint32_t)(now-entry->exit_at)<2000){entry->exit_armed=false;ouse_shell_game_hint(false);return true;}
+    entry->exit_armed=true;entry->exit_at=now;ouse_shell_game_hint(true);return false;
+}
+esp_err_t ouse_apps_set_fullscreen(bool enabled)
+{
+    if(apps.active<0)return ESP_ERR_INVALID_STATE;
+    apps.entries[apps.active].fullscreen=enabled;return ESP_OK;
+}
+void ouse_apps_layout(int top,int height)
+{
+    apps.host_y=top;lv_obj_set_y(apps.host,top);ouse_apps_resize(height);
 }
 void ouse_apps_resize(int height)
 {

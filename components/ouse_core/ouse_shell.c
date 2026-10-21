@@ -40,11 +40,12 @@ static OUSE_PSRAM_BSS struct {
     quick_tile_t wifi_tile,bluetooth_tile,power_tile,sound_tile,theme_tile,usb_tile;
     lv_obj_t *recents,*strip,*clear,*cards[OUSE_RECENTS_CAPACITY],*card_titles[OUSE_RECENTS_CAPACITY];
     lv_obj_t *shield,*back_indicator,*back_arrow,*flight,*flight_image,*pill;
-    lv_obj_t *bottom_guard,*quick_handle,*banner_dismiss;
+    lv_obj_t *bottom_guard,*quick_handle,*banner_dismiss,*game_hint;
+    uint32_t game_hint_at;
     lv_obj_t *navigation_buttons[3],*navigation_icons[3];
     unsigned navigation;
     lv_point_t navigation_start;
-    bool navigation_cancelled;
+    bool navigation_cancelled,fullscreen;
     lv_image_dsc_t images[OUSE_RECENTS_CAPACITY],flight_source;
     ouse_app_info_t items[OUSE_RECENTS_CAPACITY];
     lv_timer_t *gesture_timer;
@@ -190,6 +191,7 @@ static void flight_settle(void *unused,int32_t p)
 static void flight_home(void)
 {
     if(!shell.g.origin[0]){settle_pill(false);return;}
+    if(!ouse_apps_confirm_exit()){flight_clear();settle_pill(false);return;}
     shell.flight_y=clamp(shell.g.last.y-shell.g.start.y,-shell.height,0);
     lv_anim_t a;lv_anim_init(&a);lv_anim_set_var(&a,shell.flight);lv_anim_set_exec_cb(&a,flight_settle);
     lv_anim_set_values(&a,0,1024);lv_anim_set_duration(&a,140);lv_anim_set_path_cb(&a,lv_anim_path_ease_out);
@@ -632,6 +634,7 @@ static void layout_quick(void)
 }
 static void refresh(lv_timer_t *timer)
 {
+    if(visible(shell.game_hint) && (uint32_t)(lv_tick_get()-shell.game_hint_at)>=2000)hide(shell.game_hint);
     (void)timer;char time[8],date[64],battery[32];ouse_navigation_clock(time);
     if(!ouse_core_access_blocked() && shell.navigation && !shell.g.claimed && !shell.card_animating)lv_obj_move_foreground(shell.nav);
     lv_color_t navigation_color=lv_color_hex(ouse_theme_colors().text);
@@ -726,6 +729,7 @@ static void home_tap(lv_event_t *event)
         if(shell.navigation || abs(point.x-shell.g.start.x)+abs(point.y-shell.g.start.y)>D(8))return;
     }
     if(ouse_dialog_active()||ouse_device_ui_modal())return;
+    if(!ouse_apps_confirm_exit())return;
     ouse_shell_foreground();(void)ouse_app_background();
 }
 static void navigation_clicked(lv_event_t *event)
@@ -758,6 +762,13 @@ static void draw_navigation_back(lv_event_t *event)
     lv_draw_line_dsc_t line;lv_draw_line_dsc_init(&line);
     line.color=lv_color_hex(ouse_theme_colors().text);line.width=D(2);
     for(unsigned index=0;index<3;++index){line.p1=points[index];line.p2=points[index+1];lv_draw_line(lv_event_get_layer(event),&line);}
+}
+void ouse_shell_set_fullscreen(bool enabled)
+{
+    shell.fullscreen=enabled;
+    if(!shell.status || !shell.nav)return;
+    if(enabled){hide(shell.status);hide(shell.nav);hide(shell.bottom_guard);}
+    else{show(shell.status);show(shell.nav);if(!shell.navigation)show(shell.bottom_guard);}
 }
 unsigned ouse_shell_navigation(void) { return shell.navigation; }
 void ouse_shell_set_navigation(unsigned mode)
@@ -902,7 +913,7 @@ static void pointer_event(lv_event_t *event)
     lv_obj_t *target=lv_indev_get_active_obj();
     bool control=false;
     for(lv_obj_t *obj=target;obj;obj=lv_obj_get_parent(obj))if(lv_obj_check_type(obj,&lv_slider_class))control=true;
-    if(!quick && p.y<=D(36)) {
+    if(!quick && p.y<=D(shell.fullscreen?8:36)) {
         // The starting side selects the panel for the entire drag, even if
         // the finger crosses the middle of the screen afterwards.
         select_sheet(p.x<shell.width/2);
@@ -911,8 +922,8 @@ static void pointer_event(lv_event_t *event)
         shell.g.kind=G_CLOSE;shell.g.sheet_start=lv_obj_get_y(shell.sheet);
     } else if(quick && !control) {
         shell.g.kind=G_SWITCH;
-    } else if(!shell.navigation && !quick && p.y>=shell.height-D(36)){shell.g.kind=G_BOTTOM;shell.g.from_recents=recent;}
-    else if(!shell.navigation && !control && p.y>D(40) && p.y<shell.height-D(28) && (p.x<=D(24) || p.x>=shell.width-D(24))) {
+    } else if((!shell.navigation || shell.fullscreen) && !quick && p.y>=shell.height-D(shell.fullscreen?8:36)){shell.g.kind=G_BOTTOM;shell.g.from_recents=recent;}
+    else if(!shell.fullscreen && !shell.navigation && !control && p.y>D(40) && p.y<shell.height-D(28) && (p.x<=D(24) || p.x>=shell.width-D(24))) {
         shell.g.kind=G_BACK;shell.g.left=p.x<shell.width/2;
         lv_label_set_text(shell.back_arrow,shell.g.left ? LV_SYMBOL_LEFT : LV_SYMBOL_RIGHT);
         lv_anim_delete(shell.back_indicator,back_motion);
@@ -923,7 +934,7 @@ static void pointer_event(lv_event_t *event)
 }
 void ouse_shell_get_state(ouse_shell_state_t *out)
 {
-    *out=(ouse_shell_state_t){.quick=visible(shell.quick_layer)&&!shell.notifications_selected,
+    *out=(ouse_shell_state_t){.fullscreen=shell.fullscreen,.quick=visible(shell.quick_layer)&&!shell.notifications_selected,
         .notifications=visible(shell.quick_layer)&&shell.notifications_selected,
         .notification_cards=shell.notification_count,.recents=visible(shell.recents),.tracking=shell.g.claimed,
         .quick_y=lv_obj_get_y(shell.sheet),.back_progress=shell.g.back_progress,.cards=shell.count,
@@ -1045,6 +1056,10 @@ void ouse_shell_init(const ouse_shell_config_t *config)
     lv_obj_set_style_bg_opa(shell.shield,LV_OPA_TRANSP,0);lv_obj_add_flag(shell.shield,LV_OBJ_FLAG_CLICKABLE|LV_OBJ_FLAG_PRESS_LOCK);hide(shell.shield);
     shell.gesture_timer=lv_timer_create(gesture_step,16,NULL);lv_timer_pause(shell.gesture_timer);
     lv_indev_add_event_cb(config->touch,pointer_event,LV_EVENT_PRESSED,NULL);lv_indev_add_event_cb(config->touch,pointer_event,LV_EVENT_RELEASED,NULL);
+    shell.game_hint=lv_label_create(config->screen);
+    lv_obj_remove_flag(shell.game_hint,LV_OBJ_FLAG_CLICKABLE|LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(shell.game_hint,lv_color_hex(0x172b27),0);lv_obj_set_style_bg_opa(shell.game_hint,230,0);
+    lv_obj_set_style_text_color(shell.game_hint,lv_color_white(),0);lv_obj_set_style_pad_all(shell.game_hint,D(10),0);lv_obj_set_style_radius(shell.game_hint,D(12),0);hide(shell.game_hint);
     lv_timer_create(refresh,250,NULL);
     ouse_settings_state_t settings={0};
     if(config->settings_state)config->settings_state(&settings);
@@ -1060,4 +1075,12 @@ void ouse_shell_resize(void)
     rect(shell.quick_layer,0,0,shell.width,shell.height);rect(shell.sheet,0,-shell.height,shell.width,shell.height);rect(shell.quick,0,0,shell.width,shell.height);rect(shell.notification_panel,0,0,shell.width,shell.height);
     rect(shell.quick_handle,shell.width/2-D(28),shell.height-D(18),D(56),D(4));rect(shell.shield,0,0,shell.width,shell.height);rect(shell.bottom_guard,0,shell.height-D(24),shell.width,D(24));
     layout_quick();rebuild_notifications();ouse_shell_set_navigation(shell.navigation);refresh(NULL);
+}
+void ouse_shell_game_hint(bool show_hint)
+{
+    if(!shell.game_hint)return;
+    if(!show_hint){hide(shell.game_hint);return;}
+    ouse_ui_text(shell.game_hint,ouse_ui_locale()?"Exit again to leave":"请再次退出");
+    lv_obj_set_width(shell.game_hint,LV_SIZE_CONTENT);lv_obj_align(shell.game_hint,LV_ALIGN_BOTTOM_MID,0,-D(32));
+    shell.game_hint_at=lv_tick_get();lv_obj_move_foreground(shell.game_hint);show(shell.game_hint);
 }

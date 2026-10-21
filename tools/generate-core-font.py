@@ -222,6 +222,8 @@ def main():
     args = parser.parse_args()
     coverage = unicode_cmap(SOURCE)
     letters = sorted(set(range(32, 127)) | {ord(char) for char in re.findall(r'[^\x00-\x7f]', source_copy())})
+    # New app copy may add glyphs; never remove previously shipped UI characters.
+    if DEST.exists():letters=sorted(set(letters)|{int(cp,16) for cp in re.findall(r'// U\+([0-9A-F]+)',DEST.read_text(encoding='utf-8'))})
     missing = set(letters) - coverage
     cjk_letters = sorted(cp for cp in coverage if cp >= 127 and not unicodedata.category(chr(cp)).startswith('C'))
     cjk_bounds, estimates = {}, {}

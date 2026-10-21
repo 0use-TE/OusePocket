@@ -4,7 +4,7 @@ typedef struct {
     char origin[48];
 } side_key_t;
 static OUSE_PSRAM_BSS side_key_t side_keys[2];
-static lv_obj_t *volume_hint,*volume_label;
+static lv_obj_t *volume_hint,*volume_slider;
 static uint32_t volume_until;
 bool ouse_core_key_down(unsigned key)
 {return core.started && core.port.read_key && key<2 && core.port.read_key(core.port.context,key);}
@@ -26,26 +26,59 @@ static void side_power_menu(void)
     static const char *choices[]={"息屏","关机","重启","恢复运行"};
     ouse_dialog_select("电源",choices,ouse_tasks_quiescing() ? 4 : 3,0,power_choice);
 }
+static void side_volume_layout(void)
+{
+    if(lv_obj_get_height(core.screen)>lv_obj_get_width(core.screen)){
+        lv_obj_set_size(volume_hint,ouse_ui_dp(56),ouse_ui_dp(200));
+        lv_obj_align(volume_hint,LV_ALIGN_RIGHT_MID,-ouse_ui_dp(16),0);
+        lv_obj_set_pos(volume_slider,ouse_ui_dp(16),ouse_ui_dp(20));
+        lv_obj_set_size(volume_slider,ouse_ui_dp(24),ouse_ui_dp(160));return;
+    }
+    int width=lv_obj_get_width(core.screen)-ouse_ui_dp(32);
+    if(width>ouse_ui_dp(272))width=ouse_ui_dp(272);
+    lv_obj_set_size(volume_hint,width,ouse_ui_dp(56));
+    lv_obj_align(volume_hint,LV_ALIGN_TOP_MID,0,ouse_ui_dp(24));
+    lv_obj_set_pos(volume_slider,ouse_ui_dp(20),ouse_ui_dp(16));lv_obj_set_size(volume_slider,width-ouse_ui_dp(40),ouse_ui_dp(24));
+}
+static void side_volume_drag(lv_event_t *event)
+{
+    (void)event;unsigned volume=(unsigned)lv_slider_get_value(volume_slider);
+    if(ouse_audio_set_volume(volume)==ESP_OK && volume)(void)ouse_audio_set_muted(false);
+    volume_until=lv_tick_get()+2000;
+}
 static void side_volume(unsigned key)
 {
     if(ouse_tasks_quiescing())return;
     ouse_audio_state_t audio;if(ouse_audio_get(&audio)!=ESP_OK || !audio.available)return;
-    unsigned volume=key==0 ? (audio.volume>=95 ? 100 : audio.volume+5) : (audio.volume<=5 ? 0 : audio.volume-5);
+    unsigned volume=key==0 ? (audio.volume>=90 ? 100 : audio.volume+10) : (audio.volume<=10 ? 0 : audio.volume-10);
     if(ouse_audio_set_volume(volume)!=ESP_OK)return;
     if(!key && volume)(void)ouse_audio_set_muted(false);
     if(!volume_hint){
-        volume_hint=ouse_widget_box(core.screen,OUSE_STYLE_PANEL,12);lv_obj_set_size(volume_hint,ouse_ui_dp(160),ouse_ui_dp(44));
-        lv_obj_remove_flag(volume_hint,LV_OBJ_FLAG_CLICKABLE|LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_align(volume_hint,LV_ALIGN_TOP_MID,0,ouse_ui_dp(48));volume_label=ouse_widget_text(volume_hint,"",16);lv_obj_center(volume_label);
+        volume_hint=lv_obj_create(core.screen);lv_obj_remove_style_all(volume_hint);
+        lv_obj_remove_flag(volume_hint,LV_OBJ_FLAG_CLICKABLE|LV_OBJ_FLAG_SCROLLABLE|LV_OBJ_FLAG_GESTURE_BUBBLE);
+        volume_slider=lv_slider_create(volume_hint);lv_slider_set_range(volume_slider,0,100);ouse_widget_slider(volume_slider,24);
+        lv_obj_add_flag(volume_slider,LV_OBJ_FLAG_PRESS_LOCK);lv_obj_remove_flag(volume_slider,LV_OBJ_FLAG_GESTURE_BUBBLE);
+        lv_obj_add_event_cb(volume_slider,side_volume_drag,LV_EVENT_VALUE_CHANGED,NULL);
     }
-    lv_label_set_text_fmt(volume_label,"%s %u%%",ouse_ui_locale() ? "Volume" : "音量",volume);
-    lv_obj_center(volume_label);lv_obj_remove_flag(volume_hint,LV_OBJ_FLAG_HIDDEN);lv_obj_move_foreground(volume_hint);volume_until=lv_tick_get()+1200;
+    side_volume_layout();
+    lv_slider_set_value(volume_slider,volume,LV_ANIM_OFF);
+    lv_obj_remove_flag(volume_hint,LV_OBJ_FLAG_HIDDEN);lv_obj_move_foreground(volume_hint);volume_until=lv_tick_get()+2000;
 }
 static void side_keys_tick(lv_timer_t *timer)
 {
     (void)timer;if(!core.port.read_key)return;
     uint32_t now=lv_tick_get();
-    if(volume_hint && (int32_t)(now-volume_until)>=0)lv_obj_add_flag(volume_hint,LV_OBJ_FLAG_HIDDEN);
+    if(volume_hint && !lv_obj_has_flag(volume_hint,LV_OBJ_FLAG_HIDDEN)){
+        bool dragging=lv_obj_has_state(volume_slider,LV_STATE_PRESSED);
+        if(dragging)volume_until=now+2000;
+        if((int32_t)(now-volume_until)>=0)lv_obj_add_flag(volume_hint,LV_OBJ_FLAG_HIDDEN);
+        else{
+            side_volume_layout();ouse_audio_state_t audio;
+            if(ouse_audio_get(&audio)==ESP_OK){
+                if(!dragging)lv_slider_set_value(volume_slider,audio.volume,LV_ANIM_OFF);
+            }
+        }
+    }
     for(unsigned index=0;index<2;++index){
         side_key_t *key=&side_keys[index];bool down=core.port.read_key(core.port.context,index);
         if(!key->initialized){key->initialized=true;key->raw=key->down=down;key->consumed=down;key->pressed=key->changed=now;continue;}

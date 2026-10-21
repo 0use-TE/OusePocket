@@ -161,7 +161,8 @@ typedef struct {
 typedef struct {
     JSValue handler;
     uint32_t id, period, due, remaining;
-    bool interval;
+    bool interval,frame;
+    uint32_t frame_epoch;
 } script_timer_t;
 typedef struct {
     unsigned node, event;
@@ -259,6 +260,8 @@ typedef struct instance {
     bool navigation_event_pending;
     uint32_t generation, lifecycle_revision;
     unsigned pending_commands, dropped_events;
+    bool fullscreen_requested,game_requested,frame_waiting;
+    uint32_t frame_epoch;
     int command_values[4];
     bool brightness_save;
     char fault_message[1024];
@@ -805,10 +808,19 @@ static JSValue console_log(JSContext *context,JSValueConst self,int argc,JSValue
     ESP_LOGI("OuseJS","%s: %s",from_js(context)->id,text);
     return JS_UNDEFINED;
 }
+static bool frame_ready(instance_t *app,script_timer_t *job)
+{
+    if(!job->frame)return true;
+    model_lock(app);bool eligible=app->visible && app->built && app->frame_epoch!=job->frame_epoch;model_unlock(app);
+    return eligible;
+}
 static JSValue timer_create(JSContext *context,JSValueConst self,int argc,JSValueConst *argv,int interval)
 {
-    (void)self; instance_t *app=from_js(context); int32_t period;double exact;
-    if (argc!=2 || !JS_IsFunction(context,argv[0]) || !JS_IsNumber(argv[1]) ||
+    (void)self; instance_t *app=from_js(context); int32_t period=0;double exact=0;bool frame=interval==2;
+    if(frame){
+        if(argc!=1 || !JS_IsFunction(context,argv[0]))return JS_ThrowTypeError(context,"requestFrame expects function");
+        if(!app->visible || app->closed || app->faulted || app->validation_only)return JS_FALSE;
+    }else if (argc!=2 || !JS_IsFunction(context,argv[0]) || !JS_IsNumber(argv[1]) ||
         JS_ToFloat64(context,&exact,argv[1])<0 || !isfinite(exact) || floor(exact)!=exact || exact<33 || exact>60000)
         return JS_ThrowRangeError(context,"Timer expects function and integer period 33..60000ms");
     period=(int32_t)exact;
@@ -816,7 +828,8 @@ static JSValue timer_create(JSContext *context,JSValueConst self,int argc,JSValu
         if (app->next_timer>=INT32_MAX) return JS_ThrowRangeError(context,"Timer id exhausted");
         script_timer_t *timer=&app->timers[i];
         timer->id=++app->next_timer; timer->period=(uint32_t)period;
-        timer->due=now_ms()+(uint32_t)period;timer->remaining=(uint32_t)period; timer->interval=interval!=0;
+        timer->due=now_ms()+(uint32_t)period;timer->remaining=(uint32_t)period; timer->interval=interval==1;timer->frame=frame;
+        model_lock(app);timer->frame_epoch=app->frame_epoch;if(frame)app->frame_waiting=true;model_unlock(app);
         timer->handler=JS_DupValue(context,argv[0]);
         return JS_NewUint32(context,timer->id);
     }
@@ -866,6 +879,24 @@ static JSValue display_snapshot(JSContext *context)
     JS_SetPropertyStr(context,object,"keyboardVisible",JS_NewBool(context,ui->keyboard_visible));
 #undef NUMBER
     return object;
+}
+static JSValue fullscreen_set(JSContext *context,JSValueConst self,int argc,JSValueConst *argv)
+{
+    (void)self;
+    if(argc!=1 || !JS_IsBool(argv[0]))return JS_ThrowTypeError(context,"setFullscreen expects boolean");
+    instance_t *app=from_js(context);
+    model_lock(app);bool accepted=app->visible&&!app->closed&&!app->faulted&&!app->validation_only;
+    if(accepted){app->pending_commands|=128u;app->fullscreen_requested=JS_ToBool(context,argv[0]);}
+    model_unlock(app);return JS_NewBool(context,accepted);
+}
+static JSValue game_mode_set(JSContext *context,JSValueConst self,int argc,JSValueConst *argv)
+{
+    (void)self;
+    if(argc!=1 || !JS_IsBool(argv[0]))return JS_ThrowTypeError(context,"setEnabled expects boolean");
+    instance_t *app=from_js(context);model_lock(app);
+    bool accepted=app->visible&&!app->closed&&!app->faulted&&!app->validation_only;
+    if(accepted){app->pending_commands|=256u;app->game_requested=JS_ToBool(context,argv[0]);}
+    model_unlock(app);return JS_NewBool(context,accepted);
 }
 static JSValue device_snapshot(JSContext *context,int group)
 {
@@ -1615,7 +1646,9 @@ static void install_api(instance_t *app)
     JS_SetPropertyStr(context,timers,"clear",JS_NewCFunction(context,timer_clear,"clear",1));
     JS_SetPropertyStr(context,timers,"clearInterval",JS_NewCFunction(context,timer_clear,"clearInterval",1));
     JS_SetPropertyStr(context,timers,"clearTimeout",JS_NewCFunction(context,timer_clear,"clearTimeout",1));
+    JS_SetPropertyStr(context,timers,"requestFrame",JS_NewCFunctionMagic(context,timer_create,"requestFrame",1,JS_CFUNC_generic_magic,2));
     JS_SetPropertyStr(context,api,"timers",timers);
+    JSValue game=JS_NewObject(context);JS_SetPropertyStr(context,game,"setEnabled",JS_NewCFunction(context,game_mode_set,"setEnabled",1));JS_SetPropertyStr(context,api,"game",game);
     JS_SetPropertyStr(context,api,"apiVersion",JS_NewInt32(context,OUSE_RUNTIME_API_VERSION));
 
     const char *groups[]={"theme","locale","display"};
@@ -1625,7 +1658,10 @@ static void install_api(instance_t *app)
         JS_SetPropertyStr(context,group,"onChange",JS_NewCFunctionMagic(context,preference_on,"onChange",1,JS_CFUNC_generic_magic,i));
         if(i<2)JS_SetPropertyStr(context,group,"set",JS_NewCFunctionMagic(context,preference_set,"set",1,JS_CFUNC_generic_magic,i));
         if(i==1) JS_SetPropertyStr(context,group,"t",JS_NewCFunction(context,locale_text,"t",1));
-        if(i==2)JS_SetPropertyStr(context,group,"setOrientation",JS_NewCFunction(context,orientation_set,"setOrientation",1));
+        if(i==2){
+            JS_SetPropertyStr(context,group,"setOrientation",JS_NewCFunction(context,orientation_set,"setOrientation",1));
+            JS_SetPropertyStr(context,group,"setFullscreen",JS_NewCFunction(context,fullscreen_set,"setFullscreen",1));
+        }
         if(i==2) JS_SetPropertyStr(context,group,"setBrightness",JS_NewCFunctionMagic(context,preference_set,"setBrightness",1,JS_CFUNC_generic_magic,3));
         JS_SetPropertyStr(context,api,groups[i],group);
     }
@@ -2686,6 +2722,11 @@ static void enforce_permissions(instance_t *app)
         if(task)(void)ouse_task_cancel(&app->owner,task,"permission_revoked");
     }
 }
+static void publish_viewport_size(instance_t *app,ui_snapshot_t *snapshot,int width,int height)
+{
+    if(snapshot->app_width!=width || snapshot->app_height!=height)snapshot->revisions[2]=++app->display_revision;
+    snapshot->app_width=width;snapshot->app_height=height;
+}
 static void ui_pump(lv_timer_t *timer)
 {
     instance_t *app=lv_timer_get_user_data(timer);
@@ -2705,23 +2746,26 @@ static void ui_pump(lv_timer_t *timer)
     if(snapshot.revisions[2]!=app->core_display_revision || snapshot.app_width!=previous.app_width || snapshot.app_height!=previous.app_height ||
         snapshot.keyboard_visible!=previous.keyboard_visible || snapshot.keyboard_height!=previous.keyboard_height || snapshot.keyboard_inset!=previous.keyboard_inset)++app->display_revision;
     app->core_display_revision=snapshot.revisions[2];snapshot.revisions[2]=app->display_revision;
-    unsigned commands,settings_target;int values[4];bool save,ready,faulted,visible,home;char launch[48],file[128];navigation_stage_t navigation_stage;
-    model_lock(app);app->snapshot=snapshot;commands=app->pending_commands;app->pending_commands=0;memcpy(values,app->command_values,sizeof(values));save=app->brightness_save;
+    unsigned commands,settings_target;int values[4];bool save,ready,faulted,visible,home,fullscreen,game;char launch[48],file[128];navigation_stage_t navigation_stage;
+    model_lock(app);app->snapshot=snapshot;commands=app->pending_commands;app->pending_commands=0;memcpy(values,app->command_values,sizeof(values));save=app->brightness_save;fullscreen=app->fullscreen_requested;game=app->game_requested;
     if(detach)app->navigation_stage=NAV_DETACHED;
     ready=app->ready;faulted=app->faulted;visible=app->visible;home=app->home_requested;app->home_requested=false;settings_target=app->settings_requested;app->settings_requested=0;strcpy(launch,app->launch_requested);app->launch_requested[0]=0;navigation_stage=app->navigation_stage;model_unlock(app);
     model_lock(app);strcpy(file,app->file_requested);app->file_requested[0]=0;model_unlock(app);
     if(detach)wake_worker();
+    if((commands&256u) && visible && !faulted)(void)ouse_core_set_game_mode(game);
     if(commands & 1u)(void)ouse_core_set_theme((ouse_theme_t)values[0]);
     if(commands & 2u)(void)ouse_core_set_ui((unsigned)values[1],ouse_ui_font_percent());
     if(commands & 8u){if(save)(void)ouse_core_set_brightness((uint8_t)values[3]);else (void)ouse_core_preview_brightness((uint8_t)values[3]);}
     if(commands & 16u)(void)ouse_core_sleep_display();
     if(commands & 32u)(void)ouse_core_wake_display();
     if((commands & 64u)&&visible&&!faulted)(void)ouse_core_set_orientation(values[2]!=0);
-    if(faulted && !app->fault_shown){app->fault_shown=true;show_fault(app);}
+    if((commands & 128u)&&visible&&!faulted)(void)ouse_core_set_fullscreen(fullscreen);
+    if(faulted && !app->fault_shown){(void)ouse_core_set_fullscreen(false);app->fault_shown=true;show_fault(app);}
     if(!faulted && ready && !app->built && (visible || navigation_stage==NAV_MODEL_READY)){
         build_nodes(app);
         // Publish the laid-out viewport before the worker can dispatch onChange.
-        lv_obj_update_layout(app->viewport);snapshot.app_width=lv_obj_get_width(app->viewport);snapshot.app_height=lv_obj_get_height(app->viewport);
+        lv_obj_update_layout(app->viewport);
+        publish_viewport_size(app,&snapshot,lv_obj_get_width(app->viewport),lv_obj_get_height(app->viewport));
         model_lock(app);app->snapshot=snapshot;app->built=true;app->navigation_stage=NAV_IDLE;app->navigation_event_pending=true;model_unlock(app);wake_worker();
     }
     if(!faulted && ready && visible && app->built && navigation_stage!=NAV_REQUESTED && navigation_stage!=NAV_DETACHED){
@@ -2759,6 +2803,7 @@ static void ui_pump(lv_timer_t *timer)
             model_lock(app);node->shown_scroll=revision;node->scroll_y=position;node->scroll_bottom=bottom;node->scroll_height=height;model_unlock(app);
         }
     }
+    if(app->built && visible && !faulted){model_lock(app);bool frame=app->frame_waiting;if(frame){++app->frame_epoch;app->frame_waiting=false;}model_unlock(app);if(frame)wake_worker();}
     if(app->built || app->fault_shown)lv_obj_remove_flag(app->root,OUSE_APP_LOADING_FLAG);
     if(file[0] && visible && !faulted){esp_err_t error=ouse_core_open_file(app->id,file);if(error!=ESP_OK && error!=ESP_ERR_NOT_SUPPORTED && !ouse_dialog_active())ouse_dialog_show("无法打开文件，请稍后重试。",NULL,NULL);}
     else if(settings_target && visible && !faulted)(void)ouse_core_open_settings(settings_target,app->id);
@@ -2944,6 +2989,7 @@ static void run_batch(instance_t *app)
     uint32_t now=now_ms();
     for(unsigned i=0;i<MAX_TIMERS && !app->faulted;++i){
         script_timer_t *job=&app->timers[i];if(!job->id || (int32_t)(now-job->due)<0)continue;
+        if(!frame_ready(app,job))continue;
         if(ouse_budget_slice_done(&app->budget))break; // defer pending callbacks instead of punishing an idle batch
         JSValue handler=JS_DupValue(app->context,job->handler);
         if(job->interval)job->due=now+job->period;else {JS_FreeValue(app->context,job->handler);job->handler=JS_UNDEFINED;job->id=0;}

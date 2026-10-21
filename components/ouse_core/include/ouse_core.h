@@ -14,8 +14,8 @@
 extern "C" {
 #endif
 
-#define OUSE_CORE_VERSION "0.43.0"
-#define OUSE_CORE_API_VERSION 45
+#define OUSE_CORE_VERSION "0.44.2"
+#define OUSE_CORE_API_VERSION 47
 
 // Immutable board specifications; these describe hardware, not current usage.
 typedef struct {
@@ -85,6 +85,10 @@ esp_err_t ouse_core_wake_display(void);
 const char *ouse_core_version(void);
 esp_err_t ouse_core_set_orientation(bool landscape); // UI task; atomic display/layout transition
 bool ouse_core_landscape(void);
+// UI thread only; scoped to the active app. Leaving it restores system bars.
+esp_err_t ouse_core_set_fullscreen(bool enabled);
+// Foreground app opt-in; system Back/Home requires a second attempt within 2 s.
+esp_err_t ouse_core_set_game_mode(bool enabled);
 esp_err_t ouse_core_set_theme(ouse_theme_t theme); // UI task/lock only; save asynchronously
 
 // From non-UI tasks only: enqueue a short callback for the LVGL task, at most

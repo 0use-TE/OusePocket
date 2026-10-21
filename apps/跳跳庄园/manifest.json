@@ -1,0 +1,62 @@
+{
+  "runtime": "ouse-core",
+  "api": 1,
+  "id": "user.pixel-adventure",
+  "name": "跳跳庄园",
+  "names": {
+    "zh_CN": "跳跳庄园",
+    "en": "跳跳庄园"
+  },
+  "icon": "icon.bin",
+  "versionCode": 9,
+  "versionName": "0.6.0",
+  "minNativeApi": 47,
+  "author": "OusePocket / Pixel Frog",
+  "description": "三关像素横版冒险：移动、二段跳、水果、尖刺和检查点。Pixel Frog CC0 素材。",
+  "releasedAt": "2026-10-21",
+  "assets": [
+    {
+      "id": "actors",
+      "type": "image",
+      "path": "assets/actors.bin"
+    },
+    {
+      "id": "objects",
+      "type": "image",
+      "path": "assets/objects.bin"
+    },
+    {
+      "id": "animations",
+      "type": "text",
+      "path": "assets/animations.json"
+    },
+    {
+      "id": "levels",
+      "type": "text",
+      "path": "assets/levels.json"
+    },
+    {
+      "id": "tiles",
+      "type": "binary",
+      "path": "assets/tiles.bin"
+    },
+    {
+      "id": "music",
+      "type": "binary",
+      "path": "assets/music.wav"
+    },
+    {
+      "id": "sounds",
+      "type": "binary",
+      "path": "assets/sounds.pcm"
+    },
+    {
+      "id": "audio",
+      "type": "text",
+      "path": "assets/audio.json"
+    }
+  ],
+  "capabilities": {
+    "media": true
+  }
+}

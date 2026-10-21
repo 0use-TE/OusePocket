@@ -8,13 +8,15 @@
     "en": "Wild Survivor"
   },
   "icon": "icon.bin",
-  "versionCode": 4,
-  "versionName": "1.0.0",
-  "minNativeApi": 41,
+  "versionCode": 5,
+  "versionName": "2.0.0",
+  "minNativeApi": 47,
   "author": "OusePocket",
-  "description": "轻量横屏生存战：摇杆移动、自动瞄准、火箭范围伤害和环绕飞剑，精简怪物与特效负载。",
-  "releasedAt": "2026-10-20",
-  "capabilities": {},
+  "description": "全屏大地图生存战：四名角色、六类枪械、四种支援伙伴、三个区域与首领挑战。",
+  "releasedAt": "2026-10-21",
+  "capabilities": {
+    "media": true
+  },
   "assets": [
     {
       "id": "actors",
@@ -25,6 +27,26 @@
       "id": "badge",
       "type": "image",
       "path": "assets/badge.bin"
+    },
+    {
+      "id": "extra",
+      "type": "image",
+      "path": "assets/extra.bin"
+    },
+    {
+      "id": "music",
+      "type": "binary",
+      "path": "assets/music.wav"
+    },
+    {
+      "id": "sounds",
+      "type": "binary",
+      "path": "assets/sounds.pcm"
+    },
+    {
+      "id": "audio",
+      "type": "text",
+      "path": "assets/audio.json"
     }
   ]
 }

@@ -1,0 +1,23 @@
+{
+  "author": "Pixel Frog",
+  "source": "https://pixelfrog-assets.itch.io/pixel-adventure-1",
+  "license": "CC0-1.0",
+  "archiveSha256": "efafdfc8ed44f2b0ade27c0246e11a2474ce3a793b4f8e16dbe7403824f6e77b",
+  "sourceFiles": {
+    "Main Characters/Ninja Frog/Idle (32x32).png": "282defd7762fd4a775b60a262d1fccb49037a85fd3b5babc832a632e26619f95",
+    "Main Characters/Ninja Frog/Run (32x32).png": "4fca7321ae84f234e232ff0da132e028f69363cdee55999961525561bbf57a7c",
+    "Main Characters/Ninja Frog/Jump (32x32).png": "9e3abe890e4e2248d614a7a834a2ed249566ca2d4e45031f6e6c0831513233d2",
+    "Main Characters/Ninja Frog/Fall (32x32).png": "713d4428d2f5f02d39c1cec5ab153c8780f40db033aae9765644713724bcdf15",
+    "Main Characters/Ninja Frog/Double Jump (32x32).png": "6b7401b52565962aed9dce0338d6ca96c1bdd12001c86c557d2153ae9c63f2c5",
+    "Main Characters/Ninja Frog/Hit (32x32).png": "8ce646bd3ee99ad39b60e21602e50571c846ad3052638f5d43dc21c6dc1caa36",
+    "Terrain/Terrain (16x16).png": "3fb1a76c7cc102116562f9533d51386b8e63616aa0e228f359001dbb7479eaab",
+    "Traps/Spikes/Idle.png": "2ac00698d048ef4b41ccf05dd5409b57a4013ea2c5e8e75d1ceea91b341c3e6e",
+    "Items/Fruits/Apple.png": "ee71a978665c5c375603a4a047d129729e319f03708787279954171caabfd1e3",
+    "Items/Fruits/Cherries.png": "d9edb2c3157a28daf47c5f76a3cfb9354e6caa623c364784bfc3c015602e8f05",
+    "Items/Fruits/Strawberry.png": "19f65cfcf207e6bb493bf5f0cbc806a0b6582d36b60ba9e9f9f3e5d463e82661",
+    "Items/Checkpoints/Checkpoint/Checkpoint (No Flag).png": "cd048973d0ead9e6c81003601bd041c364044eb8210e9e71e473076a9afa5ae7",
+    "Items/Checkpoints/Checkpoint/Checkpoint (Flag Idle)(64x64).png": "99fd9012b3935a91f580922c051ca2cbe86fe85c1ca5d8a1dbf09fc161f3e309",
+    "Items/Checkpoints/End/End (Idle).png": "283b5cb5fda1993b46f2da84592a8b90dde7c124a90d5fa67f1dc8c61f4f1286"
+  },
+  "changes": "Selected animation frames, mirrored hero, compact atlases and reduced checkpoint sprites. Original levels and game code by OusePocket."
+}

@@ -1,0 +1,26 @@
+{
+  "Idle": {
+    "first": 0,
+    "count": 6
+  },
+  "Run": {
+    "first": 6,
+    "count": 8
+  },
+  "Jump": {
+    "first": 14,
+    "count": 1
+  },
+  "Fall": {
+    "first": 15,
+    "count": 1
+  },
+  "Double Jump": {
+    "first": 16,
+    "count": 4
+  },
+  "Hit": {
+    "first": 20,
+    "count": 2
+  }
+}

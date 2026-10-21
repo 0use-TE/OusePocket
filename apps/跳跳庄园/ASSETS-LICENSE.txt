@@ -1,0 +1,9 @@
+Pixel Adventure graphics by Pixel Frog
+Source: https://pixelfrog-assets.itch.io/pixel-adventure-1
+License: CC0 1.0 Universal
+https://creativecommons.org/publicdomain/zero/1.0/
+
+Selected frames were packed into atlases, mirrored, cropped and resized.
+See provenance.json for source file hashes and transformations.
+Level layouts and game implementation are original OusePocket code.
+This package uses the free Pixel Adventure 1 graphics, not the paid enemy pack.

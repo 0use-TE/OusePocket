@@ -67,11 +67,12 @@ typedef struct {
     lv_obj_t *account_names[2];
     lv_obj_t *info;
     unsigned pending_ui;
-    bool brightness_failed;
+    bool brightness_failed,fullscreen;
 } core_state_t;
 
 static OUSE_PSRAM_BSS core_state_t core;
 static void rebuild_launcher(void);
+static void navigation_layout(int navigation_height);
 #include "ouse_launcher.inc"
 #include "ouse_file_open.inc"
 #include "ouse_keys.inc"
@@ -102,6 +103,13 @@ static lv_obj_t *panel(lv_obj_t *parent, int x, int y, int width, int height)
 
 static void app_changed(bool active)
 {
+    // Home drag reveals the launcher before the foreground app actually leaves.
+    // Keep its viewport intact so cancelling the gesture restores fullscreen.
+    bool fullscreen=ouse_apps_fullscreen();
+    if(core.fullscreen!=fullscreen){
+        core.fullscreen=fullscreen;
+        navigation_layout(ouse_ui_dp(ouse_shell_navigation()?40:24));
+    }
     if(active)launcher_edit(false);
     if(active)launcher_cancel();
     if (active) {
@@ -163,6 +171,7 @@ static void theme_label(void)
     }
 }
 static void rebuild_launcher(void);
+static void navigation_layout(int navigation_height);
 static void preference_labels(void)
 {
     theme_label();
@@ -316,6 +325,7 @@ static void shell_back(void)
     if(launcher.editing){launcher_cancel();launcher_edit(false);return;}
     if (ouse_ime_active()) { ouse_ime_hide(); return; }
     if (ouse_app_back()) return;
+    if (!ouse_apps_confirm_exit()) return;
     ouse_app_stats_t state;
     if (ouse_app_get_stats(&state)!=ESP_OK) return;
     if(!strcmp(state.active_id,"ouse.settings") && core.settings_page==12 && ouse_manager_ui_back())return;
@@ -588,8 +598,24 @@ static void navigation_layout(int navigation_height)
     lv_obj_set_width(core.home,width);lv_obj_set_width(core.app_host,width);lv_obj_set_width(core.grid,width-ouse_ui_dp(16));
     lv_obj_set_height(core.home,height-ouse_ui_dp(40)-navigation_height);
     lv_obj_set_height(core.grid,height-ouse_ui_dp(70)-navigation_height);
-    ouse_apps_resize(height-ouse_ui_dp(40)-navigation_height);
+    int top=core.fullscreen?0:ouse_ui_dp(40);
+    ouse_apps_layout(top,core.fullscreen?height:height-top-navigation_height);
+    ouse_shell_set_fullscreen(core.fullscreen);
     rebuild_launcher();
+}
+esp_err_t ouse_core_set_fullscreen(bool enabled)
+{
+    if(!core.started || ouse_core_access_blocked())return ESP_ERR_INVALID_STATE;
+    esp_err_t error=ouse_apps_set_fullscreen(enabled);if(error!=ESP_OK)return error;
+    if(core.fullscreen==enabled)return ESP_OK;
+    ouse_ime_hide();core.fullscreen=enabled;
+    navigation_layout(ouse_ui_dp(ouse_shell_navigation()?40:24));
+    lv_obj_invalidate(core.screen);return ESP_OK;
+}
+esp_err_t ouse_core_set_game_mode(bool enabled)
+{
+    if(!core.started || ouse_core_access_blocked())return ESP_ERR_INVALID_STATE;
+    return ouse_apps_set_game_mode(enabled);
 }
 bool ouse_core_landscape(void){return core.started && lv_display_get_rotation(core.port.display)==LV_DISPLAY_ROTATION_270;}
 esp_err_t ouse_core_set_orientation(bool landscape)

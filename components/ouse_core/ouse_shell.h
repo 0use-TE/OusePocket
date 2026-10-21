@@ -1,5 +1,6 @@
 #pragma once
 #include "ouse_core.h"
+void ouse_shell_game_hint(bool show);
 typedef struct {
     lv_obj_t *screen;
     lv_indev_t *touch;
@@ -15,8 +16,9 @@ void ouse_shell_init(const ouse_shell_config_t *config);
 void ouse_shell_foreground(void);
 void ouse_shell_set_navigation(unsigned mode);
 unsigned ouse_shell_navigation(void);
+void ouse_shell_set_fullscreen(bool enabled);
 typedef struct {
-    bool quick,recents,tracking,notifications;
+    bool quick,recents,tracking,notifications,fullscreen;
     int quick_y,back_progress,recent_scroll_x;
     unsigned cards;
     unsigned notification_cards;

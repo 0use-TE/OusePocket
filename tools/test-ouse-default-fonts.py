@@ -1,4 +1,4 @@
-"""Actual UI text policy plus unchanged retained bitmap/cmap/metrics checks."""
+"""Actual UI text policy; added game glyphs retain shipped pixels and metrics."""
 from pathlib import Path
 import os,re,subprocess
 ROOT=Path(__file__).resolve().parents[1]
@@ -7,9 +7,22 @@ CORE=ROOT/'components/ouse_core'
 pool=(CORE/'ui_font_pool.h').read_text(encoding='utf-8')
 sizes=list(map(int,re.search(r'sizes\[\]=\{([^}]+)',pool)[1].split(',')))
 assert sizes==[8,10,12,14,16,18,20,22,24,28,32,40]
+def glyph_data(text):
+    bitmap=bytes(int(v,16) for v in re.findall(r'0x([0-9a-fA-F]{2})',text.split('static const uint8_t bitmap[] = {',1)[1].split('};',1)[0]))
+    result={}
+    for match in re.finditer(r'\{\.bitmap_index=(\d+), \.adv_w=(\d+), \.box_w=(\d+), \.box_h=(\d+), \.ofs_x=(-?\d+), \.ofs_y=(-?\d+)\}, // U\+([0-9A-F]+)',text):
+        offset,advance,width,height,x,y,cp=match.groups();offset=int(offset);count=(int(width)*int(height)+1)//2
+        result[int(cp,16)]=((advance,width,height,x,y),bitmap[offset:offset+count])
+    return result
 for n in sizes+['cjk_14','cjk_16','cjk_20']:
     path=f'components/ouse_core/ouse_font_ui_{n}.c'
-    assert (ROOT/path).read_bytes().replace(b'\r\n',b'\n')==subprocess.check_output(['git','show','HEAD:'+path]).replace(b'\r\n',b'\n'),path
+    current=(ROOT/path).read_text(encoding='utf-8');previous=subprocess.check_output(['git','show','HEAD:'+path]).decode('utf-8')
+    if isinstance(n,str):assert current.replace('\r\n','\n')==previous.replace('\r\n','\n'),path
+    else:
+        old,new=glyph_data(previous),glyph_data(current)
+        assert old and all(cp in new and new[cp]==value for cp,value in old.items()),path
+        assert re.search(r'\.line_height=\d+, \.base_line=\d+',current)[0]==re.search(r'\.line_height=\d+, \.base_line=\d+',previous)[0],path
+        assert all(ord(c) in new for c in '荒野生存跳跳庄园散弹狙击榴电弧枪伙伴营地'),path
 assert 'setFontPercent' not in (ROOT/'tools/vscode-ouse-bpk/media/preview.js').read_text(encoding='utf-8')
 runtime=(ROOT/'components/ouse_runtime/ouse_runtime.c').read_text(encoding='utf-8')
 assert '"setFontPercent"' not in runtime and '"fontSize",&font,default_font,8,84)' in runtime
@@ -47,7 +60,7 @@ int main(void){
  const lv_font_t *font=label.font;assert(ouse_ui_set_preferences(1,100)==ESP_OK);assert(!strcmp(label.text,"English")&&label.font==font);
  assert(ouse_ui_set_preferences(0,130)==ESP_ERR_INVALID_ARG);assert(ouse_ui_locale()==1&&ouse_ui_font_percent()==100);
  assert(ouse_ui_dp(10)==10&&ouse_ui_to_dp(10)==10);
- puts("PASS default fonts: real UI policy fixed 100%, translated text/role sizes preserved; retained raster/cmap/metrics unchanged");
+ puts("PASS default fonts: fixed 100% policy, retained glyph pixels/metrics and CJK fallbacks; new game copy covered");
 }
 '''
 (OUT/'font-check.c').write_text(fixture,encoding='utf-8')
