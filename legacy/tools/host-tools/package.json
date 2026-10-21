@@ -1,5 +1,0 @@
-{
-  "name": "ouse-brookesia-host-tools",
-  "private": true,
-  "dependencies": { "esp-brookesia-toolkit": "1.0.1" }
-}

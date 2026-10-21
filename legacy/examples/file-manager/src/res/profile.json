@@ -1,9 +1,0 @@
-{
-  "root": "root.json",
-  "screen_flows": [
-    {
-      "screen_flow": "main_flow",
-      "layer": "AppDefault"
-    }
-  ]
-}

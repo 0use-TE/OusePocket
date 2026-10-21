@@ -78,7 +78,7 @@
 
 当前 0.9.0 新增任务 ID/终态事件、后台原因与应用/系统诊断；异步音频和 Wi-Fi 接受请求返回任务 ID（拒绝 false），存储 Promise 增加 taskId。执行预算口径已改为任务获调度时间，以下历史说明中的 12/4 ms 不应解释为纯 JS CPU 时间。接口、取消/关闭策略和计时限制统一见 [0.9.0 系统机制](../../docs/0.9.0-kernel.md)。
 
-归档 `legacy/.reference/esp-brookesia/runtime/brookesia_runtime_js/src/backend.cpp` 使用 QuickJS Runtime/Context、内存/栈限制、事件绑定、任务队列和暂停/销毁生命周期。本组件采用相同的 `espressif/quickjs-ng ==0.14.0`，保留每应用独立环境，但没有引入归档的服务、HAL、GUI 文档或线程管理架构。页面和 API 是当前轻量核心自己的契约；探索阶段只维护一种 BPK。
+旧目录已移除；以下路径仅记录参考来源。原归档 `legacy/.reference/esp-brookesia/runtime/brookesia_runtime_js/src/backend.cpp` 使用 QuickJS Runtime/Context、内存/栈限制、事件绑定、任务队列和暂停/销毁生命周期。本组件采用相同的 `espressif/quickjs-ng ==0.14.0`，保留每应用独立环境，但没有引入归档的服务、HAL、GUI 文档或线程管理架构。页面和 API 是当前轻量核心自己的契约；探索阶段只维护一种 BPK。
 
 QuickJS 原始版权/许可保留在 managed component 的 LICENSE 和源文件中。运行时只调用 quickjs.h；不初始化 quickjs-libc 的 std/os、文件或进程辅助 API，也不启动 js_std 后台事件循环。
 

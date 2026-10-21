@@ -1,9 +1,0 @@
-{
-    "type": "constant",
-    "data": {
-        "startup": {
-            "titleFont": "32sp",
-            "titleGap": "8dp"
-        }
-    }
-}

@@ -1,9 +1,0 @@
-{
-  "type": "screenFlow",
-  "id": "main_flow",
-  "screens": [
-    "main"
-  ],
-  "initial": "main",
-  "transitions": []
-}

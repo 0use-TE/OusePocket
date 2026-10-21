@@ -13,5 +13,5 @@
 /sdkconfig.rev*
 /tmp/
 /dist/
-# Preserve downloaded vendor archive locally without adding it to Git
-/legacy/ESP32-P4-WIFI6-Touch-LCD-3.5/
+# Host UI regression snapshots belong in .tools/, not the project root.
+/orientation-*.ppm

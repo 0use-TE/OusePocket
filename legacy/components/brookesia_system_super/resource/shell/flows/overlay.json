@@ -1,8 +1,0 @@
-{
-    "type": "screenFlow",
-    "id": "overlay",
-    "screens": [
-        "overlay"
-    ],
-    "initial": "overlay"
-}
