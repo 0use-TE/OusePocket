@@ -17,17 +17,32 @@
 #define WORKER_STACK_BYTES 4096u
 
 enum slot_owner { SLOT_FREE, SLOT_WRITING, SLOT_READY, SLOT_SENDING };
+typedef struct {int x1,y1,x2,y2;bool valid;} damage_t;
+static void damage_add(damage_t *d,int x1,int y1,int x2,int y2)
+{
+    if(!d->valid){*d=(damage_t){x1,y1,x2,y2,true};return;}
+    if(x1<d->x1)d->x1=x1;
+    if(y1<d->y1)d->y1=y1;
+    if(x2>d->x2)d->x2=x2;
+    if(y2>d->y2)d->y2=y2;
+}
+static void damage_merge(damage_t *a,const damage_t *b)
+{if(b->valid)damage_add(a,b->x1,b->y1,b->x2,b->y2);}
 static struct {
     lv_display_t *display;
     esp_lcd_panel_handle_t panel;
     TaskHandle_t worker;
     uint8_t *compose, *image[2], *dma[2];
     enum slot_owner owner[2];
+    damage_t dirty,damage[2];
+    bool force_full;
     int pending;
     bool enabled, fault;
     unsigned width, height;
     uint32_t epoch, published, replaced, frames, errors;
     uint32_t max_us, publish_max_us;
+    uint32_t full_frames,partial_frames,synced,late;
+    uint64_t bytes;
     int64_t report_at;
 } frame;
 static portMUX_TYPE frame_lock=portMUX_INITIALIZER_UNLOCKED;
@@ -43,6 +58,7 @@ static int reserve_publish_slot(void)
     if(frame.enabled && !frame.fault){
         if(frame.pending>=0){
             slot=frame.pending;frame.pending=-1;++frame.replaced;
+            damage_merge(&frame.dirty,&frame.damage[slot]);
         }else{
             for(int n=0;n<2;n++)if(frame.owner[n]==SLOT_FREE){slot=n;break;}
         }
@@ -56,6 +72,7 @@ static void publish_snapshot(void)
 {
     int slot=reserve_publish_slot();
     if(slot<0)return;
+    frame.damage[slot]=frame.dirty;frame.dirty.valid=false;
     int64_t started=esp_timer_get_time();
     // UI-only compositor is never read by the worker. The reserved outbound
     // slot cannot be taken by the worker until this complete copy is published.
@@ -69,6 +86,7 @@ static void publish_snapshot(void)
         portEXIT_CRITICAL(&frame_lock);
         return;
     }
+    if(frame.force_full){frame.damage[slot]=(damage_t){0,0,(int)frame.width,(int)frame.height,true};frame.force_full=false;}
     frame.owner[slot]=SLOT_READY;frame.pending=slot;++frame.published;
     if(elapsed>frame.publish_max_us)frame.publish_max_us=elapsed;
     portEXIT_CRITICAL(&frame_lock);
@@ -91,6 +109,7 @@ static void release_slot(int slot)
 {
     portENTER_CRITICAL(&frame_lock);
     frame.owner[slot]=SLOT_FREE;
+    frame.damage[slot].valid=false;
     portEXIT_CRITICAL(&frame_lock);
 }
 
@@ -100,6 +119,7 @@ static int promote_latest(int current,uint32_t epoch)
     portENTER_CRITICAL(&frame_lock);
     if(frame.enabled && !frame.fault && frame.epoch==epoch && frame.pending>=0){
         int newest=frame.pending;frame.pending=-1;
+        damage_merge(&frame.damage[newest],&frame.damage[current]);
         frame.owner[current]=SLOT_FREE;frame.owner[newest]=SLOT_SENDING;
         current=newest;++frame.replaced;
     }
@@ -124,28 +144,51 @@ static void send_snapshot(int slot,uint32_t epoch)
         ouse_board_lcd_io_unlock();release_slot(slot);return;
     }
     slot=promote_latest(slot,epoch);
-    size_t row_bytes=(size_t)frame.width*2;
-    size_t chunk_bytes=row_bytes*DMA_ROWS;
-    memcpy(frame.dma[0],frame.image[slot],chunk_bytes);
-    int64_t started=esp_timer_get_time();
-    esp_err_t e=ESP_OK;
-    unsigned bounce=0;
+    portENTER_CRITICAL(&frame_lock);
+    if(frame.force_full){frame.damage[slot]=(damage_t){0,0,(int)frame.width,(int)frame.height,true};frame.force_full=false;}
+    portEXIT_CRITICAL(&frame_lock);
+    damage_t area=frame.damage[slot];
+    bool full=area.valid && (uint32_t)(area.x2-area.x1)*(uint32_t)(area.y2-area.y1)>=320u*480u/4;
+    int64_t started=esp_timer_get_time(),deadline=0;
+    bool synced=full && ouse_board_lcd_frame_window(&deadline);
+    // Prefer a frame published while the background entry wait was asleep.
+    if(full)slot=promote_latest(slot,epoch);
+    area=frame.damage[slot];
+    if(full)area=(damage_t){0,0,(int)frame.width,(int)frame.height,true};
+    esp_err_t e=ESP_OK;unsigned bounce=0;
     ouse_board_lcd_worker_dma(true);
-    e=ouse_board_lcd_sync_send(frame.image[slot],frame.width==480,frame.dma);
-    if(e==ESP_ERR_NOT_SUPPORTED)for(unsigned y=0;y<frame.height;y+=DMA_ROWS){
-        if(y)memcpy(frame.dma[bounce],frame.image[slot]+(size_t)y*row_bytes,chunk_bytes);
-        // The panel driver's CASET drains the previous slot before queuing
-        // this one. Thus the slot reused at the next iteration is already idle.
-        e=__real_esp_lcd_panel_draw_bitmap(frame.panel,0,(int)y,(int)frame.width,(int)(y+DMA_ROWS),frame.dma[bounce]);
-        if(e!=ESP_OK)break;
-        bounce^=1;
+    if(full && frame.width==480){
+        // A physical scanline is a logical column in landscape. Exactly 24
+        // bounded strips, packed directly from the existing logical image.
+        for(unsigned x=0;x<480;x+=DMA_ROWS){
+            for(unsigned y=0;y<320;y++)memcpy(frame.dma[bounce]+y*DMA_ROWS*2,
+                frame.image[slot]+((size_t)y*480+x)*2,DMA_ROWS*2);
+            e=__real_esp_lcd_panel_draw_bitmap(frame.panel,(int)x,0,(int)(x+DMA_ROWS),320,frame.dma[bounce]);
+            if(e!=ESP_OK)break;
+            frame.bytes+=320u*DMA_ROWS*2;bounce^=1;
+        }
+    }else if(area.valid){
+        unsigned width=(unsigned)(area.x2-area.x1);
+        for(int y=area.y1;y<area.y2;y+=(int)DMA_ROWS){
+            unsigned rows=(unsigned)(area.y2-y);if(rows>DMA_ROWS)rows=DMA_ROWS;
+            for(unsigned row=0;row<rows;row++)memcpy(frame.dma[bounce]+(size_t)row*width*2,
+                frame.image[slot]+((size_t)(y+(int)row)*frame.width+area.x1)*2,(size_t)width*2);
+            e=__real_esp_lcd_panel_draw_bitmap(frame.panel,area.x1,y,area.x2,y+(int)rows,frame.dma[bounce]);
+            if(e!=ESP_OK)break;
+            frame.bytes+=(uint64_t)width*rows*2;bounce^=1;
+        }
     }
     esp_err_t drained=esp_lcd_panel_io_tx_param(ouse_board_lcd_frame_io(),0x00,NULL,0);
     if(e==ESP_OK)e=drained;
     uint32_t elapsed=(uint32_t)(esp_timer_get_time()-started);
     if(elapsed>frame.max_us)frame.max_us=elapsed;
     ++frame.frames;
-    if(e!=ESP_OK)++frame.errors;
+    if(full)++frame.full_frames;else ++frame.partial_frames;
+    if(synced){++frame.synced;if(esp_timer_get_time()>deadline)++frame.late;}
+    if(e!=ESP_OK){
+        ++frame.errors;
+        portENTER_CRITICAL(&frame_lock);frame.force_full=true;portEXIT_CRITICAL(&frame_lock);
+    }
     if(drained==ESP_OK){
         // No worker DMA callback can arrive after this drain. Return this
         // outbound slot only now; neither DMA nor the UI ever share buffers.
@@ -169,8 +212,8 @@ static void send_snapshot(int slot,uint32_t epoch)
         portEXIT_CRITICAL(&frame_lock);
         ESP_LOGI("OuseLCDFrame","async frames=%" PRIu32 " tx_us=%" PRIu32 " max_us=%" PRIu32
                  " published=%" PRIu32 " replaced=%" PRIu32
-                 " ui_copy_max_us=%" PRIu32 " errors=%" PRIu32 " rc=%d",
-                 frame.frames,elapsed,frame.max_us,published,replaced,publish_max,frame.errors,e);
+                 " ui_copy_max_us=%" PRIu32 " full=%" PRIu32 " partial=%" PRIu32 " synced=%" PRIu32 " late=%" PRIu32 " bytes=%" PRIu64 " errors=%" PRIu32 " rc=%d",
+                 frame.frames,elapsed,frame.max_us,published,replaced,publish_max,frame.full_frames,frame.partial_frames,frame.synced,frame.late,frame.bytes,frame.errors,e);
         frame.report_at=now+5000000;
     }
 }
@@ -203,6 +246,7 @@ esp_err_t __wrap_esp_lcd_panel_draw_bitmap(esp_lcd_panel_handle_t panel,int x1,i
         memcpy(frame.compose+((size_t)row*frame.width+x1)*2,src,(size_t)(x2-x1)*2);
         src+=(x2-x1)*2;
     }
+    damage_add(&frame.dirty,x1,y1,x2,y2);
     if(lv_display_flush_is_last(display))publish_snapshot();
     // Only CPU staging owns these UI buffers. Background DMA completion is
     // filtered in the IO callback proxy; the sender never calls LVGL.
@@ -228,7 +272,7 @@ void ouse_board_lcd_frame_orientation_end(bool landscape)
     portENTER_CRITICAL(&frame_lock);
     frame.width=landscape?480:320;
     frame.height=landscape?320:480;
-    frame.enabled=true;
+    frame.enabled=true;frame.force_full=true;frame.dirty.valid=false;
     portEXIT_CRITICAL(&frame_lock);
     ouse_board_lcd_io_unlock();
     // Called on the UI thread, including a failed orientation change. Ensure
@@ -264,7 +308,7 @@ void ouse_board_lcd_frame_init(lv_display_t *display)
     frame.panel=bsp_display_get_panel_handle();frame.pending=-1;
     frame.width=(unsigned)lv_display_get_horizontal_resolution(display);
     frame.height=(unsigned)lv_display_get_vertical_resolution(display);
-    frame.enabled=true;
+    frame.enabled=true;frame.force_full=true;
     // Priority 7 only runs short copies/command setup; DMA waits
     // block it. UI remains at priority 6 and keeps its original drawing buffers.
     if(xTaskCreatePinnedToCore(frame_worker,"ouse_lcd_tx",WORKER_STACK_BYTES,NULL,7,&frame.worker,0)!=pdPASS){
@@ -273,6 +317,6 @@ void ouse_board_lcd_frame_init(lv_display_t *display)
     }
     frame.display=display;
     lv_obj_invalidate(lv_display_get_screen_active(display));
-    ESP_LOGI("OuseLCDFrame","async staging + T4 scan/diff sender enabled: staging PSRAM=%u DMA=%u stack=%u bytes; latest pending frame only",
+    ESP_LOGI("OuseLCDFrame","bounded async rectangle sender enabled: staging PSRAM=%u DMA=%u stack=%u bytes; latest pending frame only",
              FRAME_BYTES*3,DMA_BYTES*2,WORKER_STACK_BYTES);
 }

@@ -127,9 +127,10 @@ static esp_lcd_panel_io_callbacks_t registered;
 static void *registered_context;
 static uint8_t row_pixels[640];
 static int last_miso,last_sampling,scan_rx,read_clocks,write_clocks;
+static int window_requests;
 // Allocation-failure fallback retains the previous sender; the production
 // T4 diff/scan path is exercised separately by test-lcd-scan-sync.py.
-esp_err_t ouse_board_lcd_sync_send(const void *image,bool landscape,uint8_t *dma[2]){(void)image;(void)landscape;(void)dma;return ESP_ERR_NOT_SUPPORTED;}
+bool ouse_board_lcd_frame_window(int64_t *deadline){(void)deadline;++window_requests;return false;}
 void ouse_board_lcd_sync_invalidate(void){}
 
 void enter_critical(void){assert(critical==0);++critical;}
@@ -195,12 +196,14 @@ esp_err_t __real_spi_device_polling_transmit(spi_device_handle_t dev,spi_transac
 esp_err_t __real_esp_lcd_panel_draw_bitmap(esp_lcd_panel_handle_t panel,int x1,int y1,int x2,int y2,const void *pixels){
     assert(panel==(void*)2 && !critical);++draws;
     if(!worker_dma)return ESP_OK; // original landscape path
-    assert(io_depth>=1 && x1==0 && x2==(int)frame.width && y2-y1==DMA_ROWS);
-    size_t chunk_bytes=(size_t)frame.width*2*DMA_ROWS;
-    esp_lcd_panel_io_tx_param(frame_io,0x2a,NULL,0); // same drain rule as pinned panel driver
+    assert(io_depth>=1 && x1>=0 && y1>=0 && x2<=(int)frame.width && y2<=(int)frame.height);
+    size_t chunk_bytes=(size_t)(x2-x1)*(y2-y1)*2;
+    assert(chunk_bytes<=DMA_BYTES && chunk_bytes>0);
+    esp_lcd_panel_io_tx_param(frame_io,0x2a,NULL,0);
     assert(!active_dma);
     if(draw_fail){draw_fail=0;return ESP_FAIL;}
-    assert(!memcmp(pixels,expected_image+(size_t)y1*frame.width*2,chunk_bytes));
+    for(int row=y1;row<y2;row++)assert(!memcmp((const uint8_t*)pixels+(size_t)(row-y1)*(x2-x1)*2,
+        expected_image+((size_t)row*frame.width+x1)*2,(size_t)(x2-x1)*2));
     active_dma=pixels;active_bytes=chunk_bytes;memcpy(dma_copy,pixels,chunk_bytes);
     if(inject){
         inject=0;
@@ -208,7 +211,7 @@ esp_err_t __real_esp_lcd_panel_draw_bitmap(esp_lcd_panel_handle_t panel,int x1,i
         memset(row_pixels,0x44,sizeof(row_pixels));
         assert(__wrap_esp_lcd_panel_draw_bitmap(panel,0,1,320,2,row_pixels)==ESP_OK);
         assert(draws==old_draws && display.ready==old_done+1 && active_dma==pixels);
-        assert(!memcmp(active_dma,dma_copy,DMA_BYTES));
+        assert(!memcmp(active_dma,dma_copy,active_bytes));
     }
     return ESP_OK;
 }
@@ -280,9 +283,22 @@ int main(void){
     sending=take_latest(&epoch);assert(sending==latest_pending);
     memset(input,0x11,FRAME_BYTES);memset(input,0x22,640);memset(input+640,0x44,640);memset(input+479*640,0x33,640);
     assert(!memcmp(frame.image[sending],input,FRAME_BYTES));
+    uint64_t before_bytes=frame.bytes;
     expected_image=frame.image[sending];send_snapshot(sending,epoch);
+    assert(frame.bytes-before_bytes==640 && frame.partial_frames==1);
     assert(frame.frames==2 && !active_dma);
-    puts("PASS worker sends the complete newest image with dedicated DMA slots and confirmed drain before reuse");
+    puts("PASS newest-frame damage is preserved; a one-row change sends 640 bytes instead of 307200");
+
+    uint8_t patch[240];memset(patch,0x88,sizeof(patch));
+    assert(__wrap_esp_lcd_panel_draw_bitmap((void*)2,37,70,49,80,patch)==ESP_OK);
+    sending=take_latest(&epoch);assert(sending>=0);
+    memset(patch,0x99,sizeof(patch));
+    assert(__wrap_esp_lcd_panel_draw_bitmap((void*)2,120,75,130,87,patch)==ESP_OK);
+    expected_image=frame.image[frame.pending];before_bytes=frame.bytes;
+    int before_windows=window_requests;prior=draws;
+    send_snapshot(sending,epoch);
+    assert(frame.bytes-before_bytes==93u*17u*2 && draws==prior+1 && window_requests==before_windows);
+    puts("PASS promoting a newer partial frame unions unsent damage; small updates never enter scan waits");
 
     int writing=reserve_publish_slot();assert(writing>=0 && frame.owner[writing]==SLOT_WRITING);
     assert(take_latest(&epoch)==-1);release_slot(writing);
@@ -296,7 +312,7 @@ int main(void){
     assert(__wrap_esp_lcd_panel_draw_bitmap((void*)2,0,0,480,320,input)==ESP_OK && draws==prior);
     sending=take_latest(&epoch);assert(sending>=0);
     expected_image=frame.image[sending];send_snapshot(sending,epoch);
-    assert(draws==prior+16 && !active_dma && !worker_dma);
+    assert(draws==prior+24 && !active_dma && !worker_dma);
     puts("PASS half-copied image cannot be taken; orientation invalidates popped old work and sends complete landscape frames");
 
     display.width=320;display.height=480;
