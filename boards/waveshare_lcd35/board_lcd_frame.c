@@ -7,6 +7,7 @@
 #include "esp_timer.h"
 #include "freertos/task.h"
 #include "lcd_frame.h"
+#include "lcd_scan.h"
 #include <string.h>
 #include <inttypes.h>
 
@@ -130,7 +131,8 @@ static void send_snapshot(int slot,uint32_t epoch)
     esp_err_t e=ESP_OK;
     unsigned bounce=0;
     ouse_board_lcd_worker_dma(true);
-    for(unsigned y=0;y<frame.height;y+=DMA_ROWS){
+    e=ouse_board_lcd_sync_send(frame.image[slot],frame.width==480,frame.dma);
+    if(e==ESP_ERR_NOT_SUPPORTED)for(unsigned y=0;y<frame.height;y+=DMA_ROWS){
         if(y)memcpy(frame.dma[bounce],frame.image[slot]+(size_t)y*row_bytes,chunk_bytes);
         // The panel driver's CASET drains the previous slot before queuing
         // this one. Thus the slot reused at the next iteration is already idle.
@@ -216,6 +218,7 @@ void ouse_board_lcd_frame_orientation_begin(void)
     frame.enabled=false;++frame.epoch;
     if(frame.pending>=0){frame.owner[frame.pending]=SLOT_FREE;frame.pending=-1;}
     portEXIT_CRITICAL(&frame_lock);
+    ouse_board_lcd_sync_invalidate();
 }
 
 void ouse_board_lcd_frame_orientation_end(bool landscape)
@@ -270,6 +273,6 @@ void ouse_board_lcd_frame_init(lv_display_t *display)
     }
     frame.display=display;
     lv_obj_invalidate(lv_display_get_screen_active(display));
-    ESP_LOGI("OuseLCDFrame","async triple-buffer (no scan sync) enabled: PSRAM=%u DMA=%u stack=%u bytes; latest pending frame only",
+    ESP_LOGI("OuseLCDFrame","async staging + T4 scan/diff sender enabled: staging PSRAM=%u DMA=%u stack=%u bytes; latest pending frame only",
              FRAME_BYTES*3,DMA_BYTES*2,WORKER_STACK_BYTES);
 }

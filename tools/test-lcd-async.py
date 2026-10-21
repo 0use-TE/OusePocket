@@ -35,6 +35,7 @@ typedef int esp_err_t;
 #define ESP_FAIL -1
 #define ESP_ERR_INVALID_ARG -2
 #define ESP_ERR_NO_MEM -3
+#define ESP_ERR_NOT_SUPPORTED -4
 typedef void *esp_lcd_panel_io_handle_t;
 typedef struct { int unused; } esp_lcd_panel_io_event_data_t;
 typedef bool (*esp_lcd_panel_io_color_trans_done_cb_t)(esp_lcd_panel_io_handle_t,esp_lcd_panel_io_event_data_t *,void *);
@@ -106,6 +107,7 @@ typedef struct { uint32_t override_freq_hz; } spi_transaction_t;
 #define SPI_SAMPLING_POINT_PHASE_1 1
 ''')
 source = '#include "' + (ROOT/'boards/waveshare_lcd35/board_lcd_frame_io.c').as_posix() + '"\n'
+source += '#include "' + (ROOT/'boards/waveshare_lcd35/board_lcd_scan_io.c').as_posix() + '"\n'
 source += '#include "' + (ROOT/'boards/waveshare_lcd35/board_lcd_frame.c').as_posix() + '"\n'
 source += r'''
 #include <assert.h>
@@ -124,6 +126,11 @@ static const uint8_t *expected_image;
 static esp_lcd_panel_io_callbacks_t registered;
 static void *registered_context;
 static uint8_t row_pixels[640];
+static int last_miso,last_sampling,scan_rx,read_clocks,write_clocks;
+// Allocation-failure fallback retains the previous sender; the production
+// T4 diff/scan path is exercised separately by test-lcd-scan-sync.py.
+esp_err_t ouse_board_lcd_sync_send(const void *image,bool landscape,uint8_t *dma[2]){(void)image;(void)landscape;(void)dma;return ESP_ERR_NOT_SUPPORTED;}
+void ouse_board_lcd_sync_invalidate(void){}
 
 void enter_critical(void){assert(critical==0);++critical;}
 void exit_critical(void){assert(critical==1);--critical;}
@@ -167,20 +174,23 @@ static void complete_dma(void){
 esp_err_t __real_esp_lcd_panel_io_tx_param(esp_lcd_panel_io_handle_t io,int cmd,const void *data,size_t size){
     (void)io;(void)cmd;(void)data;(void)size;assert(!critical);
     if(drain_fail && cmd==0x00)return ESP_FAIL;
+    if(restore){spi_transaction_t t={0};assert(__wrap_spi_device_polling_transmit((void*)4,&t)==ESP_OK);assert(t.override_freq_hz==0);}
     complete_dma();clock_us+=15;return ESP_OK;
 }
 esp_err_t __real_esp_lcd_panel_io_rx_param(esp_lcd_panel_io_handle_t io,int cmd,void *data,size_t size){
-    (void)io;(void)cmd;(void)data;(void)size;assert(!"MISO reads forbidden");return ESP_FAIL;
+    (void)io;(void)cmd;assert(scan_rx);memset(data,0,size);
+    spi_transaction_t t={0};assert(__wrap_spi_device_polling_transmit((void*)4,&t)==ESP_OK);assert(t.override_freq_hz==0);
+    return scan_rx==1?ESP_OK:ESP_FAIL;
 }
 esp_err_t __real_esp_lcd_panel_io_tx_color(esp_lcd_panel_io_handle_t io,int cmd,const void *pixels,size_t size){(void)io;(void)cmd;(void)pixels;(void)size;return ESP_OK;}
 esp_err_t esp_lcd_panel_io_tx_param(esp_lcd_panel_io_handle_t io,int cmd,const void *p,size_t n){return __wrap_esp_lcd_panel_io_tx_param(io,cmd,p,n);}
 esp_err_t esp_lcd_panel_io_rx_param(esp_lcd_panel_io_handle_t io,int cmd,void *p,size_t n){return __wrap_esp_lcd_panel_io_rx_param(io,cmd,p,n);}
 esp_err_t esp_lcd_panel_io_tx_color(esp_lcd_panel_io_handle_t io,int cmd,const void *p,size_t n){return __wrap_esp_lcd_panel_io_tx_color(io,cmd,p,n);}
 esp_err_t __real_esp_lcd_panel_io_register_event_callbacks(esp_lcd_panel_io_handle_t io,const esp_lcd_panel_io_callbacks_t *cb,void *ctx){(void)io;registered=*cb;registered_context=ctx;return ESP_OK;}
-esp_err_t __real_spi_bus_initialize(spi_host_device_t host,const spi_bus_config_t *cfg,spi_dma_chan_t dma){(void)host;(void)cfg;(void)dma;return ESP_OK;}
-esp_err_t __real_spi_bus_add_device(spi_host_device_t host,const spi_device_interface_config_t *cfg,spi_device_handle_t *out){(void)host;(void)cfg;*out=(void*)4;return ESP_OK;}
+esp_err_t __real_spi_bus_initialize(spi_host_device_t host,const spi_bus_config_t *cfg,spi_dma_chan_t dma){(void)host;(void)dma;last_miso=cfg->miso_io_num;return ESP_OK;}
+esp_err_t __real_spi_bus_add_device(spi_host_device_t host,const spi_device_interface_config_t *cfg,spi_device_handle_t *out){(void)host;last_sampling=cfg->sample_point;*out=(void*)4;return ESP_OK;}
 esp_err_t __real_esp_lcd_new_panel_io_spi(esp_lcd_spi_bus_handle_t bus,const esp_lcd_panel_io_spi_config_t *cfg,esp_lcd_panel_io_handle_t *out){(void)bus;(void)cfg;*out=(void*)1;return ESP_OK;}
-esp_err_t __real_spi_device_polling_transmit(spi_device_handle_t dev,spi_transaction_t *t){(void)dev;assert(t->override_freq_hz==1000000 || t->override_freq_hz==80000000);return ESP_OK;}
+esp_err_t __real_spi_device_polling_transmit(spi_device_handle_t dev,spi_transaction_t *t){(void)dev;assert(t->override_freq_hz==1000000 || t->override_freq_hz==80000000);if(t->override_freq_hz==1000000)++read_clocks;else ++write_clocks;return ESP_OK;}
 
 esp_err_t __real_esp_lcd_panel_draw_bitmap(esp_lcd_panel_handle_t panel,int x1,int y1,int x2,int y2,const void *pixels){
     assert(panel==(void*)2 && !critical);++draws;
@@ -220,6 +230,15 @@ static void put_row(int y,uint8_t value){memset(row_pixels,value,sizeof(row_pixe
 int main(void){
     setvbuf(stdout,NULL,_IONBF,0);
     frame_io=(void*)1;
+    spi_bus_config_t bus={20,21,-1};
+    assert(__wrap_spi_bus_initialize(SPI2_HOST,&bus,0)==ESP_OK && last_miso==22 && bus.miso_io_num==-1);
+    assert(__wrap_spi_bus_initialize(1,&bus,0)==ESP_OK && last_miso==-1);
+    spi_device_interface_config_t dev={23,0};spi_device_handle_t handle;
+    assert(__wrap_spi_bus_add_device(SPI2_HOST,&dev,&handle)==ESP_OK && last_sampling==SPI_SAMPLING_POINT_PHASE_1 && dev.sample_point==0);
+    uint8_t raw[3];scan_rx=1;assert(ouse_board_lcd_scan_raw(0x45,raw,3));
+    scan_rx=2;assert(!ouse_board_lcd_scan_raw(0x45,raw,3));scan_rx=0;
+    assert(read_clocks==2 && write_clocks==2 && !reading && !restore);
+    puts("PASS LCD-only MISO/sample-point tuning and read-clock restoration, including failed reads");
     esp_lcd_panel_io_callbacks_t cb={.on_color_trans_done=original_callback};
     assert(__wrap_esp_lcd_panel_io_register_event_callbacks(frame_io,&cb,(void*)3)==ESP_OK);
     assert(registered.on_color_trans_done(frame_io,NULL,NULL));assert(original_done==1);
