@@ -3,6 +3,7 @@ const HISTORY = 8;
 let timer, tick = 0;
 const history = [];
 function mib(value) { return (value / 1048576).toFixed(2) + " MiB"; }
+function kib(value) { return (value / 1024).toFixed(1) + " KiB"; }
 function percent(used, total) {
     if (!total || used < 0) return 0;
     return Math.max(0, Math.min(100, Math.round(used * 100 / total)));
@@ -46,7 +47,7 @@ function refresh() {
     const ramUsed = Math.max(0, info.internalTotal - info.internalFree);
     const psramUsed = Math.max(0, info.psramTotal - info.psramFree);
     Ouse.ui.setValue("ramBar", percent(ramUsed, info.internalTotal));
-    Ouse.ui.setText("ramText", t("free") + mib(info.internalFree) + " / " + mib(info.internalTotal));
+    Ouse.ui.setText("ramText", t("free") + kib(info.internalFree) + " / " + kib(info.internalTotal));
     Ouse.ui.setValue("psramBar", percent(psramUsed, info.psramTotal));
     Ouse.ui.setText("psramText", t("free") + mib(info.psramFree) + " / " + mib(info.psramTotal));
     Ouse.ui.setValue("storageBar", disk.ready ? percent(disk.usedBytes, disk.totalBytes) : 0);

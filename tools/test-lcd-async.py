@@ -314,6 +314,11 @@ int main(void){
     expected_image=frame.image[sending];send_snapshot(sending,epoch);
     assert(draws==prior+24 && !active_dma && !worker_dma);
     puts("PASS half-copied image cannot be taken; orientation invalidates popped old work and sends complete landscape frames");
+    before_bytes=frame.bytes;prior=draws;before_windows=window_requests;
+    assert(__wrap_esp_lcd_panel_draw_bitmap((void*)2,0,100,480,160,input)==ESP_OK);
+    sending=take_latest(&epoch);assert(sending>=0);expected_image=frame.image[sending];send_snapshot(sending,epoch);
+    assert(frame.bytes-before_bytes==480u*60u*2 && draws==prior+5 && window_requests==before_windows);
+    puts("PASS wide landscape partial rectangles fit the smaller 12,800-byte DMA slots with adaptive row count");
 
     display.width=320;display.height=480;
     ouse_board_lcd_frame_orientation_begin();ouse_board_lcd_frame_orientation_end(false);

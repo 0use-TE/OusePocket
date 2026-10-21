@@ -17,6 +17,9 @@ put("lvgl.h", """#pragma once
 #define LVGL_VERSION_MINOR 5
 #define LVGL_VERSION_PATCH 0
 typedef struct lv_display { volatile int flushing; void (*flush_wait_cb)(struct lv_display *); } lv_display_t;
+typedef struct lv_timer { unsigned period; } lv_timer_t;
+lv_timer_t *lv_display_get_refr_timer(lv_display_t *);
+void lv_timer_set_period(lv_timer_t *,unsigned);
 void lv_display_set_flush_wait_cb(lv_display_t *, void (*)(lv_display_t *));
 """)
 put("src/display/lv_display_private.h", '#include "lvgl.h"\n')
@@ -56,10 +59,13 @@ put("test.c", '#include "' + source + '"\n#include "' + (ROOT / 'boards/waveshar
 static int token,fail_alloc,isr,blocked,takes,gives,yields,delays,allocs;
 static int scenario;
 static lv_display_t display,other;
+static lv_timer_t refresh_timer;
+lv_timer_t *lv_display_get_refr_timer(lv_display_t *d){assert(d==&display);return &refresh_timer;}
+void lv_timer_set_period(lv_timer_t *t,unsigned period){assert(t==&refresh_timer && period==20);t->period=period;}
 lv_indev_t *__real_esp_lv_adapter_register_touch(const esp_lv_adapter_touch_config_t *c){(void)c;return NULL;}
 void lv_display_set_flush_wait_cb(lv_display_t *d,void (*cb)(lv_display_t *)){d->flush_wait_cb=cb;}
 lv_display_t *__real_esp_lv_adapter_register_display(const esp_lv_adapter_display_config_t *c){
-    assert(c->profile.buffer_height==40 && !c->profile.use_psram && c->profile.require_double_buffer);
+    assert(c->profile.buffer_height==20 && !c->profile.use_psram && !c->profile.require_double_buffer);
     assert(!display.flush_wait_cb);return &display;
 }
 SemaphoreHandle_t xSemaphoreCreateBinary(void) { ++allocs; return fail_alloc?NULL:&token; }
@@ -106,6 +112,7 @@ int main(void) {
     assert(__wrap_esp_lv_adapter_register_display(&config)==&display);
     // Simulate the BSP starting its worker immediately after registration.
     assert(display.flush_wait_cb==ouse_display_flush_wait);
+    assert(refresh_timer.period==20);
     scenario=2;display.flushing=1;display.flush_wait_cb(&display);assert(!display.flushing);
     puts("PASS initial BSP screen flush already has the safe DMA wait before worker startup");
     puts("PASS production DMA wake: ISR/task completion, early completion, stale/spurious wake, allocation fallback, other display");

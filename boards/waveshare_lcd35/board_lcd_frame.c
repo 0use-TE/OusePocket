@@ -13,7 +13,7 @@
 
 #define FRAME_BYTES (320u*480u*2u)
 #define DMA_ROWS 20u
-#define DMA_BYTES (960u*DMA_ROWS) // Largest row: 480 RGB565 pixels (landscape).
+#define DMA_BYTES (640u*DMA_ROWS) // 320 pixels x 20 physical scanlines; 12,800 bytes.
 #define WORKER_STACK_BYTES 4096u
 
 enum slot_owner { SLOT_FREE, SLOT_WRITING, SLOT_READY, SLOT_SENDING };
@@ -169,8 +169,9 @@ static void send_snapshot(int slot,uint32_t epoch)
         }
     }else if(area.valid){
         unsigned width=(unsigned)(area.x2-area.x1);
-        for(int y=area.y1;y<area.y2;y+=(int)DMA_ROWS){
-            unsigned rows=(unsigned)(area.y2-y);if(rows>DMA_ROWS)rows=DMA_ROWS;
+        unsigned max_rows=DMA_BYTES/(width*2);if(max_rows>DMA_ROWS)max_rows=DMA_ROWS;
+        for(int y=area.y1;y<area.y2;y+=(int)max_rows){
+            unsigned rows=(unsigned)(area.y2-y);if(rows>max_rows)rows=max_rows;
             for(unsigned row=0;row<rows;row++)memcpy(frame.dma[bounce]+(size_t)row*width*2,
                 frame.image[slot]+((size_t)(y+(int)row)*frame.width+area.x1)*2,(size_t)width*2);
             e=__real_esp_lcd_panel_draw_bitmap(frame.panel,area.x1,y,area.x2,y+(int)rows,frame.dma[bounce]);

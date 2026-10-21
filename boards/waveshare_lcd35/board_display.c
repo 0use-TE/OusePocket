@@ -17,21 +17,23 @@ lv_display_t *__wrap_esp_lv_adapter_register_display(const esp_lv_adapter_displa
         return __real_esp_lv_adapter_register_display(config);
     }
     esp_lv_adapter_display_config_t tuned = *config;
-    // Two 25,600-byte internal DMA buffers: +19,200 bytes over the BSP's
-    // single 50-line buffer. LVGL renders one while SPI sends the other.
-    tuned.profile.buffer_height = 40;
+    // LVGL pixels are copied into the compositor before flush_ready. Its
+    // drawing buffer is never owned by background SPI DMA, so one 12,800-byte
+    // internal buffer is sufficient (saving 38,400 bytes over 2 x 40 lines).
+    tuned.profile.buffer_height = 20;
     tuned.profile.use_psram = false;
-    tuned.profile.require_double_buffer = true;
-    // The board's LCD connector has no TE signal. Double drawing buffers
-    // overlap CPU/DMA work; they do not synchronize the panel's scanout.
+    tuned.profile.require_double_buffer = false;
     lv_display_t *display = __real_esp_lv_adapter_register_display(&tuned);
     // Install before the BSP starts the LVGL worker. Waiting until the BSP
     // returns leaves its initial screen flush using LVGL's tight polling loop.
     if (display) {
+        // Match the measured ~50Hz panel cadence. A 33ms UI clock beats
+        // against ~20ms scan cycles and 40ms game frames, causing uneven pacing.
+        lv_timer_set_period(lv_display_get_refr_timer(display),20);
         (void)ouse_display_flush_wake_init(display);
         lv_display_set_flush_wait_cb(display, ouse_display_flush_wait);
     }
-    if (display) ESP_LOGI("OuseDisplay", "SPI partial rendering: 2 x 40 lines, internal DMA buffers");
+    if (display) ESP_LOGI("OuseDisplay", "CPU staging: 1 x 20 lines, internal buffer; UI cadence 20ms");
     return display;
 }
 
