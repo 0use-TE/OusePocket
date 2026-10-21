@@ -6,6 +6,7 @@
 #include "bsp/display.h"
 #include "esp_lv_adapter.h"
 #include "display_flush_wait.h"
+#include "lcd_frame.h"
 #include "sdkconfig.h"
 #include "esp_lcd_panel_ops.h"
 #if CONFIG_OUSE_DEVICE_DEBUG
@@ -114,9 +115,11 @@ static esp_err_t board_orientation(void *context,bool landscape)
 {
     (void)context;esp_lcd_panel_handle_t panel=bsp_display_get_panel_handle();
     // Synchronous panel commands drain queued pixel DMA before MADCTL changes.
+    ouse_board_lcd_frame_orientation_begin();
     esp_err_t error=esp_lcd_panel_swap_xy(panel,landscape);
     if(error==ESP_OK)error=esp_lcd_panel_mirror(panel,!landscape,false);
     if(error!=ESP_OK){(void)esp_lcd_panel_swap_xy(panel,!landscape);(void)esp_lcd_panel_mirror(panel,landscape,false);}
+    ouse_board_lcd_frame_orientation_end(error==ESP_OK?landscape:!landscape);
     return error;
 }
 static bool board_key(void *context,unsigned key)
@@ -153,6 +156,7 @@ esp_err_t ouse_board_init(ouse_core_port_t *port)
 #else
     lv_display_set_flush_wait_cb(display, ouse_display_flush_wait);
 #endif
+    ouse_board_lcd_frame_init(display);
     bsp_display_unlock();
     gpio_config_t keys={.pin_bit_mask=(1ULL<<35)|(1ULL<<49),.mode=GPIO_MODE_INPUT,.pull_up_en=GPIO_PULLUP_DISABLE,.pull_down_en=GPIO_PULLDOWN_DISABLE,.intr_type=GPIO_INTR_DISABLE};
     esp_err_t key_error=gpio_config(&keys);if(key_error!=ESP_OK)return key_error;

@@ -43,6 +43,9 @@ put("esp_lv_adapter.h", """#include "lvgl.h"
 #define ESP_LV_ADAPTER_PANEL_IF_OTHER 1
 #define ESP_LV_ADAPTER_TEAR_AVOID_MODE_NONE 0
 typedef struct { struct {int interface,hor_res,ver_res,buffer_height;bool use_psram,require_double_buffer;} profile;int tear_avoid_mode;} esp_lv_adapter_display_config_t;
+typedef struct lv_indev { int unused; } lv_indev_t;
+#define ESP_LV_ADAPTER_TOUCH_MODE_MULTI_CONTROL 2
+typedef struct { struct { int mode,pointers; } multi_touch; } esp_lv_adapter_touch_config_t;
 """)
 put("esp_log.h", "#define ESP_LOGI(...) ((void)0)\n")
 put("esp_timer.h", "#include <stdint.h>\n")
@@ -53,6 +56,7 @@ put("test.c", '#include "' + source + '"\n#include "' + (ROOT / 'boards/waveshar
 static int token,fail_alloc,isr,blocked,takes,gives,yields,delays,allocs;
 static int scenario;
 static lv_display_t display,other;
+lv_indev_t *__real_esp_lv_adapter_register_touch(const esp_lv_adapter_touch_config_t *c){(void)c;return NULL;}
 void lv_display_set_flush_wait_cb(lv_display_t *d,void (*cb)(lv_display_t *)){d->flush_wait_cb=cb;}
 lv_display_t *__real_esp_lv_adapter_register_display(const esp_lv_adapter_display_config_t *c){
     assert(c->profile.buffer_height==40 && !c->profile.use_psram && c->profile.require_double_buffer);
