@@ -2,7 +2,9 @@
 
 实验分支：`codex/native-elf-runtime`。这版增加在运行中的 OusePocket 上加载、执行和卸载独立 C 应用的能力。系统固件接入加载器后，修改示例应用只需重新编译并传输 ELF，不必再次刷写系统。
 
-首版通过现有有线调试通道启动，不添加桌面图标，也不更改 JS BPK 格式。它是后续原生游戏的执行基础；尚未提供原生游戏画面、触摸、音频或商店安装接口。
+桌面提供“原生程序”图标：首次打开会自动运行本机程序，界面显示状态、持续更新的整数输出、用时和退出代码，并提供“运行”“停止”按钮。返回桌面或关闭应用会请求停止该界面启动的任务，不会停止其他通道启动的程序。未安装程序时执行固件中附带、独立编译的计数示例；示例会逐步输出 0～100。
+
+当前提供一个可替换的桌面程序位置。通过电脑安装的 ELF 保存在设备内部 LittleFS，重启后仍可从该图标启动。安装不执行代码；验证通过后写入临时文件、同步并原子替换旧程序，失败时保留旧文件。不更改 JS BPK 格式，尚未提供原生游戏画面、触摸、音频或商店安装接口。
 
 ## 编译与运行
 
@@ -13,6 +15,7 @@ python tools/native.py build native-apps/hello/main.c dist/native/hello.elf
 python tools/native.py run dist/native/hello.elf --port COM10
 python tools/native.py status --port COM10
 python tools/native.py stop --port COM10
+python tools/native.py install dist/native/hello.elf --port COM10
 ```
 
 运行需要在设置中开启设备调试。默认通过有线通道将 ELF 直接传入 PSRAM，校验完整长度和 CRC 后启动，不依赖 SD 卡，也不持久保存 ELF。上传中断超过 30 秒、关闭调试或系统开始排空时会回收未提交的上传缓冲。
@@ -20,6 +23,8 @@ python tools/native.py stop --port COM10
 可加 `--store` 使用已有 CRC 校验文件通道，写入 `/sdcard/Ouse/Downloads/native-demo.elf` 后启动；此模式需要正常挂载且可写的 SD 卡，可用 `--name hello.elf` 改名。`run` 默认观察 15 秒，超时会请求合作停止并返回错误，不能把超时当作停止完成。
 
 示例约运行五秒，计数到 100 后报告 `result: 100`，入口返回 `exitCode: 0`。再次启动会重新分配、加载与重定位，`.bss` 从零开始。停止时示例主动返回并报告 `-1`。
+
+`install` 将程序保存到 `/bpkfs/ouse-native/desktop.elf`，不依赖 SD 卡；完成时状态为 `installed`。之后直接点击桌面图标运行，不需要电脑连接或开启设备调试。再次安装会替换这个位置的程序。内置计数示例随应用固件一起保存，不需要下载。
 
 ## 执行与生命周期
 
@@ -53,9 +58,10 @@ v1 不运行 C/C++ 静态构造与析构，不支持 TLS、任意动态库或其
 | `DBG_ELFBEGIN` | `size:crc32hex` | 准备最多 1 MiB 的内存上传 |
 | `DBG_ELFDATA` | `offsethex:datahex` | 连续写入，每块最多 512 字节 |
 | `DBG_ELFEND` | `-` | 校验完整性并异步启动，返回 `task=<id>` |
+| `DBG_ELFEND` | `install` | 验证并保存到内部存储，不运行；返回安装任务 ID |
 | `DBG_ELFABORT` | `-` | 回收尚未提交的内存上传 |
 
-状态包含 `active`、`phase`、`taskId`、`stopRequested`、`reported`、`result`、`exitCode`、`bytes`、`error`、`elapsedMs`。阶段为 `idle/queued/validating/loading/running/finished/cancelled/failed`。`result` 只有 `reported=true` 才有意义；`exitCode` 仅在入口实际返回后有意义。
+状态包含 `active`、`installing`、`phase`、`taskId`、`stopRequested`、`reported`、`result`、`exitCode`、`bytes`、`error`、`elapsedMs`。阶段为 `idle/queued/validating/loading/running/saving/installed/finished/cancelled/failed`。`result` 只有 `reported=true` 才有意义；`exitCode` 仅在入口实际返回后有意义。安装是不可取消的 `package:native_install` 任务，系统排空会等待提交结束。
 
 ## 验证
 
@@ -64,6 +70,7 @@ python tools/test-native-elf.py
 python tools/test-ouse-kernel.py
 python tools/test-ouse-reliability.py --checks coordinator
 python tools/test-native-device.py --port COM10
+python tools/test-native-desktop.py --port COM10
 ```
 
 文件检查测试直接编译并调用生产 C 验证器，覆盖真实 P4 ELF、44 类损坏文件和 10000 次随机字节变异。协调器测试覆盖原生任务取消、停止确认前阻塞与排空期间拒绝启动。实机测试验证当前固件 ELF 哈希，再检查重复加载、`.bss` 重置、导入和相对重定位、停止、并发拒绝、无效文件/ABI、文件不存在、非零退出、失败后再次运行及堆完整性。实机记录保存在 `.tools/native-device-check/result.json` 及其引用的串口记录目录。
@@ -71,5 +78,9 @@ python tools/test-native-device.py --port COM10
 2026-10-22，COM10 实机验收通过：1608 字节的 hello ELF 多次执行均报告 `100`、退出码 `0`，每次约 5.3 秒；一次合作停止完成于约 48ms，报告 `-1`；860 字节的独立错误示例正确记录退出码 `7`。不完整上传、错误 CRC、错误偏移、主动中止及 31 秒无活动后的过期回收均被验证，后续正常程序仍能执行。预热后的检查前后任务数均为 39，PSRAM 空闲分别为 24,354,604 / 24,354,636 字节，堆完整性为 `ok=1`；这些是本次样本，不是全部负载无泄漏的证明。可执行映射日志为 `backing=0x488e0000 alias=0x4a000000 size=65536`，系统内存保护及 PSRAM 预配置保护均保持开启。
 
 默认内存上传和 `tools/native.py run` 已实机通过；SD 持久化路径的写入测试遇到 SDMMC CRC/超时错误，因此不宣称 `--store` 已实机验收。本实验没有格式化或修复 SD 卡。
+
+桌面验收脚本通过实际触摸点击图标和“运行”“停止”按钮，验证返回桌面的取消与其他会话隔离；安装输出 `321` 的独立程序后，尝试无效更新，再重启并点击图标，以区别内部保存的程序与输出 `100` 的内置示例。最后恢复并安装计数示例。记录与截图输出到 `.tools/native-desktop-check/`。
+
+2026-10-22 桌面版已烧录至 COM10，写入哈希与运行固件 ELF 哈希均核对通过。执行 `tools/test-native-desktop.py --skip-reboot`，实际触摸图标启动得到 `100`；运行/停止、返回桌面取消、外部会话隔离均通过。内部安装的测试程序在关闭并重开应用后输出 `321`，无效更新没有覆盖它；随后已恢复并安装输出 `100` 的正常示例，堆检查 `ok=1`。桌面和结果截图已目视检查。此次没有执行硬件重启持久化测试，不能把“重开应用”记录当作重启验收。
 
 构建过程中将原有传递依赖 `esp_sccb_intf` 显式固定为已使用的 `0.0.9`，防止新增 ELF 依赖时组件求解器同时升级摄像头接口组件。

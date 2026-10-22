@@ -19,6 +19,7 @@ int app_main(int argc, char **argv)
             host->report(-1);
             return 0;
         }
+        host->report(counter);
         host->sleep_ms(50);
     }
     host->report(counter);

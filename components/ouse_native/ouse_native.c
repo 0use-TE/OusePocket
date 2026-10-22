@@ -3,6 +3,7 @@
 #include "ouse_native_api.h"
 #include "ouse_native_validate.h"
 #include "ouse_files.h"
+#include "ouse_storage.h"
 #include "esp_elf.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -13,6 +14,14 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+#define NATIVE_DIRECTORY OUSE_STORAGE_BASE "/ouse-native"
+#define NATIVE_PROGRAM NATIVE_DIRECTORY "/desktop.elf"
+#define NATIVE_TEMPORARY NATIVE_PROGRAM ".tmp"
+extern const uint8_t demo_start[] asm("_binary_ouse_native_demo_start");
+extern const uint8_t demo_end[] asm("_binary_ouse_native_demo_end");
 
 #if !CONFIG_IDF_TARGET_ESP32P4 || !CONFIG_ELF_LOADER_LOAD_PSRAM
 #error "The experimental native runtime requires ESP32-P4 executable PSRAM"
@@ -67,26 +76,57 @@ static void run(void *unused)
 {
     (void)unused;
     lock();uint32_t id=state.task_id;uint8_t *data=queued_image;queued_image=NULL;
-    long length=(long)state.file_bytes;unlock();
+    long length=(long)state.file_bytes;bool installing=state.installing;unlock();
     esp_err_t error=ESP_OK;FILE *file=NULL;
+    bool sd_file=false;
     esp_elf_t elf={0};bool initialized=false;
-    if(!ouse_task_start(id,true))goto done;
+    if(!ouse_task_start(id,!installing))goto done;
     if(!data){
-        file=ouse_files_open(state.path);
-        if(!file){error=ESP_ERR_NOT_FOUND;goto done;}
-        if(fseek(file,0,SEEK_END)){error=ESP_FAIL;goto done;}
-        length=ftell(file);
-        if(length<52 || length>OUSE_NATIVE_FILE_LIMIT){error=ESP_ERR_INVALID_SIZE;goto done;}
-        lock();state.file_bytes=(size_t)length;unlock();
-        if(fseek(file,0,SEEK_SET)){error=ESP_FAIL;goto done;}
-        data=heap_caps_malloc((size_t)length,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
-        if(!data){error=ESP_ERR_NO_MEM;goto done;}
-        if(fread(data,1,(size_t)length,file)!=(size_t)length){error=ESP_FAIL;goto done;}
-        ouse_files_close(file);file=NULL;
+        if(!strcmp(state.path,"desktop.elf")){
+            ouse_storage_stats_t storage;ouse_storage_get_stats(&storage);
+            if(!storage.ready){error=ESP_ERR_INVALID_STATE;goto done;}
+            file=fopen(NATIVE_PROGRAM,"rb");
+            if(!file && errno==ENOENT){
+                length=(long)(demo_end-demo_start);
+                data=heap_caps_malloc((size_t)length,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
+                if(!data){error=ESP_ERR_NO_MEM;goto done;}
+                memcpy(data,demo_start,(size_t)length);
+                lock();state.file_bytes=(size_t)length;unlock();
+            }
+        }else{file=ouse_files_open(state.path);sd_file=file!=NULL;}
+        if(!data){
+            if(!file){error=ESP_ERR_NOT_FOUND;goto done;}
+            if(fseek(file,0,SEEK_END)){error=ESP_FAIL;goto done;}
+            length=ftell(file);
+            if(length<52 || length>OUSE_NATIVE_FILE_LIMIT){error=ESP_ERR_INVALID_SIZE;goto done;}
+            lock();state.file_bytes=(size_t)length;unlock();
+            if(fseek(file,0,SEEK_SET)){error=ESP_FAIL;goto done;}
+            data=heap_caps_malloc((size_t)length,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
+            if(!data){error=ESP_ERR_NO_MEM;goto done;}
+            if(fread(data,1,(size_t)length,file)!=(size_t)length){error=ESP_FAIL;goto done;}
+            if(sd_file)ouse_files_close(file);else fclose(file);file=NULL;
+        }
     }
     if(stopped())goto done;
     phase("validating");
     if(!ouse_native_validate(data,(size_t)length)){error=ESP_ERR_INVALID_ARG;goto done;}
+    if(installing){
+        phase("saving");
+        if(mkdir(NATIVE_DIRECTORY,0700) && errno!=EEXIST){error=ESP_FAIL;goto done;}
+        file=fopen(NATIVE_TEMPORARY,"wb");
+        bool ok=file!=NULL;
+        if(file){
+            if(fwrite(data,1,(size_t)length,file)!=(size_t)length)ok=false;
+            if(fflush(file))ok=false;
+            if(fsync(fileno(file)))ok=false;
+            if(fclose(file))ok=false;
+            file=NULL;
+        }
+        if(!ok || rename(NATIVE_TEMPORARY,NATIVE_PROGRAM)){
+            unlink(NATIVE_TEMPORARY);error=ESP_FAIL;
+        }else (void)ouse_storage_refresh();
+        goto done;
+    }
     phase("loading");
     int rc=esp_elf_init(&elf);initialized=rc==0;
     if(!rc)rc=esp_elf_relocate(&elf,data);
@@ -101,15 +141,15 @@ static void run(void *unused)
     lock();state.exit_code=exit_code;unlock();
     if(exit_code)error=ESP_FAIL;
 done:
-    if(file)ouse_files_close(file);
+    if(file){if(sd_file)ouse_files_close(file);else fclose(file);}
     free(data);
     if(initialized)esp_elf_deinit(&elf);
     if(ouse_native_memory_retained())error=ESP_FAIL;
-    bool cancelled=stopped();
+    bool cancelled=!installing && stopped();
     ouse_task_finish(id,error,cancelled);
     lock();state.error=error;state.finished_us=esp_timer_get_time();
     state.stop_requested=cancelled;state.active=false;
-    strlcpy(state.phase,error!=ESP_OK?"failed":cancelled?"cancelled":"finished",sizeof(state.phase));
+    strlcpy(state.phase,error!=ESP_OK?"failed":cancelled?"cancelled":installing?"installed":"finished",sizeof(state.phase));
     unlock();
     ESP_LOGI("OuseNative","task=%lu finished: %s cancelled=%d",(unsigned long)id,esp_err_to_name(error),cancelled);
     vTaskDelete(NULL);
@@ -117,12 +157,13 @@ done:
 
 // Called with mutex held. On success the worker owns image; on failure the
 // caller retains it. No queued job can outlive its private state and buffer.
-static esp_err_t launch(const char *path,uint8_t *image,size_t bytes,uint32_t *task_id)
+static esp_err_t launch(const char *path,uint8_t *image,size_t bytes,bool installing,uint32_t *task_id)
 {
-    uint32_t id;esp_err_t error=ouse_task_create(&owner,OUSE_TASK_NATIVE,"execute",OUSE_TASK_STOP_ON_CLOSE,true,&id);
+    uint32_t id;esp_err_t error=ouse_task_create(&owner,installing?OUSE_TASK_PACKAGE:OUSE_TASK_NATIVE,
+        installing?"native_install":"execute",installing?OUSE_TASK_FINISH_ON_CLOSE:OUSE_TASK_STOP_ON_CLOSE,!installing,&id);
     if(error!=ESP_OK)return error;
     memset(&state,0,sizeof(state));state.active=true;state.task_id=id;state.started_us=esp_timer_get_time();
-    state.file_bytes=bytes;queued_image=image;
+    state.file_bytes=bytes;state.installing=installing;queued_image=image;
     strlcpy(state.path,path,sizeof(state.path));strlcpy(state.phase,"queued",sizeof(state.phase));
     // Internal stack remains valid during flash writes by unrelated services.
     if(xTaskCreate(run,"ouse_native",12288,NULL,2,NULL)!=pdPASS){
@@ -139,10 +180,10 @@ esp_err_t ouse_native_start(const char *path,uint32_t *task_id)
     size_t length=strnlen(path,sizeof(state.path));char absolute[180];
     if(length<15 || length>=sizeof(state.path) || strncmp(path,"Downloads/",10) ||
        strcmp(path+length-4,".elf") || !ouse_files_path(path,absolute,sizeof(absolute)))return ESP_ERR_INVALID_ARG;
-    lock();esp_err_t error=state.active?ESP_ERR_INVALID_STATE:launch(path,NULL,0,task_id);
+    lock();esp_err_t error=state.active?ESP_ERR_INVALID_STATE:launch(path,NULL,0,false,task_id);
     unlock();return error;
 }
-esp_err_t ouse_native_start_image(const uint8_t *image,size_t bytes,uint32_t *task_id)
+static esp_err_t copy_image(const uint8_t *image,size_t bytes,bool installing,uint32_t *task_id)
 {
     if(!mutex)return ESP_ERR_INVALID_STATE;
     if(!image || !task_id || bytes<52 || bytes>OUSE_NATIVE_FILE_LIMIT)return ESP_ERR_INVALID_ARG;
@@ -151,14 +192,37 @@ esp_err_t ouse_native_start_image(const uint8_t *image,size_t bytes,uint32_t *ta
     uint8_t *copy=heap_caps_malloc(bytes,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
     if(!copy){unlock();return ESP_ERR_NO_MEM;}
     memcpy(copy,image,bytes);
-    esp_err_t error=launch("memory.elf",copy,bytes,task_id);
+    esp_err_t error=launch(installing?"desktop.elf":"memory.elf",copy,bytes,installing,task_id);
     if(error!=ESP_OK)free(copy);
     unlock();return error;
+}
+esp_err_t ouse_native_start_image(const uint8_t *image,size_t bytes,uint32_t *task_id)
+{return copy_image(image,bytes,false,task_id);}
+esp_err_t ouse_native_install_image(const uint8_t *image,size_t bytes,uint32_t *task_id)
+{
+    ouse_storage_stats_t storage;ouse_storage_get_stats(&storage);
+    if(!storage.ready)return ESP_ERR_INVALID_STATE;
+    return copy_image(image,bytes,true,task_id);
+}
+esp_err_t ouse_native_start_desktop(uint32_t *task_id)
+{
+    if(!mutex)return ESP_ERR_INVALID_STATE;
+    if(!task_id)return ESP_ERR_INVALID_ARG;
+    lock();esp_err_t error=state.active?ESP_ERR_INVALID_STATE:launch("desktop.elf",NULL,0,false,task_id);
+    unlock();return error;
+}
+esp_err_t ouse_native_stop_task(uint32_t id)
+{
+    if(!mutex)return ESP_ERR_INVALID_STATE;
+    lock();bool active=state.active && state.task_id==id && !state.installing;
+    if(active)state.stop_requested=true;
+    unlock();
+    return active?ouse_task_cancel(&owner,id,"native_stop"):ESP_ERR_INVALID_STATE;
 }
 esp_err_t ouse_native_stop(void)
 {
     if(!mutex)return ESP_ERR_INVALID_STATE;
-    lock();bool active=state.active;uint32_t id=state.task_id;if(active)state.stop_requested=true;unlock();
+    lock();bool active=state.active && !state.installing;uint32_t id=state.task_id;if(active)state.stop_requested=true;unlock();
     return active?ouse_task_cancel(&owner,id,"native_stop"):ESP_OK;
 }
 void ouse_native_get(ouse_native_state_t *out)

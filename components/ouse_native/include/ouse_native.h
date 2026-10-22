@@ -6,7 +6,7 @@
 #include "esp_err.h"
 
 typedef struct {
-    bool active, stop_requested, reported;
+    bool active, stop_requested, reported, installing;
     uint32_t task_id;
     int32_t result, exit_code;
     esp_err_t error;
@@ -22,6 +22,13 @@ esp_err_t ouse_native_start(const char *path, uint32_t *task_id);
 // Copies an uploaded image into private PSRAM before returning. The caller
 // always retains ownership of the supplied buffer. Same asynchronous lifecycle.
 esp_err_t ouse_native_start_image(const uint8_t *image, size_t bytes, uint32_t *task_id);
+// Desktop slot: use the internally saved program, or the bundled demo when
+// no program has been installed. File I/O runs on the native worker.
+esp_err_t ouse_native_start_desktop(uint32_t *task_id);
+// Validate and atomically save an image in internal storage, without executing
+// it. Copies input; the package task is noncancellable once accepted.
+esp_err_t ouse_native_install_image(const uint8_t *image, size_t bytes, uint32_t *task_id);
 // Cooperative cancellation. Never deletes a task executing module instructions.
 esp_err_t ouse_native_stop(void);
+esp_err_t ouse_native_stop_task(uint32_t task_id);
 void ouse_native_get(ouse_native_state_t *out);

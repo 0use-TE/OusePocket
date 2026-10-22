@@ -51,7 +51,7 @@ def upload(device, local, remote):
         raise RuntimeError("Uploaded ELF checksum mismatch")
 
 
-def upload_memory(device, local):
+def upload_memory(device, local, install=False):
     from bpk import crc
     data=local.read_bytes()
     if not 52<=len(data)<=1024*1024:
@@ -60,7 +60,7 @@ def upload_memory(device, local):
     try:
         for offset in range(0,len(data),512):
             device.request("DBG_ELFDATA",f"{offset:x}:"+data[offset:offset+512].hex())
-        return device.request("DBG_ELFEND",timeout=15)
+        return device.request("DBG_ELFEND","install" if install else "-",timeout=15)
     except BaseException:
         device.request("DBG_ELFABORT")
         raise
@@ -73,21 +73,24 @@ def main():
     p.add_argument("source",type=Path)
     p.add_argument("output",type=Path)
     p.add_argument("--firmware-build",type=Path,default=ROOT/"build")
-    for command in ("run","status","stop"):
+    for command in ("run","install","status","stop"):
         p=sub.add_parser(command)
         p.add_argument("--port",default="COM10")
         p.add_argument("--baud",type=int,default=921600)
         p.add_argument("--firmware-build",type=Path,default=ROOT/"build")
-        if command=="run":
+        if command in ("run","install"):
             p.add_argument("elf",type=Path)
+            p.add_argument("--wait",type=float,default=15,help="Seconds to observe completion")
+        if command=="run":
             p.add_argument("--name",default="native-demo.elf")
             p.add_argument("--store",action="store_true",help="Save to SD and run from there; default uploads directly to RAM")
-            p.add_argument("--wait",type=float,default=15,help="Seconds to observe; expiry requests cooperative stop")
     args=parser.parse_args()
     if args.command=="build":
         build(args.source.resolve(),args.output.resolve(),args.firmware_build.resolve())
         return
     from device import Device
+    if args.command in ("run","install") and args.wait<=0:
+        parser.error("Use a positive wait duration")
     if args.command=="run" and (not args.name.isascii() or not args.name.endswith(".elf") or
         any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_- ." for c in args.name) or
         " " in args.name or ".." in args.name or len(args.name)>100 or args.wait<=0):
@@ -96,10 +99,11 @@ def main():
         if "debug=1" not in device.request("HELLO",timeout=30):
             raise RuntimeError("Enable device debugging in Settings first")
         if args.command=="stop":device.request("DBG_ELFSTOP")
-        if args.command=="run":
+        if args.command in ("run","install"):
             if status(device)["active"]:
                 raise RuntimeError("Another native application is active")
-            if args.store:
+            if args.command=="install":print(upload_memory(device,args.elf,install=True))
+            elif args.store:
                 remote="Downloads/"+args.name
                 upload(device,args.elf,remote)
                 print(device.request("DBG_ELFRUN",remote))
@@ -109,11 +113,14 @@ def main():
                 state=status(device)
                 if not state["active"]:break
                 if time.monotonic()>=deadline:
+                    if args.command=="install":
+                        raise TimeoutError("Installation is still pending; query status before retrying")
                     device.request("DBG_ELFSTOP")
                     raise TimeoutError("Stop requested; query status to confirm the module has returned")
                 time.sleep(.1)
             print(json.dumps(state,ensure_ascii=False,indent=2))
-            if state["phase"]!="finished":raise RuntimeError("Native application did not finish successfully")
+            expected="installed" if args.command=="install" else "finished"
+            if state["phase"]!=expected:raise RuntimeError("Native operation did not finish successfully")
         else:print(json.dumps(status(device),ensure_ascii=False,indent=2))
         print("Evidence:",device.output.resolve())
 

@@ -321,10 +321,12 @@ esp_err_t ouse_debug_command(const char *verb,const char *payload,char *out,size
     }
     if(!strcmp(verb,"DBG_ELFABORT")){elf_upload_abort();return ESP_OK;}
     if(!strcmp(verb,"DBG_ELFEND")){
+        if(strcmp(payload,"-") && strcmp(payload,"install"))return ESP_ERR_INVALID_ARG;
         if(!elf_upload.data)return ESP_ERR_INVALID_STATE;
         esp_err_t error=ESP_ERR_INVALID_CRC;uint32_t id;
         if(elf_upload.used==elf_upload.size && ouse_crc32(elf_upload.data,elf_upload.size)==elf_upload.crc)
-            error=ouse_native_start_image(elf_upload.data,elf_upload.size,&id);
+            error=!strcmp(payload,"install")?ouse_native_install_image(elf_upload.data,elf_upload.size,&id):
+                ouse_native_start_image(elf_upload.data,elf_upload.size,&id);
         elf_upload_abort();if(error==ESP_OK)snprintf(out,cap,"task=%lu",(unsigned long)id);return error;
     }
     if(!strcmp(verb,"DBG_ELFRUN")){
@@ -335,8 +337,8 @@ esp_err_t ouse_debug_command(const char *verb,const char *payload,char *out,size
     if(!strcmp(verb,"DBG_ELFSTOP"))return ouse_native_stop();
     if(!strcmp(verb,"DBG_ELF")){
         ouse_native_state_t s;ouse_native_get(&s);char json[400];
-        int n=snprintf(json,sizeof(json),"{\"active\":%s,\"phase\":\"%s\",\"taskId\":%lu,\"stopRequested\":%s,\"reported\":%s,\"result\":%ld,\"exitCode\":%ld,\"bytes\":%zu,\"error\":\"%s\",\"elapsedMs\":%lld}",
-            s.active?"true":"false",s.phase,(unsigned long)s.task_id,s.stop_requested?"true":"false",
+        int n=snprintf(json,sizeof(json),"{\"active\":%s,\"installing\":%s,\"phase\":\"%s\",\"taskId\":%lu,\"stopRequested\":%s,\"reported\":%s,\"result\":%ld,\"exitCode\":%ld,\"bytes\":%zu,\"error\":\"%s\",\"elapsedMs\":%lld}",
+            s.active?"true":"false",s.installing?"true":"false",s.phase,(unsigned long)s.task_id,s.stop_requested?"true":"false",
             s.reported?"true":"false",(long)s.result,(long)s.exit_code,s.file_bytes,esp_err_to_name(s.error),
             (long long)(s.started_us?((s.active?esp_timer_get_time():s.finished_us)-s.started_us)/1000:0));
         if(n<0 || (size_t)n>=sizeof(json) || cap<(size_t)n*2+1)return ESP_ERR_NO_MEM;
