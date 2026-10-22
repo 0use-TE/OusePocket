@@ -5,15 +5,8 @@ import time
 from device import Device
 from native import upload_memory,status
 from quake2 import play
+from game_session import stop_previous
 ROOT=Path(__file__).resolve().parents[1]
-
-def stop_previous(d):
-    d.request('DBG_HOME')
-    for app in ('ouse.native','ouse.quake2','ouse.doom'):d.request('DBG_CLOSE',app)
-    end=time.monotonic()+15
-    while status(d)['active']:
-        if time.monotonic()>end:raise TimeoutError('Previous native session is still stopping')
-        time.sleep(.1)
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)

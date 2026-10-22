@@ -73,7 +73,7 @@ for i,s in enumerate(sections):
         reject(changed(shoff+s[6]*40+4,"<I",8)) # NOBITS must never serve as an input table
         reject(changed(shoff+s[6]*40+24,"<I",999))
 reject(data+b"\0"*(1024*1024))
-for game_path in (ROOT/"dist/native/quake2.elf",ROOT/"dist/native/doom.elf"):
+for game_path in (ROOT/"dist/native/quake2.elf",ROOT/"dist/native/doom.elf",ROOT/"dist/native/nes.elf"):
     if not game_path.exists():continue
     game=bytearray(game_path.read_bytes())
     game_buffer=ctypes.create_string_buffer(bytes(game))

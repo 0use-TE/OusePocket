@@ -323,11 +323,12 @@ esp_err_t ouse_debug_command(const char *verb,const char *payload,char *out,size
     }
     if(!strcmp(verb,"DBG_ELFABORT")){elf_upload_abort();return ESP_OK;}
     if(!strcmp(verb,"DBG_ELFEND")){
-        if(strcmp(payload,"-") && strcmp(payload,"install") && strcmp(payload,"quake2") && strcmp(payload,"doom"))return ESP_ERR_INVALID_ARG;
+        if(strcmp(payload,"-") && strcmp(payload,"install") && strcmp(payload,"quake2") && strcmp(payload,"doom") && strcmp(payload,"nes"))return ESP_ERR_INVALID_ARG;
         if(!elf_upload.data)return ESP_ERR_INVALID_STATE;
         esp_err_t error=ESP_ERR_INVALID_CRC;uint32_t id;
         if(elf_upload.used==elf_upload.size && ouse_crc32(elf_upload.data,elf_upload.size)==elf_upload.crc)
-            error=!strcmp(payload,"doom")?ouse_native_install_doom(elf_upload.data,elf_upload.size,&id):
+            error=!strcmp(payload,"nes")?ouse_native_install_nes(elf_upload.data,elf_upload.size,&id):
+                !strcmp(payload,"doom")?ouse_native_install_doom(elf_upload.data,elf_upload.size,&id):
                 !strcmp(payload,"quake2")?ouse_native_install_quake2(elf_upload.data,elf_upload.size,&id):
                 !strcmp(payload,"install")?ouse_native_install_image(elf_upload.data,elf_upload.size,&id):
                 ouse_native_start_image(elf_upload.data,elf_upload.size,&id);
@@ -347,6 +348,10 @@ esp_err_t ouse_debug_command(const char *verb,const char *payload,char *out,size
     if(!strcmp(verb,"DBG_QMOUSE")){
         int dx,dy,used=0;if(sscanf(payload,"%d:%d%n",&dx,&dy,&used)!=2 || payload[used])return ESP_ERR_INVALID_ARG;
         return ouse_game_input(0,false,dx,dy);
+    }
+    if(!strcmp(verb,"DBG_NROM")){
+        if(strcmp(payload,"-")){esp_err_t error=ouse_native_select_nes_rom(payload);if(error!=ESP_OK)return error;}
+        snprintf(out,cap,"%s",ouse_game_nes_rom()+strlen("/sdcard/Ouse/"));return ESP_OK;
     }
     if(!strcmp(verb,"DBG_QFREE")){ouse_game_release_input();return ESP_OK;}
     if(!strcmp(verb,"DBG_QUAKE")){

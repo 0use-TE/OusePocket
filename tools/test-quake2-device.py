@@ -20,8 +20,10 @@ def wait_running(d,seconds=5):
     end=time.monotonic()+seconds
     while time.monotonic()<end:
         s=status(d)
-        if not s['active']:raise RuntimeError(str(s))
-        if s['phase']=='running' and counters(d)['frames']>=5:return
+        # Cached apps resume on the next LVGL timer tick; the previous
+        # cancelled task can still be visible immediately after DBG_OPEN.
+        if not s['active'] and s['phase']=='failed':raise RuntimeError(str(s))
+        if s['active'] and s['phase']=='running' and counters(d)['frames']>=5:return
         time.sleep(.25)
     raise TimeoutError('No game frames')
 

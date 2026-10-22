@@ -96,3 +96,7 @@ GAME_IMPORT(snprintf)
 GAME_IMPORT(strcasecmp)
 GAME_IMPORT(strncasecmp)
 GAME_IMPORT(vfprintf)
+
+GAME_IMPORT(ouse_game_abort)
+GAME_IMPORT(ouse_game_nes_rom)
+GAME_IMPORT(__udivdi3)

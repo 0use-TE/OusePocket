@@ -23,6 +23,9 @@
 #define NATIVE_TEMPORARY NATIVE_PROGRAM ".tmp"
 #define QUAKE_PROGRAM NATIVE_DIRECTORY "/quake2.elf"
 #define DOOM_PROGRAM NATIVE_DIRECTORY "/doom.elf"
+#define NES_PROGRAM NATIVE_DIRECTORY "/nes.elf"
+static char nes_rom[180]="/sdcard/Ouse/Downloads/2048.nes";
+const char *ouse_game_nes_rom(void){return nes_rom;}
 extern const uint8_t demo_start[] asm("_binary_ouse_native_demo_start");
 extern const uint8_t demo_end[] asm("_binary_ouse_native_demo_end");
 
@@ -81,10 +84,10 @@ static void run(void *unused)
     (void)unused;
     lock();uint32_t id=state.task_id;uint8_t *data=queued_image;queued_image=NULL;
     long length=(long)state.file_bytes;bool installing=state.installing;unlock();
-    bool doom=!strcmp(state.path,"doom.elf");
-    bool game=doom || !strcmp(state.path,"quake2.elf"),game_started=false;
-    const char *program=doom?DOOM_PROGRAM:game?QUAKE_PROGRAM:NATIVE_PROGRAM;
-    const char *temporary=doom?DOOM_PROGRAM ".tmp":game?QUAKE_PROGRAM ".tmp":NATIVE_TEMPORARY;
+    bool doom=!strcmp(state.path,"doom.elf"),nes=!strcmp(state.path,"nes.elf");
+    bool game=nes || doom || !strcmp(state.path,"quake2.elf"),game_started=false;
+    const char *program=nes?NES_PROGRAM:doom?DOOM_PROGRAM:game?QUAKE_PROGRAM:NATIVE_PROGRAM;
+    const char *temporary=nes?NES_PROGRAM ".tmp":doom?DOOM_PROGRAM ".tmp":game?QUAKE_PROGRAM ".tmp":NATIVE_TEMPORARY;
     esp_err_t error=ESP_OK;FILE *file=NULL;
     bool sd_file=false;
     esp_elf_t elf={0};bool initialized=false;
@@ -141,7 +144,7 @@ static void run(void *unused)
     if(rc){error=rc==-ENOMEM?ESP_ERR_NO_MEM:ESP_ERR_NOT_SUPPORTED;goto done;}
     free(data);data=NULL;
     if(stopped())goto done;
-    if(game){error=ouse_game_begin(doom);if(error!=ESP_OK)goto done;game_started=true;}
+    if(game){error=ouse_game_begin(nes?"nes":doom?"doom":"quake2");if(error!=ESP_OK)goto done;game_started=true;}
     phase("running");
     char *argv[]={state.path,NULL};
     // esp_elf_request discards the application's return value. Invoke the same
@@ -179,7 +182,7 @@ static esp_err_t launch(const char *path,uint8_t *image,size_t bytes,bool instal
     strlcpy(state.path,path,sizeof(state.path));strlcpy(state.phase,"queued",sizeof(state.phase));
     // Mapping/unmapping briefly disables the caches: its owning loader needs
     // an internal stack. The engine runs in a separate 256 KiB PSRAM task.
-    size_t stack=!installing && (!strcmp(path,"quake2.elf") || !strcmp(path,"doom.elf"))?16384:12288;
+    size_t stack=!installing && (!strcmp(path,"quake2.elf") || !strcmp(path,"doom.elf") || !strcmp(path,"nes.elf"))?16384:12288;
     BaseType_t created=xTaskCreate(run,"ouse_native",stack,NULL,2,NULL);
     if(created!=pdPASS){
         state.active=false;state.error=ESP_ERR_NO_MEM;state.finished_us=esp_timer_get_time();
@@ -223,6 +226,25 @@ esp_err_t ouse_native_install_quake2(const uint8_t *image,size_t bytes,uint32_t 
 {return copy_image(image,bytes,true,"quake2.elf",task_id);}
 esp_err_t ouse_native_install_doom(const uint8_t *image,size_t bytes,uint32_t *task_id)
 {return copy_image(image,bytes,true,"doom.elf",task_id);}
+esp_err_t ouse_native_install_nes(const uint8_t *image,size_t bytes,uint32_t *task_id)
+{return copy_image(image,bytes,true,"nes.elf",task_id);}
+esp_err_t ouse_native_select_nes_rom(const char *path)
+{
+    if(!mutex)return ESP_ERR_INVALID_STATE;
+    char absolute[180];size_t n=path?strlen(path):0;
+    if(n<15 || strncmp(path,"Downloads/",10) || strcmp(path+n-4,".nes") ||
+       !ouse_files_path(path,absolute,sizeof(absolute)))return ESP_ERR_INVALID_ARG;
+    lock();esp_err_t error=state.active?ESP_ERR_INVALID_STATE:ESP_OK;
+    if(error==ESP_OK)strlcpy(nes_rom,absolute,sizeof(nes_rom));
+    unlock();return error;
+}
+esp_err_t ouse_native_start_nes(uint32_t *task_id)
+{
+    if(!mutex)return ESP_ERR_INVALID_STATE;
+    if(!task_id)return ESP_ERR_INVALID_ARG;
+    lock();esp_err_t error=state.active?ESP_ERR_INVALID_STATE:launch("nes.elf",NULL,0,false,task_id);
+    unlock();return error;
+}
 esp_err_t ouse_native_start_doom(uint32_t *task_id)
 {
     if(!mutex)return ESP_ERR_INVALID_STATE;

@@ -4,6 +4,7 @@ from pathlib import Path
 import time
 from device import Device
 from native import upload_memory, status
+from game_session import stop_previous
 
 ROOT=Path(__file__).resolve().parents[1]
 KEYS={"Return":13,"Escape":27,"BackSpace":127,"Tab":9,"space":32,
@@ -136,13 +137,7 @@ def main():
                 if time.monotonic()>end:raise TimeoutError("Resource download still pending")
                 time.sleep(2)
         elif a.command=="start":
-            d.request("DBG_HOME")
-            d.request("DBG_CLOSE","ouse.native")
-            d.request("DBG_CLOSE","ouse.quake2")
-            end=time.monotonic()+15
-            while status(d)["active"]:
-                if time.monotonic()>end:raise TimeoutError("Previous native session is still running")
-                time.sleep(.1)
+            stop_previous(d)
             d.request("DBG_OPEN","ouse.quake2")
             end=time.monotonic()+15
             while True:
