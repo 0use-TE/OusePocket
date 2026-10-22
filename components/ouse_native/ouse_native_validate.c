@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include "ouse_native_validate.h"
+#include <stdbool.h>
 #include "ouse_native_api.h"
 #include <string.h>
 
@@ -51,7 +52,18 @@ int ouse_native_validate(const uint8_t *data, size_t length)
     }
     const section_t *names=&sections[h.shstrndx];
     if(names->type!=3 || !names->size)return 0;
-    unsigned abi_count=0,loads=0;uint32_t end=0;
+    unsigned abi_count=0,loads=0;uint32_t end=0,abi_version=0;
+    for(unsigned i=0;i<h.shnum;++i){
+        const section_t *s=&sections[i];
+        if(!string_at(data,names,s->name))return 0;
+        if(!strcmp((const char *)data+names->offset+s->name,".ouse_abi")){
+            uint32_t abi[3];if(s->type!=1 || s->size!=sizeof(abi))return 0;
+            memcpy(abi,data+s->offset,sizeof(abi));
+            if(abi[0]!=OUSE_NATIVE_MAGIC || (abi[1]!=1 && abi[1]!=2) || abi[2]!=28)return 0;
+            abi_version=abi[1];++abi_count;
+        }
+    }
+    if(abi_count!=1)return 0;
     for(unsigned i=0;i<h.phnum;++i){
         program_t p;memcpy(&p,data+h.phoff+i*sizeof(p),sizeof(p));
         if(p.type==3 || p.type==7)return 0; // interpreter or TLS
@@ -65,13 +77,6 @@ int ouse_native_validate(const uint8_t *data, size_t length)
     for(unsigned i=0;i<h.shnum;++i){
         const section_t *s=&sections[i];
         if(!string_at(data,names,s->name))return 0;
-        if(!strcmp((const char *)data+names->offset+s->name,".ouse_abi")){
-            uint32_t abi[3];
-            if(s->type!=1 || s->size!=sizeof(abi))return 0;
-            memcpy(abi,data+s->offset,sizeof(abi));
-            if(abi[0]!=OUSE_NATIVE_MAGIC || abi[1]!=OUSE_NATIVE_ABI || abi[2]!=28)return 0;
-            ++abi_count;
-        }
         if(s->type!=4)continue;
         if(s->entsize!=sizeof(rela_t) || (s->offset&3) || s->size%sizeof(rela_t) || s->link>=h.shnum)return 0;
         const section_t *syms=&sections[s->link];
@@ -92,9 +97,16 @@ int ouse_native_validate(const uint8_t *data, size_t length)
                 if(index || r.addend<0 || !mapped(data,&h,(uint32_t)r.addend,1,0))return 0;
             }else{
                 // A single versioned host API import; modules use its callbacks.
-                if(sym.shndx || sym.value || strcmp(name,"ouse_native_get_api") || r.addend)return 0;
+                if(sym.shndx || sym.value || r.addend)return 0;
+                bool allowed=!strcmp(name,"ouse_native_get_api");
+                if(abi_version==2){
+#define GAME_IMPORT(symbol) if(!strcmp(name,#symbol))allowed=true;
+#include "include/ouse_game_imports.inc"
+#undef GAME_IMPORT
+                }
+                if(!allowed)return 0;
             }
         }
     }
-    return abi_count==1;
+    return (int)abi_version;
 }

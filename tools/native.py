@@ -60,7 +60,7 @@ def upload_memory(device, local, install=False):
     try:
         for offset in range(0,len(data),512):
             device.request("DBG_ELFDATA",f"{offset:x}:"+data[offset:offset+512].hex())
-        return device.request("DBG_ELFEND","install" if install else "-",timeout=15)
+        return device.request("DBG_ELFEND",install if isinstance(install,str) else "install" if install else "-",timeout=15)
     except BaseException:
         device.request("DBG_ELFABORT")
         raise

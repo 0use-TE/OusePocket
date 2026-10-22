@@ -45,6 +45,7 @@ python tools/bpk.py --port COM10 list
 - [运行时移植与边界](components/ouse_runtime/PORTING.md)
 - [系统状态与待办](docs/STATUS.md)
 - [原生 ELF 运行时实验](docs/native-elf-runtime.md)：桌面“原生程序”入口、独立 C 程序执行、合作停止与内部存储安装。
+- [Quake II 移植实验](native-apps/quake2/README.md)：独立游戏 ELF、PSRAM 内存与串口键鼠控制。
 
 ## 项目目录
 

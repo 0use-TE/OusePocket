@@ -4,6 +4,7 @@
 #include "ouse_debug.h"
 #include "ouse_runtime.h"
 #include "ouse_native.h"
+#include "ouse_native_game.h"
 #include "ouse_ime.h"
 #include "ouse_notifications.h"
 #include "ouse_storage.h"
@@ -47,6 +48,7 @@ static SemaphoreHandle_t done;
 static unsigned char *resource;
 static size_t resource_size;
 static struct {uint8_t *data;size_t size,used;uint32_t crc;int64_t touched;} elf_upload;
+static uint32_t quake_download_id;
 static void elf_upload_abort(void){free(elf_upload.data);memset(&elf_upload,0,sizeof(elf_upload));}
 // Diagnostic A/B control only: return false through IDF's public idle hook to
 // bypass WFI, while keeping both cores, interrupts and every service running.
@@ -321,11 +323,12 @@ esp_err_t ouse_debug_command(const char *verb,const char *payload,char *out,size
     }
     if(!strcmp(verb,"DBG_ELFABORT")){elf_upload_abort();return ESP_OK;}
     if(!strcmp(verb,"DBG_ELFEND")){
-        if(strcmp(payload,"-") && strcmp(payload,"install"))return ESP_ERR_INVALID_ARG;
+        if(strcmp(payload,"-") && strcmp(payload,"install") && strcmp(payload,"quake2"))return ESP_ERR_INVALID_ARG;
         if(!elf_upload.data)return ESP_ERR_INVALID_STATE;
         esp_err_t error=ESP_ERR_INVALID_CRC;uint32_t id;
         if(elf_upload.used==elf_upload.size && ouse_crc32(elf_upload.data,elf_upload.size)==elf_upload.crc)
-            error=!strcmp(payload,"install")?ouse_native_install_image(elf_upload.data,elf_upload.size,&id):
+            error=!strcmp(payload,"quake2")?ouse_native_install_quake2(elf_upload.data,elf_upload.size,&id):
+                !strcmp(payload,"install")?ouse_native_install_image(elf_upload.data,elf_upload.size,&id):
                 ouse_native_start_image(elf_upload.data,elf_upload.size,&id);
         elf_upload_abort();if(error==ESP_OK)snprintf(out,cap,"task=%lu",(unsigned long)id);return error;
     }
@@ -335,6 +338,33 @@ esp_err_t ouse_debug_command(const char *verb,const char *payload,char *out,size
         return error;
     }
     if(!strcmp(verb,"DBG_ELFSTOP"))return ouse_native_stop();
+    if(!strcmp(verb,"DBG_QKEY")){
+        unsigned key,down;int used=0;
+        if(sscanf(payload,"%u:%u%n",&key,&down,&used)!=2 || payload[used] || down>1)return ESP_ERR_INVALID_ARG;
+        return ouse_game_input(key,down,0,0);
+    }
+    if(!strcmp(verb,"DBG_QMOUSE")){
+        int dx,dy,used=0;if(sscanf(payload,"%d:%d%n",&dx,&dy,&used)!=2 || payload[used])return ESP_ERR_INVALID_ARG;
+        return ouse_game_input(0,false,dx,dy);
+    }
+    if(!strcmp(verb,"DBG_QFREE")){ouse_game_release_input();return ESP_OK;}
+    if(!strcmp(verb,"DBG_QUAKE")){
+        unsigned frames,keys,allocations;size_t bytes;ouse_game_get_stats(&frames,&keys,&allocations,&bytes);
+        snprintf(out,cap,"frames=%u,keys=%u,allocations=%u,bytes=%zu",frames,keys,allocations,bytes);return ESP_OK;
+    }
+    if(!strcmp(verb,"DBG_QDATA")){
+        static const ouse_task_owner_t owner={.app_id="system.quake2",.instance=0};
+        if(!strcmp(payload,"-")){
+            ouse_files_state_t files;ouse_files_get(&files);ouse_task_snapshot_t task;
+            bool found=quake_download_id && ouse_task_get(&owner,quake_download_id,&task);
+            snprintf(out,cap,"task=%lu,bytes=%llu,phase=%s,error=%s",(unsigned long)quake_download_id,
+                (unsigned long long)files.download_bytes,found?ouse_task_state_name(task.state):"idle",
+                found?esp_err_to_name(task.error):"ESP_OK");return ESP_OK;
+        }
+        uint32_t id;esp_err_t e=ouse_files_download(&owner,payload,"Downloads/quake2.pak",&id);
+        if(e==ESP_OK){quake_download_id=id;snprintf(out,cap,"task=%lu",(unsigned long)id);}
+        return e;
+    }
     if(!strcmp(verb,"DBG_ELF")){
         ouse_native_state_t s;ouse_native_get(&s);char json[400];
         int n=snprintf(json,sizeof(json),"{\"active\":%s,\"installing\":%s,\"phase\":\"%s\",\"taskId\":%lu,\"stopRequested\":%s,\"reported\":%s,\"result\":%ld,\"exitCode\":%ld,\"bytes\":%zu,\"error\":\"%s\",\"elapsedMs\":%lld}",

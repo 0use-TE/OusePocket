@@ -4,7 +4,7 @@
 
 桌面提供“原生程序”图标：首次打开会自动运行本机程序，界面显示状态、持续更新的整数输出、用时和退出代码，并提供“运行”“停止”按钮。返回桌面或关闭应用会请求停止该界面启动的任务，不会停止其他通道启动的程序。未安装程序时执行固件中附带、独立编译的计数示例；示例会逐步输出 0～100。
 
-当前提供一个可替换的桌面程序位置。通过电脑安装的 ELF 保存在设备内部 LittleFS，重启后仍可从该图标启动。安装不执行代码；验证通过后写入临时文件、同步并原子替换旧程序，失败时保留旧文件。不更改 JS BPK 格式，尚未提供原生游戏画面、触摸、音频或商店安装接口。
+当前提供一个可替换的桌面程序位置。通过电脑安装的 ELF 保存在设备内部 LittleFS，重启后仍可从该图标启动。安装不执行代码；验证通过后写入临时文件、同步并原子替换旧程序，失败时保留旧文件。另外增加独立的[Quake II 实验入口](../native-apps/quake2/README.md)，使用专用 ABI 2 配置接入画面、SD 文件及串口输入。JS BPK 格式保持原样，原生触摸、音频和商店安装接口尚未接入。
 
 ## 编译与运行
 
@@ -34,11 +34,11 @@ python tools/native.py install dist/native/hello.elf --port COM10
 4. 使用固定版本 `espressif/elf_loader 1.3.5`，通过本地分配适配器提供专用的可执行 PSRAM 映射，完成重定位和指令缓存同步。保留系统 PMP 及 PSRAM 预配置保护设置。
 5. 在独立任务中调用 `int app_main(int argc, char **argv)`。入口返回后回收加载映像、文件缓冲和工作任务，记录退出码及报告值。
 
-任务使用 12 KiB 内部 RAM 栈；应用文件缓冲和加载映像放在 PSRAM。内存上传提交时复制出工作线程拥有的副本，随后释放传输缓冲，峰值额外使用最多 1 MiB PSRAM。启动本身异步，成功回复任务 ID 表示已接受，不代表 ELF 验证或程序执行已经成功；随后读取状态。
+普通任务使用 12 KiB 内部 RAM 栈；应用文件缓冲和加载映像放在 PSRAM。Quake II 使用 16 KiB 内部加载线程和独立的 256 KiB PSRAM 游戏栈，游戏结束后由加载线程删除游戏任务再卸载映像；MMU 映射操作需要短暂关闭缓存，因此加载栈必须留在内部 RAM。内存上传提交时复制出工作线程拥有的副本，随后释放传输缓冲，峰值额外使用最多 1 MiB PSRAM。启动本身异步，成功回复任务 ID 表示已接受，不代表 ELF 验证或程序执行已经成功；随后读取状态。
 
 ESP-IDF 6.1 在 P4 revision ≥3.1 上默认将普通 PSRAM 堆设为 RW、不可执行；上游加载器直接返回普通堆地址会在进入代码时触发 Instruction access fault。`ouse_native_memory.c` 通过链接器包装上游分配/释放函数：以 MMU 页对齐分配 PSRAM，再使用 `esp_mmu_map` 为本次映像建立独立的可执行虚拟地址，加载和重定位均使用这一地址。入口返回后先同步脏缓存、解除映射，再释放原始物理页。若缓存同步或解除映射失败，保留这些页并报告失败，拒绝之后的可执行分配直到重启，避免留下指向已回收内存的可执行映射。SDK 和 managed_components 源码不做修改。
 
-`ouse_native_get_api(1)` 提供版本化回调表：日志、单调毫秒计时、停止查询、可中断等待、整数结果报告。头文件为 `components/ouse_native/include/ouse_native_api.h`。每个程序使用一次 `OUSE_NATIVE_APP()` 声明 ABI；只支持通过回调表调用系统，不导出整套 libc 或 ESP-IDF 符号。
+`ouse_native_get_api(1)` 提供版本化回调表：日志、单调毫秒计时、停止查询、可中断等待、整数结果报告。头文件为 `components/ouse_native/include/ouse_native_api.h`。普通程序使用一次 `OUSE_NATIVE_APP()` 声明 ABI 1，只通过回调表调用系统。ABI 2 仅供独立的 Quake II 位置使用，导入严格限制为 `ouse_game_imports.inc` 中的函数和数据；分配/释放、打开/关闭文件、退出和断言均由游戏桥接器跟踪和回收，环境变量不影响宿主。它同样具有整机权限，不构成沙箱。
 
 v1 不运行 C/C++ 静态构造与析构，不支持 TLS、任意动态库或其他导入。它支持 `R_RISCV_32`、`R_RISCV_RELATIVE` 和 `R_RISCV_JUMP_SLOT` 的受限用法；不接受普通系统固件 ELF 或其他芯片的程序。
 
@@ -60,6 +60,12 @@ v1 不运行 C/C++ 静态构造与析构，不支持 TLS、任意动态库或其
 | `DBG_ELFEND` | `-` | 校验完整性并异步启动，返回 `task=<id>` |
 | `DBG_ELFEND` | `install` | 验证并保存到内部存储，不运行；返回安装任务 ID |
 | `DBG_ELFABORT` | `-` | 回收尚未提交的内存上传 |
+| `DBG_ELFEND` | `quake2` | 验证 ABI 2 并安装到独立游戏位置 |
+| `DBG_QKEY` | `key:down` | Quake II 键码与按下/松开，`down` 为 0/1 |
+| `DBG_QMOUSE` | `dx:dy` | 累积相对鼠标移动，同时刷新输入租约 |
+| `DBG_QFREE` | `-` | 清空待处理输入并松开按键 |
+| `DBG_QUAKE` | `-` | 游戏帧数、按键和分配计数 |
+| `DBG_QDATA` | HTTP URL / `-` | 下载试玩资源到 SD / 查询下载进度 |
 
 状态包含 `active`、`installing`、`phase`、`taskId`、`stopRequested`、`reported`、`result`、`exitCode`、`bytes`、`error`、`elapsedMs`。阶段为 `idle/queued/validating/loading/running/saving/installed/finished/cancelled/failed`。`result` 只有 `reported=true` 才有意义；`exitCode` 仅在入口实际返回后有意义。安装是不可取消的 `package:native_install` 任务，系统排空会等待提交结束。
 

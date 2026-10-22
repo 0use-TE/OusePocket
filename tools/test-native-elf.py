@@ -73,6 +73,20 @@ for i,s in enumerate(sections):
         reject(changed(shoff+s[6]*40+4,"<I",8)) # NOBITS must never serve as an input table
         reject(changed(shoff+s[6]*40+24,"<I",999))
 reject(data+b"\0"*(1024*1024))
+game_path=ROOT/"dist/native/quake2.elf"
+if game_path.exists():
+    game=bytearray(game_path.read_bytes())
+    game_buffer=ctypes.create_string_buffer(bytes(game))
+    assert validate(game_buffer,len(game))==2,"Real Quake II module must identify ABI 2"
+    gh=struct.unpack_from('<I',game,32)[0]
+    gn=struct.unpack_from('<H',game,48)[0]
+    gs=[struct.unpack_from('<10I',game,gh+i*40) for i in range(gn)]
+    names=gs[struct.unpack_from('<H',game,50)[0]]
+    for s in gs:
+        if game[names[4]+s[0]:].split(b'\0',1)[0]==b'.ouse_abi':
+            struct.pack_into('<I',game,s[4]+4,1)
+            reject(game) # Game imports must never be accepted in the simple ABI.
+            break
 # Bounded random mutations stress table offsets and lengths in the same C validator.
 rng=random.Random(428)
 for _ in range(10000):
