@@ -7,6 +7,7 @@
 #include "esp_log.h"
 #include "esp_system.h"
 #include "ouse_installer.h"
+#include "ouse_native.h"
 #include "ouse_net.h"
 #include "ouse_media.h"
 #include "ouse_metrics.h"
@@ -98,6 +99,8 @@ void app_main(void)
     extern esp_err_t ouse_board_radio_prepare(void);
     esp_err_t bluetooth_error=ouse_ble_start(ouse_board_radio_prepare);
     if(bluetooth_error!=ESP_OK)ESP_LOGW("OuseBLE","Bluetooth service unavailable: %s",esp_err_to_name(bluetooth_error));
+    esp_err_t native_error=ouse_native_init();
+    if(native_error!=ESP_OK)ESP_LOGE("OuseNative","Runtime unavailable: %s",esp_err_to_name(native_error));
     esp_err_t installer_error=ouse_installer_start();
     if(installer_error!=ESP_OK) ESP_LOGE("OuseInstaller","UART installer unavailable: %s",esp_err_to_name(installer_error));
     esp_err_t usb_error=ouse_usb_start();

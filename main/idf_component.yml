@@ -2,6 +2,7 @@ dependencies:
   espressif/esp_websocket_client: "==1.8.0"
   espressif/mqtt: "==1.1.0"
   espressif/esp_video: "==2.2.0"
+  espressif/esp_sccb_intf: "==0.0.9"
   idf: "==6.1.0"
   # Freeze the BSP/adapter dependency closure to the versions already available
   # in this workspace. Optional decoder/font features remain disabled at runtime.

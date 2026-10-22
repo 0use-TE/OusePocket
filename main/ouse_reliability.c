@@ -128,7 +128,7 @@ static void cancel_transient_work(void)
         after=task.id;
         // Already accepted storage/alarm/settings/package commits must drain,
         // even while queued. They must not disappear just because the UI closed.
-        if(task.kind==OUSE_TASK_AUDIO || task.kind==OUSE_TASK_NETWORK || task.kind==OUSE_TASK_WIFI)
+        if(task.kind==OUSE_TASK_AUDIO || task.kind==OUSE_TASK_NETWORK || task.kind==OUSE_TASK_WIFI || task.kind==OUSE_TASK_NATIVE)
             (void)ouse_task_cancel(NULL,task.id,"system_restart");
     }
 }

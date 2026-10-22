@@ -3,6 +3,7 @@
 #include "ouse_debug_transport.h"
 #include "ouse_debug.h"
 #include "ouse_runtime.h"
+#include "ouse_native.h"
 #include "ouse_ime.h"
 #include "ouse_notifications.h"
 #include "ouse_storage.h"
@@ -14,6 +15,7 @@
 #include "esp_heap_caps.h"
 #include "esp_attr.h"
 #include "esp_app_desc.h"
+#include "esp_timer.h"
 #include "esp_freertos_hooks.h"
 #include "esp_jpeg_enc.h"
 #include "freertos/FreeRTOS.h"
@@ -44,6 +46,8 @@ static struct {int action,x,y,down;unsigned contact;const char *id;char text[102
 static SemaphoreHandle_t done;
 static unsigned char *resource;
 static size_t resource_size;
+static struct {uint8_t *data;size_t size,used;uint32_t crc;int64_t touched;} elf_upload;
+static void elf_upload_abort(void){free(elf_upload.data);memset(&elf_upload,0,sizeof(elf_upload));}
 // Diagnostic A/B control only: return false through IDF's public idle hook to
 // bypass WFI, while keeping both cores, interrupts and every service running.
 // Normal idle is restored on reboot and when the test releases this control.
@@ -298,6 +302,46 @@ static esp_err_t notices_snapshot(void)
 esp_err_t ouse_debug_command(const char *verb,const char *payload,char *out,size_t cap)
 {
     if(!ouse_system_debug_enabled())return ESP_ERR_INVALID_STATE;
+    if(!strcmp(verb,"DBG_ELFBEGIN")){
+        unsigned size;unsigned long crc;int used=0;
+        if(sscanf(payload,"%u:%lx%n",&size,&crc,&used)!=2 || payload[used] || size<52 || size>1024u*1024u)return ESP_ERR_INVALID_ARG;
+        if(ouse_tasks_quiescing())return ESP_ERR_INVALID_STATE;
+        ouse_native_state_t s;ouse_native_get(&s);if(s.active)return ESP_ERR_INVALID_STATE;
+        elf_upload_abort();elf_upload.data=heap_caps_malloc(size,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
+        if(!elf_upload.data)return ESP_ERR_NO_MEM;
+        elf_upload.size=size;elf_upload.crc=(uint32_t)crc;elf_upload.touched=esp_timer_get_time();return ESP_OK;
+    }
+    if(!strcmp(verb,"DBG_ELFDATA")){
+        unsigned offset;int used=0;unsigned char data[512];size_t length;
+        if(!elf_upload.data || sscanf(payload,"%x:%n",&offset,&used)!=1 || !used ||
+           !ouse_hex_decode(payload+used,data,sizeof(data),&length) || !length || offset!=elf_upload.used ||
+           length>elf_upload.size-elf_upload.used)return ESP_ERR_INVALID_ARG;
+        memcpy(elf_upload.data+offset,data,length);elf_upload.used+=length;elf_upload.touched=esp_timer_get_time();
+        snprintf(out,cap,"%u",(unsigned)elf_upload.used);return ESP_OK;
+    }
+    if(!strcmp(verb,"DBG_ELFABORT")){elf_upload_abort();return ESP_OK;}
+    if(!strcmp(verb,"DBG_ELFEND")){
+        if(!elf_upload.data)return ESP_ERR_INVALID_STATE;
+        esp_err_t error=ESP_ERR_INVALID_CRC;uint32_t id;
+        if(elf_upload.used==elf_upload.size && ouse_crc32(elf_upload.data,elf_upload.size)==elf_upload.crc)
+            error=ouse_native_start_image(elf_upload.data,elf_upload.size,&id);
+        elf_upload_abort();if(error==ESP_OK)snprintf(out,cap,"task=%lu",(unsigned long)id);return error;
+    }
+    if(!strcmp(verb,"DBG_ELFRUN")){
+        uint32_t id;esp_err_t error=ouse_native_start(payload,&id);
+        if(error==ESP_OK)snprintf(out,cap,"task=%lu",(unsigned long)id);
+        return error;
+    }
+    if(!strcmp(verb,"DBG_ELFSTOP"))return ouse_native_stop();
+    if(!strcmp(verb,"DBG_ELF")){
+        ouse_native_state_t s;ouse_native_get(&s);char json[400];
+        int n=snprintf(json,sizeof(json),"{\"active\":%s,\"phase\":\"%s\",\"taskId\":%lu,\"stopRequested\":%s,\"reported\":%s,\"result\":%ld,\"exitCode\":%ld,\"bytes\":%zu,\"error\":\"%s\",\"elapsedMs\":%lld}",
+            s.active?"true":"false",s.phase,(unsigned long)s.task_id,s.stop_requested?"true":"false",
+            s.reported?"true":"false",(long)s.result,(long)s.exit_code,s.file_bytes,esp_err_to_name(s.error),
+            (long long)(s.started_us?((s.active?esp_timer_get_time():s.finished_us)-s.started_us)/1000:0));
+        if(n<0 || (size_t)n>=sizeof(json) || cap<(size_t)n*2+1)return ESP_ERR_NO_MEM;
+        hex((const unsigned char *)json,(size_t)n,out);return ESP_OK;
+    }
     if(!strcmp(verb,"DBG_STORAGE")){
         ouse_storage_stats_t s={0};(void)ouse_storage_get_stats(&s);char json[384];
         int n=snprintf(json,sizeof(json),"{\"ready\":%s,\"revision\":%lu,\"totalBytes\":%zu,\"usedBytes\":%zu,\"freeBytes\":%zu,\"packageBytes\":%zu,\"privateBytes\":%zu,\"packageCount\":%u,\"privateApps\":%u,\"lastError\":\"%s\"}",
@@ -466,11 +510,14 @@ esp_err_t ouse_debug_command(const char *verb,const char *payload,char *out,size
 void ouse_debug_poll(void)
 {
     ouse_files_upload_poll();
+    if(elf_upload.data && (ouse_tasks_quiescing() || !ouse_system_debug_enabled() ||
+       esp_timer_get_time()-elf_upload.touched>30000000))elf_upload_abort();
     static bool disabled;
     if(ouse_system_debug_enabled()){disabled=false;return;}
     if(disabled)return;
     if(call_ui(U_RESET)!=ESP_OK)return;
     ouse_files_upload_abort();
+    (void)ouse_native_stop();
     (void)idle_wait(true);
     free(resource);resource=NULL;resource_size=0;
     disabled=true;

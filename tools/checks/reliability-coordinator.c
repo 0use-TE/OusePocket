@@ -31,6 +31,12 @@ void ouse_devices_save_state(ouse_device_save_state_t *s){memset(s,0,sizeof(*s))
 bool ouse_net_available(void){return true;}
 void ouse_system_sample_memory(void){}
 void ouse_devices_wake_workers(void){}
+bool ouse_camera_idle(void){return true;}
+bool ouse_recorder_idle(void){return true;}
+bool ouse_journal_flush(unsigned timeout){(void)timeout;return true;}
+void ouse_usb_get(ouse_usb_state_t *s){memset(s,0,sizeof(*s));}
+esp_err_t ouse_board_power_off(void){return ESP_FAIL;}
+void ouse_dialog_show(const char *message,void *callback,void *context){(void)message;(void)callback;(void)context;}
 void esp_restart(void){assert(!strcmp(scenario,"drain") || !strcmp(scenario,"queued-commit"));assert(test_clock>=(!strcmp(scenario,"drain") ? 5500000 : 2500000));assert(closed==1);restarted=true;longjmp(end,1);}
 static void step(void)
 {
@@ -66,6 +72,17 @@ static void after_resume(void){assert(!ouse_tasks_quiescing());longjmp(end,3);}
 int main(int argc,char **argv)
 {
     assert(argc==2);scenario=argv[1];ouse_health_enable();
+    if(!strcmp(scenario,"native")){
+        ouse_task_owner_t native={.app_id="system.native",.instance=0};uint32_t id;
+        assert(ouse_task_create(&native,OUSE_TASK_NATIVE,"execute",OUSE_TASK_STOP_ON_CLOSE,true,&id)==ESP_OK);
+        assert(ouse_task_start(id,true));assert(!strcmp(ouse_task_kind_name(OUSE_TASK_NATIVE),"native"));
+        ouse_tasks_quiesce(true);cancel_transient_work();ouse_task_snapshot_t t;
+        assert(ouse_task_get(NULL,id,&t) && t.cancel_requested && t.state==OUSE_TASK_CANCELLING);
+        assert(!strcmp(drain_blocker(0),"native-tasks"));
+        uint32_t rejected;assert(ouse_task_create(&native,OUSE_TASK_NATIVE,"execute",OUSE_TASK_STOP_ON_CLOSE,true,&rejected)==ESP_ERR_INVALID_STATE);
+        ouse_task_finish(id,ESP_OK,true);assert(!drain_blocker(0));
+        puts("PASS native: system drain requests cooperative stop, waits for actual return, rejects new execution");return 0;
+    }
     ouse_task_owner_t owner;assert(ouse_task_owner_open("user.a",&owner)==ESP_OK);
     registered_owner=owner;
     if(!strcmp(scenario,"pending-launch")){ouse_task_owner_t pending;assert(ouse_task_owner_open("user.validation",&pending)==ESP_OK);}

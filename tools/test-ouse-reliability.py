@@ -14,6 +14,11 @@ for line in subprocess.check_output(['cmd.exe','/d','/c',str(ROOT/'.tools/ouse-k
         key,value=line.split('=',1);env[key]=value
 compiler=Path(env['VCToolsInstallDir'])/'bin/Hostx64/x64/cl.exe'
 headers={
+ 'ouse_board.h':'#pragma once\n#include "esp_err.h"\nesp_err_t ouse_board_power_off(void);\n',
+ 'ouse_dialog.h':'#pragma once\nvoid ouse_dialog_show(const char *,void *,void *);\n',
+ 'ouse_journal.h':'#pragma once\n#include <stdbool.h>\nbool ouse_journal_flush(unsigned);\n',
+ 'ouse_camera.h':'#pragma once\n#include <stdbool.h>\nbool ouse_camera_idle(void);\n',
+ 'ouse_recorder.h':'#pragma once\n#include <stdbool.h>\nbool ouse_recorder_idle(void);\n',
  'ouse_core.h': '''#pragma once
 #include "ouse_system.h"
 #define OUSE_APP_CAPACITY 8
@@ -35,7 +40,7 @@ esp_err_t ouse_runtime_end_background(uint32_t);
  'unistd.h':'#pragma once\n#include <io.h>\n#define fsync _commit\n#define fileno _fileno\n#define unlink _unlink\n',
 }
 for name,value in headers.items():(OUT/name).write_text(value,encoding='utf-8')
-includes=[OUT]+[ROOT/f'components/{p}/include' for p in ['ouse_system','ouse_tasks','ouse_devices','ouse_storage','ouse_installer','ouse_net','ouse_media','ouse_alarm']]+[ROOT/'components/ouse_installer',BASE]
+includes=[OUT]+[ROOT/f'components/{p}/include' for p in ['ouse_system','ouse_tasks','ouse_devices','ouse_storage','ouse_installer','ouse_net','ouse_media','ouse_alarm','ouse_usb']]+[ROOT/'components/ouse_installer',BASE]
 command=[str(compiler),'/nologo','/std:c11','/experimental:c11atomics','/O2','/MD','/utf-8','/D_CRT_SECURE_NO_WARNINGS']+['/I'+str(p) for p in includes]
 for name in args.checks:
     fixture=(ROOT/f'tools/checks/reliability-{name}.c').read_text(encoding='utf-8')
@@ -49,5 +54,5 @@ for name in args.checks:
     else:sources += [ROOT/'components/ouse_installer/ouse_protocol.c']
     result=subprocess.run(command+list(map(str,sources))+['/Fe'+str(OUT/f'{name}.exe')],cwd=OUT,env=env,capture_output=True,text=True,errors='replace')
     assert result.returncode==0,(name,result.stdout,result.stderr)
-    for case in (['drain','queued-commit','timeout','ui-late','commit-failure','uninstall-pending','pending-launch','owner','admission'] if name=='coordinator' else ['journal']):
+    for case in (['drain','queued-commit','timeout','ui-late','commit-failure','uninstall-pending','pending-launch','owner','admission','native'] if name=='coordinator' else ['journal']):
         subprocess.run([str(OUT/f'{name}.exe'),case],cwd=OUT,check=True,timeout=15)

@@ -44,6 +44,7 @@ python tools/bpk.py --port COM10 list
 - [BPK 格式与限制](docs/bpk.md)
 - [运行时移植与边界](components/ouse_runtime/PORTING.md)
 - [系统状态与待办](docs/STATUS.md)
+- [原生 ELF 运行时实验](docs/native-elf-runtime.md)：独立 C 程序的加载、执行与合作停止；当前通过有线调试启动。
 
 ## 项目目录
 
