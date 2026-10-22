@@ -37,6 +37,8 @@ def main():
         d.request('DBG_HOME');d.request('DBG_CLOSE','ouse.native');d.request('DBG_CLOSE','ouse.quake2')
         before=d.request('DBG_HEAP');print('BEFORE',before,flush=True)
         d.request('DBG_OPEN','ouse.quake2');wait_running(d,20)
+        screen=d.state()
+        assert (screen['width'],screen['height'])==(480,320),screen
         d.screenshot(a.output/'menu.jpg');print('MENU',counters(d),flush=True)
         # Down/up back-to-back must survive even inside one render frame.
         d.request('DBG_QKEY','13:1');d.request('DBG_QKEY','13:0');time.sleep(.5)
@@ -58,6 +60,8 @@ def main():
             if time.monotonic()>end:raise TimeoutError('Game failed to stop')
             time.sleep(.1)
         ended=status(d);stats=counters(d)
+        screen=d.state()
+        assert (screen['width'],screen['height'])==(320,480),screen
         assert ended['phase']=='cancelled' and ended['error']=='ESP_OK',ended
         assert stats['allocations']==stats['bytes']==stats['keys']==0,stats
         d.request('DBG_CLOSE','ouse.quake2');after=d.request('DBG_HEAP');print('AFTER',after,flush=True)

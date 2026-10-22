@@ -10,7 +10,7 @@ esp_err_t ouse_native_install_quake2(const uint8_t *image,size_t bytes,uint32_t 
 esp_err_t ouse_game_begin(void);
 void ouse_game_end(void);
 esp_err_t ouse_game_register_symbols(void);
-bool ouse_game_copy_frame(uint16_t *destination,unsigned *serial);
+bool ouse_game_copy_frame(uint16_t *destination,unsigned width,unsigned height,unsigned *serial);
 esp_err_t ouse_game_execute(int (*entry)(int,char **),int argc,char **argv,int *exit_code);
 // Serial input is a lease: held keys are released after 750ms without a
 // heartbeat. Call with both down/up or refresh held keys while controlling.

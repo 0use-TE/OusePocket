@@ -2,6 +2,10 @@
 
 This is a standalone, trusted ESP32-P4 ELF program. It uses the software
 renderer at 320×240 and the host's display, SD card and serial input bridge.
+Its output fills the 480×320 landscape panel with no surrounding app controls,
+status bar or navigation bar. Nearest-neighbor scaling keeps the renderer's
+existing memory budget. Leaving the game restores the previous orientation;
+the system's edge swipe still returns Home. Reopening a paused game restarts it.
 The first port supports single-player only, without sound.
 
 Engine source: [alexkid77/ESP32_QUAKE2](https://github.com/alexkid77/ESP32_QUAKE2),
@@ -68,7 +72,7 @@ privileges, using the separate ABI 2 game import profile rather than the
 small ABI 1 counter interface.
 
 The code/data image, allocation arena (including the model pool), 256 KiB
-game task stack and both 320×240 RGB565 presentation buffers use PSRAM.
+game task stack, 320×240 RGB565 pending buffer and 480×320 RGB565 display buffer use PSRAM.
 Hardware DMA buffers and the small system control structures remain in
 internal SRAM. A separate loader uses a 16 KiB internal stack because changing
 MMU mappings briefly disables caches. It starts the game on its 256 KiB PSRAM
@@ -101,3 +105,10 @@ Evidence: `.tools/quake-check/` (screenshots/results),
 `.tools/quake-game-test.log`, `.tools/quake-controller-test.log` and the UART
 directories referenced by those results. Verification covers this demo map
 and these inputs, not the complete game's levels, audio or multiplayer.
+
+The landscape fullscreen update was flashed and verified separately:
+`.tools/quake-fullscreen-check/` contains 480×320 menu/map captures with only
+game content. Serial movement/input expiry and heap checks passed again.
+An actual bottom-edge swipe restored the 320×480 desktop; reopening the cached
+app restarted the game in fullscreen. Closing it while foreground also restored
+the original orientation. See `.tools/quake-fullscreen-lifecycle.log`.

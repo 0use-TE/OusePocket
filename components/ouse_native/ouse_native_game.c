@@ -96,11 +96,18 @@ void ouse_game_frame(const unsigned char *source,const unsigned char *palette)
     for(unsigned i=0;i<256;++i)colors[i]=((palette[i*3]>>3)<<11)|((palette[i*3+1]>>2)<<5)|(palette[i*3+2]>>3);
     lock();if(pixels){for(unsigned i=0;i<320u*240u;++i)pixels[i]=colors[source[i]];++frames;}unlock();
 }
-bool ouse_game_copy_frame(uint16_t *destination,unsigned *serial)
+bool ouse_game_copy_frame(uint16_t *destination,unsigned width,unsigned height,unsigned *serial)
 {
     if(!guard)return false;
     lock();bool changed=pixels && frames!=*serial;
-    if(changed){memcpy(destination,pixels,320u*240u*2u);*serial=frames;consumed=frames;}
+    if(changed){
+        // Fill the landscape panel while keeping the tested renderer budget.
+        for(unsigned y=0;y<height;++y){
+            const uint16_t *row=pixels+(y*240u/height)*320u;
+            for(unsigned x=0;x<width;++x)destination[y*width+x]=row[x*320u/width];
+        }
+        *serial=frames;consumed=frames;
+    }
     unlock();return changed;
 }
 void ouse_game_release_input(void)
