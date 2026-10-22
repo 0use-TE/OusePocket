@@ -57,10 +57,14 @@ python tools/quake2.py start
 python tools/quake2.py play
 ```
 
-Focus the computer control window. Arrow keys move/turn, Enter confirms, Esc
-opens the menu, Space jumps, and the left mouse button fires. Mouse motion
-looks around. The game's own Options menu can change key bindings. Focus
-loss/closing the window releases the keys; if serial input stops, held keys
+Click the computer control window to capture the mouse. Windows Raw Input
+relative counts go directly to serial; the hidden pointer is confined so
+continuous turning has no window-edge limit. F8 releases/recaptures the mouse;
+Esc remains the in-game menu key. W/S move forward/back, A/D strafe, Space
+jumps, and the left mouse button fires. Enter confirms. Top-row and numpad
+1–9/0 select the original Quake II weapon slots (weapons must be acquired).
+The WASD/number layout is applied after saved configuration at game startup.
+Focus loss/closing the window releases the mouse and keys; if serial input stops, held keys
 expire after 750 ms. Only one program may own the serial port at a time.
 Returning to the device desktop cooperatively stops the game and releases
 its arena, files, executable mapping and SD lease.
@@ -112,3 +116,22 @@ game content. Serial movement/input expiry and heap checks passed again.
 An actual bottom-edge swipe restored the 320×480 desktop; reopening the cached
 app restarted the game in fullscreen. Closing it while foreground also restored
 the original orientation. See `.tools/quake-fullscreen-lifecycle.log`.
+
+The Windows controller uses foreground Raw Input rather than cursor-coordinate
+differences. It sends movement at up to roughly 60 updates/second as serial
+latency permits, keeping the original integer deltas and splitting large
+updates into protocol-sized chunks. Focus loss, F8, window close and transport
+errors release the cursor. Keyboard keepalives refresh at 200 ms intervals.
+
+Controller checks: `python tools/test-quake2-controls.py` verifies the native
+HWND hook, relative-packet decoding, cursor release, WASD/digit wire events,
+large-delta preservation and focus/disconnect handling without taking mouse
+focus. The real Windows WM_INPUT path also delivered an injected `(9,-4)`
+relative movement unchanged during local verification.
+
+The updated 727,740-byte module was installed on COM10. Engine console queries
+confirmed `w/s/a/d` -> `+forward/+back/+moveleft/+moveright`, and weapon bindings
+1/2/3/4/0. Live keys 2/3/4 correctly reported unavailable Shotgun/Super Shotgun/
+Machinegun on a fresh player; no weapons were granted for testing. Movement,
+mouse input, normal stop and heap integrity passed. See
+`.tools/quake-controls-device-check.log` and `.tools/quake-control-check/`.

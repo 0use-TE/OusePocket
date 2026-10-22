@@ -37,6 +37,12 @@ int app_main(int argc,char **argv)
     // The original demo starts a cinematic before demo1. Avoid its extra
     // decoder memory on this first single-player port.
     Cbuf_AddText("alias newgame \"killserver; maxclients 1; deathmatch 0; map demo1\"\n");
+    // Apply the serial controller layout after default.cfg and saved config.
+    Cbuf_AddText("bind w +forward\nbind s +back\nbind a +moveleft\nbind d +moveright\n"
+        "bind 1 \"use Blaster\"\nbind 2 \"use Shotgun\"\nbind 3 \"use Super Shotgun\"\n"
+        "bind 4 \"use Machinegun\"\nbind 5 \"use Chaingun\"\nbind 6 \"use Grenade Launcher\"\n"
+        "bind 7 \"use Rocket Launcher\"\nbind 8 \"use HyperBlaster\"\nbind 9 \"use Railgun\"\n"
+        "bind 0 \"use BFG10K\"\n");
     int before=QG_Milliseconds();
     while(!host->should_stop()){
         HandleInput();int now=QG_Milliseconds(),delta=now-before;
