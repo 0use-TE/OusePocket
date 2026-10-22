@@ -23,13 +23,15 @@ def key_code(event):
     return ord(c) if len(c)==1 and 32<=ord(c)<127 else None
 
 
-def play(d):
+def play(d,title="Quake II",doom=False):
     import tkinter as tk
     from quake2_mouse import RawMouse
-    root=tk.Tk();root.title("OusePocket Quake II — USB 串口控制")
+    root=tk.Tk();root.title(f"OusePocket {title} — USB 串口控制")
     root.geometry("660x340")
     tk.Label(root,text="点击窗口捕获鼠标 · F8 释放／重新捕获",font=("Microsoft YaHei UI",15)).pack(pady=22)
-    tk.Label(root,text="W / S 前后移动 · A / D 左右平移\n鼠标移动视角 · 左键射击 · Space 跳跃\n1～9 / 0 切换武器 · Enter 确认 · Esc 游戏菜单",font=("Microsoft YaHei UI",12)).pack(pady=8)
+    instructions=("W / S 前后移动 · A / D 左右平移\n鼠标左右转向 · 左键射击 · E / Space 开门\n1～7 切换武器 · Enter 确认 · Esc 游戏菜单" if doom else
+                  "W / S 前后移动 · A / D 左右平移\n鼠标移动视角 · 左键射击 · Space 跳跃\n1～9 / 0 切换武器 · Enter 确认 · Esc 游戏菜单")
+    tk.Label(root,text=instructions,font=("Microsoft YaHei UI",12)).pack(pady=8)
     message=tk.StringVar(value="鼠标未捕获。点击窗口后开始控制，F8 可释放鼠标。")
     tk.Label(root,textvariable=message,wraplength=620).pack(pady=12)
     held=set();pending=[0,0];failed=[False];f8_held=[False]

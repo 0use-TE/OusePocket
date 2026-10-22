@@ -1,4 +1,4 @@
-idf_component_register(SRCS "ouse_native.c" "ouse_native_validate.c" "ouse_native_memory.c" "ouse_native_app.c" "ouse_native_game.c" "ouse_quake2_app.c"
+idf_component_register(SRCS "ouse_native.c" "ouse_native_validate.c" "ouse_native_memory.c" "ouse_native_app.c" "ouse_native_game.c" "ouse_quake2_app.c" "ouse_doom_app.c"
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "../ouse_core"
     REQUIRES ouse_core

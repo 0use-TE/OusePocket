@@ -323,11 +323,12 @@ esp_err_t ouse_debug_command(const char *verb,const char *payload,char *out,size
     }
     if(!strcmp(verb,"DBG_ELFABORT")){elf_upload_abort();return ESP_OK;}
     if(!strcmp(verb,"DBG_ELFEND")){
-        if(strcmp(payload,"-") && strcmp(payload,"install") && strcmp(payload,"quake2"))return ESP_ERR_INVALID_ARG;
+        if(strcmp(payload,"-") && strcmp(payload,"install") && strcmp(payload,"quake2") && strcmp(payload,"doom"))return ESP_ERR_INVALID_ARG;
         if(!elf_upload.data)return ESP_ERR_INVALID_STATE;
         esp_err_t error=ESP_ERR_INVALID_CRC;uint32_t id;
         if(elf_upload.used==elf_upload.size && ouse_crc32(elf_upload.data,elf_upload.size)==elf_upload.crc)
-            error=!strcmp(payload,"quake2")?ouse_native_install_quake2(elf_upload.data,elf_upload.size,&id):
+            error=!strcmp(payload,"doom")?ouse_native_install_doom(elf_upload.data,elf_upload.size,&id):
+                !strcmp(payload,"quake2")?ouse_native_install_quake2(elf_upload.data,elf_upload.size,&id):
                 !strcmp(payload,"install")?ouse_native_install_image(elf_upload.data,elf_upload.size,&id):
                 ouse_native_start_image(elf_upload.data,elf_upload.size,&id);
         elf_upload_abort();if(error==ESP_OK)snprintf(out,cap,"task=%lu",(unsigned long)id);return error;
@@ -356,7 +357,7 @@ esp_err_t ouse_debug_command(const char *verb,const char *payload,char *out,size
         unsigned written,nonzero,peak,played;ouse_game_audio_stats(&written,&nonzero,&peak,&played);
         snprintf(out,cap,"written=%u,nonzero=%u,peak=%u,played=%u",written,nonzero,peak,played);return ESP_OK;
     }
-    if(!strcmp(verb,"DBG_QDATA")){
+    if(!strcmp(verb,"DBG_QDATA") || !strcmp(verb,"DBG_DDATA")){
         static const ouse_task_owner_t owner={.app_id="system.quake2",.instance=0};
         if(!strcmp(payload,"-")){
             ouse_files_state_t files;ouse_files_get(&files);ouse_task_snapshot_t task;
@@ -366,6 +367,7 @@ esp_err_t ouse_debug_command(const char *verb,const char *payload,char *out,size
                 found?esp_err_to_name(task.error):"ESP_OK");return ESP_OK;
         }
         uint32_t id;esp_err_t e=ouse_files_download(&owner,!strncmp(payload,"sound:",6)?payload+6:payload,
+            !strcmp(verb,"DBG_DDATA")?"Downloads/doom1.wad":
             !strncmp(payload,"sound:",6)?"Downloads/quake2-sound.pak":"Downloads/quake2.pak",&id);
         if(e==ESP_OK){quake_download_id=id;snprintf(out,cap,"task=%lu",(unsigned long)id);}
         return e;

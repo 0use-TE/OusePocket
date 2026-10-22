@@ -22,6 +22,7 @@
 #define NATIVE_PROGRAM NATIVE_DIRECTORY "/desktop.elf"
 #define NATIVE_TEMPORARY NATIVE_PROGRAM ".tmp"
 #define QUAKE_PROGRAM NATIVE_DIRECTORY "/quake2.elf"
+#define DOOM_PROGRAM NATIVE_DIRECTORY "/doom.elf"
 extern const uint8_t demo_start[] asm("_binary_ouse_native_demo_start");
 extern const uint8_t demo_end[] asm("_binary_ouse_native_demo_end");
 
@@ -80,9 +81,10 @@ static void run(void *unused)
     (void)unused;
     lock();uint32_t id=state.task_id;uint8_t *data=queued_image;queued_image=NULL;
     long length=(long)state.file_bytes;bool installing=state.installing;unlock();
-    bool game=!strcmp(state.path,"quake2.elf"),game_started=false;
-    const char *program=game?QUAKE_PROGRAM:NATIVE_PROGRAM;
-    const char *temporary=game?QUAKE_PROGRAM ".tmp":NATIVE_TEMPORARY;
+    bool doom=!strcmp(state.path,"doom.elf");
+    bool game=doom || !strcmp(state.path,"quake2.elf"),game_started=false;
+    const char *program=doom?DOOM_PROGRAM:game?QUAKE_PROGRAM:NATIVE_PROGRAM;
+    const char *temporary=doom?DOOM_PROGRAM ".tmp":game?QUAKE_PROGRAM ".tmp":NATIVE_TEMPORARY;
     esp_err_t error=ESP_OK;FILE *file=NULL;
     bool sd_file=false;
     esp_elf_t elf={0};bool initialized=false;
@@ -139,7 +141,7 @@ static void run(void *unused)
     if(rc){error=rc==-ENOMEM?ESP_ERR_NO_MEM:ESP_ERR_NOT_SUPPORTED;goto done;}
     free(data);data=NULL;
     if(stopped())goto done;
-    if(game){error=ouse_game_begin();if(error!=ESP_OK)goto done;game_started=true;}
+    if(game){error=ouse_game_begin(doom);if(error!=ESP_OK)goto done;game_started=true;}
     phase("running");
     char *argv[]={state.path,NULL};
     // esp_elf_request discards the application's return value. Invoke the same
@@ -177,7 +179,7 @@ static esp_err_t launch(const char *path,uint8_t *image,size_t bytes,bool instal
     strlcpy(state.path,path,sizeof(state.path));strlcpy(state.phase,"queued",sizeof(state.phase));
     // Mapping/unmapping briefly disables the caches: its owning loader needs
     // an internal stack. The engine runs in a separate 256 KiB PSRAM task.
-    size_t stack=!installing && !strcmp(path,"quake2.elf")?16384:12288;
+    size_t stack=!installing && (!strcmp(path,"quake2.elf") || !strcmp(path,"doom.elf"))?16384:12288;
     BaseType_t created=xTaskCreate(run,"ouse_native",stack,NULL,2,NULL);
     if(created!=pdPASS){
         state.active=false;state.error=ESP_ERR_NO_MEM;state.finished_us=esp_timer_get_time();
@@ -196,7 +198,7 @@ esp_err_t ouse_native_start(const char *path,uint32_t *task_id)
     lock();esp_err_t error=state.active?ESP_ERR_INVALID_STATE:launch(path,NULL,0,false,task_id);
     unlock();return error;
 }
-static esp_err_t copy_image(const uint8_t *image,size_t bytes,bool installing,bool game,uint32_t *task_id)
+static esp_err_t copy_image(const uint8_t *image,size_t bytes,bool installing,const char *game,uint32_t *task_id)
 {
     if(!mutex)return ESP_ERR_INVALID_STATE;
     if(!image || !task_id || bytes<52 || bytes>OUSE_NATIVE_FILE_LIMIT)return ESP_ERR_INVALID_ARG;
@@ -205,20 +207,29 @@ static esp_err_t copy_image(const uint8_t *image,size_t bytes,bool installing,bo
     uint8_t *copy=heap_caps_malloc(bytes,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
     if(!copy){unlock();return ESP_ERR_NO_MEM;}
     memcpy(copy,image,bytes);
-    esp_err_t error=launch(game?"quake2.elf":installing?"desktop.elf":"memory.elf",copy,bytes,installing,task_id);
+    esp_err_t error=launch(game?game:installing?"desktop.elf":"memory.elf",copy,bytes,installing,task_id);
     if(error!=ESP_OK)free(copy);
     unlock();return error;
 }
 esp_err_t ouse_native_start_image(const uint8_t *image,size_t bytes,uint32_t *task_id)
-{return copy_image(image,bytes,false,false,task_id);}
+{return copy_image(image,bytes,false,NULL,task_id);}
 esp_err_t ouse_native_install_image(const uint8_t *image,size_t bytes,uint32_t *task_id)
 {
     ouse_storage_stats_t storage;ouse_storage_get_stats(&storage);
     if(!storage.ready)return ESP_ERR_INVALID_STATE;
-    return copy_image(image,bytes,true,false,task_id);
+    return copy_image(image,bytes,true,NULL,task_id);
 }
 esp_err_t ouse_native_install_quake2(const uint8_t *image,size_t bytes,uint32_t *task_id)
-{return copy_image(image,bytes,true,true,task_id);}
+{return copy_image(image,bytes,true,"quake2.elf",task_id);}
+esp_err_t ouse_native_install_doom(const uint8_t *image,size_t bytes,uint32_t *task_id)
+{return copy_image(image,bytes,true,"doom.elf",task_id);}
+esp_err_t ouse_native_start_doom(uint32_t *task_id)
+{
+    if(!mutex)return ESP_ERR_INVALID_STATE;
+    if(!task_id)return ESP_ERR_INVALID_ARG;
+    lock();esp_err_t error=state.active?ESP_ERR_INVALID_STATE:launch("doom.elf",NULL,0,false,task_id);
+    unlock();return error;
+}
 esp_err_t ouse_native_start_quake2(uint32_t *task_id)
 {
     if(!mutex)return ESP_ERR_INVALID_STATE;

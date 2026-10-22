@@ -73,11 +73,11 @@ for i,s in enumerate(sections):
         reject(changed(shoff+s[6]*40+4,"<I",8)) # NOBITS must never serve as an input table
         reject(changed(shoff+s[6]*40+24,"<I",999))
 reject(data+b"\0"*(1024*1024))
-game_path=ROOT/"dist/native/quake2.elf"
-if game_path.exists():
+for game_path in (ROOT/"dist/native/quake2.elf",ROOT/"dist/native/doom.elf"):
+    if not game_path.exists():continue
     game=bytearray(game_path.read_bytes())
     game_buffer=ctypes.create_string_buffer(bytes(game))
-    assert validate(game_buffer,len(game))==2,"Real Quake II module must identify ABI 2"
+    assert validate(game_buffer,len(game))==2,f"Real {game_path.stem} module must identify ABI 2"
     gh=struct.unpack_from('<I',game,32)[0]
     gn=struct.unpack_from('<H',game,48)[0]
     gs=[struct.unpack_from('<10I',game,gh+i*40) for i in range(gn)]

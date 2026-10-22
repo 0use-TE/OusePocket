@@ -63,10 +63,11 @@ void app_main(void)
     ESP_LOGI("OuseCore","Fault diagnostics v3: retained early fault + P4 bus/cache snapshot + bounded UART dump");
     ouse_fault_report_previous();
     ouse_core_config_t config = {.initial_brightness = 45, .density_dpi=160,.boot_animation=true,.device_setup=true};
-    static ouse_app_definition_t desktop_apps[3];
+    static ouse_app_definition_t desktop_apps[4];
     desktop_apps[0]=*ouse_logs_app();desktop_apps[1]=*ouse_native_app();
     desktop_apps[2]=*ouse_quake2_app();
-    config.apps=desktop_apps;config.app_count=3;
+    desktop_apps[3]=*ouse_doom_app();
+    config.apps=desktop_apps;config.app_count=4;
     esp_err_t settings_error = ouse_system_init(&config.initial_brightness);
     if (settings_error != ESP_OK) {
         ESP_LOGW("OuseCore", "Settings unavailable: %s; NVS is preserved", esp_err_to_name(settings_error));

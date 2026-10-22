@@ -106,7 +106,9 @@ void ouse_board_start_services(void)
     extern void ouse_board_sd_probe(void);
     ouse_board_sd_probe();
     if(xTaskCreate(power_worker,"ouse_power",4096,NULL,2,&workers[0])!=pdPASS)ouse_devices_set_available(0,false,ESP_ERR_NO_MEM);
-    bool audio=xTaskCreate(ouse_board_audio_worker,"ouse_audio",8192,NULL,3,&workers[1])==pdPASS;
+    // The codec must meet its DMA deadline even during fullscreen LVGL flushes
+    // (adapter priority 6). I2S and I2C waits still yield to the other services.
+    bool audio=xTaskCreate(ouse_board_audio_worker,"ouse_audio",8192,NULL,7,&workers[1])==pdPASS;
     ouse_devices_set_available(1,audio,audio ? ESP_OK : ESP_ERR_NO_MEM);
     bool wifi=xTaskCreate(ouse_board_wifi_worker,"ouse_wifi",16384,NULL,3,&workers[2])==pdPASS;
     ouse_devices_set_available(2,wifi,wifi ? ESP_OK : ESP_ERR_NO_MEM);

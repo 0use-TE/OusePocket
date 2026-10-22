@@ -4,10 +4,13 @@
 #include <stdbool.h>
 #include <stdint.h>
 const ouse_app_definition_t *ouse_quake2_app(void);
+const ouse_app_definition_t *ouse_doom_app(void);
+esp_err_t ouse_native_start_doom(uint32_t *id);
+esp_err_t ouse_native_install_doom(const uint8_t *image,size_t bytes,uint32_t *id);
 esp_err_t ouse_native_start_quake2(uint32_t *id);
 esp_err_t ouse_native_install_quake2(const uint8_t *image,size_t bytes,uint32_t *id);
 // Runtime-only hooks; one native worker owns a game session.
-esp_err_t ouse_game_begin(void);
+esp_err_t ouse_game_begin(bool doom);
 void ouse_game_end(void);
 esp_err_t ouse_game_register_symbols(void);
 bool ouse_game_copy_frame(uint16_t *destination,unsigned width,unsigned height,unsigned *serial);

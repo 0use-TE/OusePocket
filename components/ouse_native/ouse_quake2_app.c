@@ -20,7 +20,11 @@ static esp_err_t error;
 static bool presenting,saved_landscape,restart;
 
 static void start(void)
-{uint32_t id;error=ouse_native_start_quake2(&id);if(error==ESP_OK){owned=id;serial=0;}}
+{
+    uint32_t id;error=ouse_native_start_quake2(&id);
+    if(error==ESP_OK){owned=id;serial=0;}
+    else if(error==ESP_ERR_INVALID_STATE){ouse_native_state_t s;ouse_native_get(&s);if(s.active){restart=true;error=ESP_OK;}}
+}
 static void restore_display(void)
 {
     if(!presenting)return;

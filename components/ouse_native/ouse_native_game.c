@@ -20,6 +20,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <time.h>
 
@@ -30,6 +31,8 @@ static unsigned frames,consumed,held_keys,allocation_count;
 static size_t allocation_bytes;
 static bool running,leased;
 static uint32_t audio_id;
+static unsigned source_height=240;
+static ouse_task_owner_t game_owner={.app_id="system.quake2",.instance=0};
 static unsigned audio_written,audio_nonzero,audio_peak;
 static int mouse_x,mouse_y;
 static int64_t input_at,activity_at;
@@ -88,7 +91,7 @@ int ouse_game_fclose(FILE *file)
 {for(unsigned i=0;i<24;++i)if(files[i]==file){files[i]=NULL;return fclose(file);}return EOF;}
 _Noreturn void ouse_game_exit(int code){if(can_escape)longjmp(escape,code?code:256);abort();}
 static _Noreturn void game_assert(const char *file,int line,const char *function,const char *condition)
-{ESP_LOGE("OuseQuake2","Assertion %s:%d %s: %s",file,line,function,condition);ouse_game_exit(1);}
+{ESP_LOGE("OuseGame","Assertion %s:%d %s: %s",file,line,function,condition);ouse_game_exit(1);}
 static char *game_getenv(const char *key){(void)key;return NULL;}
 static int game_putenv(char *value){(void)value;return 0;}
 static char *game_strdup(const char *value)
@@ -96,10 +99,10 @@ static char *game_strdup(const char *value)
 
 int ouse_game_audio_open(void)
 {
-    static const ouse_task_owner_t owner={.app_id="system.quake2",.instance=0};
+
     audio_written=audio_nonzero=audio_peak=0;
-    esp_err_t error=ouse_media_stream_begin(&owner,&audio_id);
-    ESP_LOGI("OuseQuake2","Audio start: %s",esp_err_to_name(error));return error==ESP_OK;
+    esp_err_t error=ouse_media_stream_begin(&game_owner,&audio_id);
+    ESP_LOGI("OuseGame","Audio start: %s",esp_err_to_name(error));return error==ESP_OK;
 }
 unsigned ouse_game_audio_position(void){return ouse_media_stream_position(audio_id);}
 unsigned ouse_game_audio_write(const int16_t *samples,unsigned count)
@@ -119,7 +122,7 @@ void ouse_game_frame(const unsigned char *source,const unsigned char *palette)
 {
     uint16_t colors[256];
     for(unsigned i=0;i<256;++i)colors[i]=((palette[i*3]>>3)<<11)|((palette[i*3+1]>>2)<<5)|(palette[i*3+2]>>3);
-    lock();if(pixels){for(unsigned i=0;i<320u*240u;++i)pixels[i]=colors[source[i]];++frames;}unlock();
+    lock();if(pixels){for(unsigned i=0;i<320u*source_height;++i)pixels[i]=colors[source[i]];++frames;}unlock();
 }
 bool ouse_game_copy_frame(uint16_t *destination,unsigned width,unsigned height,unsigned *serial)
 {
@@ -128,7 +131,7 @@ bool ouse_game_copy_frame(uint16_t *destination,unsigned width,unsigned height,u
     if(changed){
         // Fill the landscape panel while keeping the tested renderer budget.
         for(unsigned y=0;y<height;++y){
-            const uint16_t *row=pixels+(y*240u/height)*320u;
+            const uint16_t *row=pixels+(y*source_height/height)*320u;
             for(unsigned x=0;x<width;++x)destination[y*width+x]=row[x*320u/width];
         }
         *serial=frames;consumed=frames;
@@ -169,18 +172,20 @@ int ouse_game_key(int *down,int *key)
 void ouse_game_mouse(int *dx,int *dy){lock();*dx=mouse_x;*dy=mouse_y;mouse_x=mouse_y=0;unlock();}
 void ouse_game_get_stats(unsigned *f,unsigned *k,unsigned *a,size_t *b)
 {if(!guard){*f=*k=*a=0;*b=0;return;}lock();*f=frames;*k=held_keys;*a=allocation_count;*b=allocation_bytes;unlock();}
-esp_err_t ouse_game_begin(void)
+esp_err_t ouse_game_begin(bool doom)
 {
     if(!guard)guard=xSemaphoreCreateMutexStatic(&storage);
     if(!ouse_files_lease_begin())return ESP_ERR_INVALID_STATE;
     leased=true;
-    FILE *pak=fopen("/sdcard/Ouse/Downloads/quake2.pak","rb");
+    FILE *pak=fopen(doom?"/sdcard/Ouse/Downloads/doom1.wad":"/sdcard/Ouse/Downloads/quake2.pak","rb");
     if(!pak){ouse_files_lease_end();leased=false;return ESP_ERR_NOT_FOUND;}
-    unsigned char header[12];bool valid=fread(header,1,sizeof(header),pak)==sizeof(header) && !memcmp(header,"PACK",4);fclose(pak);
+    unsigned char header[12];bool valid=fread(header,1,sizeof(header),pak)==sizeof(header) && !memcmp(header,doom?"IWAD":"PACK",4);fclose(pak);
     if(!valid){ouse_files_lease_end();leased=false;return ESP_ERR_INVALID_ARG;}
-    uint16_t *buffer=heap_caps_calloc(320u*240u,2,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
+    source_height=doom?200:240;audio_id=0;
+    strcpy(game_owner.app_id,doom?"system.doom":"system.quake2");
+    uint16_t *buffer=heap_caps_calloc(320u*source_height,2,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
     if(!buffer){ouse_files_lease_end();leased=false;return ESP_ERR_NO_MEM;}
-    mkdir("/sdcard/Ouse/Quake2",0700);mkdir("/sdcard/Ouse/Quake2/baseq2",0700);
+    mkdir("/sdcard/Ouse/Doom",0700);mkdir("/sdcard/Ouse/Quake2",0700);mkdir("/sdcard/Ouse/Quake2/baseq2",0700);
     lock();pixels=buffer;frames=consumed=0;running=true;memset(keys,0,256);memset(delivered,0,256);
     event_read=event_write=0;input_at=activity_at=0;unlock();
     return ESP_OK;
@@ -188,7 +193,7 @@ esp_err_t ouse_game_begin(void)
 void ouse_game_end(void)
 {
     if(!guard)return;
-    ouse_game_audio_close();if(audio_id)ouse_media_purge("system.quake2");
+    ouse_game_audio_close();if(audio_id)ouse_media_purge(game_owner.app_id);
     ouse_game_release_input();lock();running=false;uint16_t *old=pixels;pixels=NULL;unlock();
     free(old);for(unsigned i=0;i<24;++i)if(files[i]){fclose(files[i]);files[i]=NULL;}
     while(blocks)ouse_game_free((uint8_t *)blocks+HEADER);
@@ -228,7 +233,7 @@ esp_err_t ouse_game_execute(int (*entry)(int,char **),int argc,char **argv,int *
 HELPER(__adddf3) HELPER(__divdf3) HELPER(__eqdf2) HELPER(__extendsfdf2)
 HELPER(__fixdfsi) HELPER(__fixunsdfsi) HELPER(__floatsidf) HELPER(__gedf2)
 HELPER(__gtdf2) HELPER(__ledf2) HELPER(__ltdf2) HELPER(__muldf3)
-HELPER(__subdf3) HELPER(__truncdfsf2)
+HELPER(__subdf3) HELPER(__truncdfsf2) HELPER(__divdi3)
 #define __assert_func game_assert
 #define getenv game_getenv
 #define putenv game_putenv
