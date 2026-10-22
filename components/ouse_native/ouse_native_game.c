@@ -5,6 +5,7 @@
 #include "ouse_native.h"
 #include "ouse_native_api.h"
 #include "ouse_files.h"
+#include "ouse_media.h"
 #include "esp_elf.h"
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
@@ -28,6 +29,8 @@ static uint16_t *pixels;
 static unsigned frames,consumed,held_keys,allocation_count;
 static size_t allocation_bytes;
 static bool running,leased;
+static uint32_t audio_id;
+static unsigned audio_written,audio_nonzero,audio_peak;
 static int mouse_x,mouse_y;
 static int64_t input_at,activity_at;
 static EXT_RAM_BSS_ATTR uint8_t keys[256],delivered[256];
@@ -77,6 +80,7 @@ FILE *ouse_game_fopen(const char *path,const char *mode)
     if(!running || !path || !mode)return NULL;
     const char *actual=path;
     if(!strcmp(path,"/sdcard/Ouse/Quake2/baseq2/pak0.pak"))actual="/sdcard/Ouse/Downloads/quake2.pak";
+    if(!strcmp(path,"/sdcard/Ouse/Quake2/baseq2/pak1.pak"))actual="/sdcard/Ouse/Downloads/quake2-sound.pak";
     for(unsigned i=0;i<24;++i)if(!files[i]){files[i]=fopen(actual,mode);return files[i];}
     return NULL;
 }
@@ -90,6 +94,27 @@ static int game_putenv(char *value){(void)value;return 0;}
 static char *game_strdup(const char *value)
 {size_t n=strlen(value)+1;char *p=ouse_game_malloc(n);if(p)memcpy(p,value,n);return p;}
 
+int ouse_game_audio_open(void)
+{
+    static const ouse_task_owner_t owner={.app_id="system.quake2",.instance=0};
+    audio_written=audio_nonzero=audio_peak=0;
+    esp_err_t error=ouse_media_stream_begin(&owner,&audio_id);
+    ESP_LOGI("OuseQuake2","Audio start: %s",esp_err_to_name(error));return error==ESP_OK;
+}
+unsigned ouse_game_audio_position(void){return ouse_media_stream_position(audio_id);}
+unsigned ouse_game_audio_write(const int16_t *samples,unsigned count)
+{
+    unsigned sent=ouse_media_stream_write(audio_id,samples,count),nonzero=0,peak=0;
+    for(unsigned i=0;i<sent;++i){unsigned v=samples[i]<0 ? -(int)samples[i] : samples[i];if(v)++nonzero;if(v>peak)peak=v;}
+    lock();audio_written+=sent;audio_nonzero+=nonzero;if(peak>audio_peak)audio_peak=peak;unlock();return sent;
+}
+void ouse_game_audio_close(void){ouse_media_stream_end(audio_id);}
+void ouse_game_audio_stats(unsigned *written,unsigned *nonzero,unsigned *peak,unsigned *played)
+{
+    if(!guard){*written=*nonzero=*peak=*played=0;return;}
+    lock();*written=audio_written;*nonzero=audio_nonzero;*peak=audio_peak;unlock();
+    *played=ouse_game_audio_position();
+}
 void ouse_game_frame(const unsigned char *source,const unsigned char *palette)
 {
     uint16_t colors[256];
@@ -163,6 +188,7 @@ esp_err_t ouse_game_begin(void)
 void ouse_game_end(void)
 {
     if(!guard)return;
+    ouse_game_audio_close();if(audio_id)ouse_media_purge("system.quake2");
     ouse_game_release_input();lock();running=false;uint16_t *old=pixels;pixels=NULL;unlock();
     free(old);for(unsigned i=0;i<24;++i)if(files[i]){fclose(files[i]);files[i]=NULL;}
     while(blocks)ouse_game_free((uint8_t *)blocks+HEADER);

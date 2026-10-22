@@ -32,7 +32,7 @@ static QueueHandle_t sources;
 static StreamBufferHandle_t pcm;
 static struct {
     ouse_media_state_t state;
-    bool claimed,producer_done,consumer_done,force_stop,cancelled;
+    bool claimed,producer_done,consumer_done,force_stop,cancelled,native_stream;
     uint64_t consumed;
     char title[128],artist[128];
 } session;
@@ -188,6 +188,44 @@ esp_err_t ouse_media_play_loop(const ouse_task_owner_t *owner,const char *url,co
 done:
     unlock();if(error!=ESP_OK){free(source->data);free(source);}return error;
 }
+// Native PCM copies use the existing sole codec consumer.
+esp_err_t ouse_media_stream_begin(const ouse_task_owner_t *owner,uint32_t *id)
+{
+    if(!owner || !owner->app_id[0] || !id || !sources)return ESP_ERR_INVALID_ARG;
+    *id=0;lock();esp_err_t error=ESP_ERR_INVALID_STATE;
+    if(session.state.active)goto done;
+    error=ouse_task_create(owner,OUSE_TASK_AUDIO,"pcm",OUSE_TASK_STOP_ON_CLOSE,true,id);
+    if(error!=ESP_OK)goto done;
+    uint32_t revision=session.state.revision+1;memset(&session,0,sizeof(session));
+    session.native_stream=true;
+    session.state=(ouse_media_state_t){.active=true,.buffering=true,.task_id=*id,.revision=revision};
+    strcpy(session.state.app_id,owner->app_id);ouse_effects_clear(&effects);
+    (void)xStreamBufferReset(pcm);error=ouse_devices_queue_media(*id);
+    if(error!=ESP_OK){session.state.active=false;session.state.error=error;ouse_task_finish(*id,error,false);}
+    else notify_playback();
+done:
+    unlock();return error;
+}
+unsigned ouse_media_stream_write(uint32_t id,const int16_t *samples,unsigned count)
+{
+    if(!mutex || !samples || count>8192)return 0;
+    lock();unsigned sent=0;
+    if(match(id) && session.native_stream && !session.force_stop && !session.producer_done)
+        sent=xStreamBufferSend(pcm,samples,count*2,0)/2;
+    unlock();return sent;
+}
+uint32_t ouse_media_stream_position(uint32_t id)
+{
+    if(!mutex)return 0;
+    lock();uint32_t value=session.state.task_id==id ? (uint32_t)session.consumed : 0;unlock();return value;
+}
+void ouse_media_stream_end(uint32_t id)
+{
+    if(!mutex || !id)return;
+    lock();bool found=match(id) && session.native_stream;
+    if(found){session.producer_done=true;session.force_stop=true;finish_if_stopped();}
+    unlock();if(found)(void)ouse_task_cancel(NULL,id,"pcm_end");
+}
 bool ouse_media_get(const char *app_id,ouse_media_state_t *out)
 {
     if(!out || !mutex)return false;
@@ -249,6 +287,7 @@ void ouse_media_consumer_done(uint32_t id,esp_err_t error,bool cancelled)
     lock();if(match(id)){
         ouse_effects_clear(&effects);
         session.consumer_done=true;session.force_stop=true;session.cancelled|=cancelled;
+        if(session.native_stream)session.producer_done=true;
         if(error!=ESP_OK)session.state.error=error;
         ++session.state.revision;finish_if_stopped();
     }unlock();

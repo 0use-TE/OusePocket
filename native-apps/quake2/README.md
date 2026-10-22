@@ -6,7 +6,7 @@ Its output fills the 480×320 landscape panel with no surrounding app controls,
 status bar or navigation bar. Nearest-neighbor scaling keeps the renderer's
 existing memory budget. Leaving the game restores the previous orientation;
 the system's edge swipe still returns Home. Reopening a paused game restarts it.
-The first port supports single-player only, without sound.
+The port supports single-player with native sound effects.
 
 Engine source: [alexkid77/ESP32_QUAKE2](https://github.com/alexkid77/ESP32_QUAKE2),
 commit `fcbd56f` (see the engine files for original copyright notices).
@@ -19,7 +19,7 @@ the 7 MiB model pool is carved from the engine arena instead of reserving a
 second pool. `Com_sprintf` uses bounded formatting instead of a 64 KiB stack
 scratch buffer. ESP heap/logging headers are replaced by host compatibility
 headers. Networking is a local loopback implementation. The native entry sets
-the base directory, disables sound, opens the menu, and starts the demo map
+the base directory, enables sound, opens the menu, and starts the demo map
 without its introductory cinematic.
 
 Build the host firmware first, then:
@@ -44,6 +44,33 @@ server hosting that file, the device can fetch it with:
 ```powershell
 python tools/quake2.py data http://YOUR_PC_LAN_IP:8765/pak0.pak
 ```
+
+For an existing base package stripped of sounds, add a separate sound PAK:
+
+```powershell
+python tools/quake2-data.py path/to/pak0.pak dist/quake2-sound.pak --sounds-only
+python tools/quake2.py data http://YOUR_PC_LAN_IP:8765/quake2-sound.pak --sounds
+```
+
+This writes `/Ouse/Downloads/quake2-sound.pak`, mounted as `baseq2/pak1.pak`.
+A complete original base PAK already includes sounds and needs no extra PAK.
+Game assets remain outside Git.
+
+Sound uses the existing media service and sole ES8311 codec worker at
+16 kHz, 16-bit mono. The game-owned 16 KiB sample ring and 8-bit resampled
+effect cache use PSRAM. Cache allocation matches the converted sample width.
+The shared engine arena can spill into remaining session-tracked PSRAM during
+sound/texture registration, and texture allocation failures exit safely.
+The upstream 8-bit mixer volume-table index is corrected to the 0..31 range.
+The media service copies samples into its bounded buffer; the codec's actual
+consumed sample count clocks the game mixer. Audio focus and alarm handling
+follow regular media playback. Exit, cancellation and codec failure stop the
+producer; parent cleanup awaits codec release before unloading the ELF.
+The game can continue silently if audio is unavailable.
+
+`DBG_QAUDIO` reports written samples, nonzero samples, peak and codec-consumed
+samples. `python tools/test-quake2-device.py --audio` verifies firing samples,
+codec progress, fullscreen, serial controls and cleanup on the board.
 
 The download runs on the device and commits the final file only after
 completion. The command reports progress and waits; `--no-wait` returns after
@@ -109,6 +136,15 @@ Evidence: `.tools/quake-check/` (screenshots/results),
 `.tools/quake-game-test.log`, `.tools/quake-controller-test.log` and the UART
 directories referenced by those results. Verification covers this demo map
 and these inputs, not the complete game's levels, audio or multiplayer.
+
+Sound was flashed and verified on the same board: the sound-only demo PAK is
+29,835,832 bytes, CRC32 `58fb11d5`. During a firing test nonzero PCM samples
+increased from 28,657 to 62,447 and codec-consumed samples from 106,432 to
+140,992. Map input, landscape fullscreen and Home cleanup passed. Tracked
+allocations returned to zero, PSRAM free returned to about 24.3 MB and heap
+integrity passed. This verifies PCM delivery to the real codec; audible quality
+still requires listening on the device. Evidence: `.tools/quake-audio-check/`,
+`.tools/quake-audio-device.log`, `.tools/quake-audio-assets.log`.
 
 The landscape fullscreen update was flashed and verified separately:
 `.tools/quake-fullscreen-check/` contains 480×320 menu/map captures with only

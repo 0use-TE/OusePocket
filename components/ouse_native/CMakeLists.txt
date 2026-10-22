@@ -2,7 +2,7 @@ idf_component_register(SRCS "ouse_native.c" "ouse_native_validate.c" "ouse_nativ
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "../ouse_core"
     REQUIRES ouse_core
-    PRIV_REQUIRES espressif__elf_loader ouse_storage ouse_files esp_timer esp_mm heap)
+    PRIV_REQUIRES espressif__elf_loader ouse_storage ouse_files ouse_media esp_timer esp_mm heap)
 target_link_libraries(${COMPONENT_LIB} INTERFACE
     "-Wl,--wrap=esp_elf_malloc" "-Wl,--wrap=esp_elf_free")
 if(NOT CMAKE_SCRIPT_MODE_FILE)

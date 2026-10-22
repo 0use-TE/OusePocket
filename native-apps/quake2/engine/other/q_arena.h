@@ -4,6 +4,8 @@
 // Single contiguous arena holding all permanent engine memory (model hunk,
 // zone / Z, images, surface cache, framebuffers). Allocated from PSRAM at
 // startup, isolated from the transient heap used by file loading etc.
+// OusePocket: exhausted/fragmented allocations spill into session-tracked
+// PSRAM. Free accepts both kinds; the statistics below describe the arena only.
 //
 // Author: Alejandro Villegas Alonso
 //         https://www.linkedin.com/in/alejandro-villegas-alonso-825041b1

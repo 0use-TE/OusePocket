@@ -1,10 +1,10 @@
-"""Create a smaller local demo PAK for the soundless Quake II prototype."""
+"""Split the local Quake II demo into base and optional sound-only PAKs."""
 import argparse
 import hashlib
 from pathlib import Path
 import struct
 
-def prepare(source,target):
+def prepare(source,target,sounds_only=False):
     if source.resolve()==target.resolve():raise ValueError('Use a separate output file')
     total=source.stat().st_size
     with source.open('rb') as f:
@@ -17,7 +17,7 @@ def prepare(source,target):
         for i in range(0,size,64):
             name,pos,length=struct.unpack_from('<56sII',directory,i)
             if pos>total or length>total-pos:raise ValueError('Invalid PAK entry')
-            if not name.startswith((b'sound/',b'demos/')):entries.append((name,pos,length))
+            if (name.startswith(b'sound/') if sounds_only else not name.startswith((b'sound/',b'demos/'))):entries.append((name,pos,length))
         target.parent.mkdir(parents=True,exist_ok=True)
         with target.open('xb') as dest:
             dest.write(b'\0'*12);records=[]
@@ -35,4 +35,5 @@ def prepare(source,target):
 
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('source',type=Path);p.add_argument('target',type=Path)
-    a=p.parse_args();prepare(a.source,a.target)
+    p.add_argument('--sounds-only',action='store_true')
+    a=p.parse_args();prepare(a.source,a.target,a.sounds_only)

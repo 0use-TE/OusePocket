@@ -32,6 +32,11 @@ esp_err_t ouse_media_stop(const char *app_id);
 esp_err_t ouse_media_stop_owner(const ouse_task_owner_t *owner);
 // Installer worker only, after closing an uninstalled app. Await actual cleanup.
 esp_err_t ouse_media_purge(const char *app_id);
+// Native PCM16 mono 16kHz; writes copy and never block the game.
+esp_err_t ouse_media_stream_begin(const ouse_task_owner_t *owner,uint32_t *id);
+unsigned ouse_media_stream_write(uint32_t id,const int16_t *samples,unsigned count);
+uint32_t ouse_media_stream_position(uint32_t id);
+void ouse_media_stream_end(uint32_t id);
 // Sole board codec consumer. No JS/UI pointers are ever exchanged.
 void ouse_media_consumer_started(uint32_t id);
 unsigned ouse_media_read(uint32_t id,int16_t *samples,unsigned capacity,bool *done,esp_err_t *error);

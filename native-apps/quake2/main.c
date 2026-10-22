@@ -19,17 +19,40 @@ void QG_DrawFrame(void *pixels){ouse_game_frame(pixels,colors);}
 int QG_GetKey(int *down,int *key){return ouse_game_key(down,key);}
 void QG_GetMouseMove(int *dx,int *dy){ouse_game_mouse(dx,dy);}
 void HandleInput(void);
-qboolean SNDDMA_Init(void){return false;}
-int SNDDMA_GetDMAPos(void){return 0;}
-void SNDDMA_Shutdown(void){}
+extern int ouse_game_audio_open(void);
+extern unsigned ouse_game_audio_position(void);
+extern unsigned ouse_game_audio_write(const int16_t *,unsigned);
+extern void ouse_game_audio_close(void);
+#define AUDIO_SAMPLES 8192u
+static unsigned audio_sent;
+qboolean SNDDMA_Init(void)
+{
+    dma.buffer=malloc(AUDIO_SAMPLES*2);
+    if(!dma.buffer)return false;
+    if(!ouse_game_audio_open()){free(dma.buffer);dma.buffer=NULL;return false;}
+    memset(dma.buffer,0,AUDIO_SAMPLES*2);audio_sent=0;
+    dma.channels=1;dma.samplebits=16;dma.speed=16000;
+    dma.samples=AUDIO_SAMPLES;dma.samplepos=0;dma.submission_chunk=1;return true;
+}
+int SNDDMA_GetDMAPos(void){return ouse_game_audio_position()&(AUDIO_SAMPLES-1);}
+void SNDDMA_Shutdown(void){ouse_game_audio_close();free(dma.buffer);dma.buffer=NULL;}
 void SNDDMA_BeginPainting(void){}
-void SNDDMA_Submit(void){}
+void SNDDMA_Submit(void)
+{
+    if(!dma.buffer)return;
+    while(audio_sent<(unsigned)paintedtime){
+        unsigned offset=audio_sent&(AUDIO_SAMPLES-1),count=(unsigned)paintedtime-audio_sent;
+        if(count>AUDIO_SAMPLES-offset)count=AUDIO_SAMPLES-offset;
+        unsigned sent=ouse_game_audio_write((int16_t *)dma.buffer+offset,count);
+        audio_sent+=sent;if(sent<count)break;
+    }
+}
 int app_main(int argc,char **argv)
 {
     (void)argc;(void)argv;host=ouse_native_get_api(1);
     if(!host)return 1;
     char *args[]={"quake2","+set","basedir","/sdcard/Ouse/Quake2",
-        "+set","s_initsound","0","+set","nostdout","0",
+        "+set","s_initsound","1","+set","s_loadas8bit","1","+set","s_mixahead","0.15","+set","nostdout","0",
         "+set","maxclients","1","+set","deathmatch","0",
         "+set","freelook","1","+set","vid_fullscreen","0",
         "+set","cd_nocd","1","+menu_main",NULL};

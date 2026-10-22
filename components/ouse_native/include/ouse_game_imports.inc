@@ -80,3 +80,8 @@ GAME_IMPORT(tolower)
 GAME_IMPORT(toupper)
 GAME_IMPORT(vsnprintf)
 GAME_IMPORT(vsprintf)
+
+GAME_IMPORT(ouse_game_audio_open)
+GAME_IMPORT(ouse_game_audio_position)
+GAME_IMPORT(ouse_game_audio_write)
+GAME_IMPORT(ouse_game_audio_close)

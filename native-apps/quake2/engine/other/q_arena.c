@@ -11,6 +11,7 @@
 // heap.
 
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 #include "esp_log.h"
 #include "esp_heap_caps.h"
@@ -185,6 +186,10 @@ void *Q_Arena_Alloc (int size)
 		return (void *)((unsigned char *)b + ARENA_HDR);
 	}
 
+	// Sound registration can fragment the shared arena while map textures load.
+	// Use the remaining session-tracked PSRAM instead of stranding that memory.
+	void *overflow = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+	if (overflow) return overflow;
 	ESP_LOGE (TAG, "alloc %d failed (free=%d largest=%d)",
 		size, Q_Arena_FreeSize (), Q_Arena_Largest ());
 	return NULL;
@@ -194,6 +199,7 @@ void Q_Arena_Free (void *p)
 {
 	if (!p)
 		return;
+	if (!Q_Arena_Contains(p)) { free(p); return; }
 
 	arena_blk_t *b = (arena_blk_t *)((unsigned char *)p - ARENA_HDR);
 

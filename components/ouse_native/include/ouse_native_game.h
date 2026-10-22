@@ -18,3 +18,5 @@ esp_err_t ouse_game_input(unsigned key,bool down,int dx,int dy);
 void ouse_game_release_input(void);
 int64_t ouse_game_input_activity(void);
 void ouse_game_get_stats(unsigned *frames,unsigned *keys,unsigned *allocations,size_t *bytes);
+
+void ouse_game_audio_stats(unsigned *written,unsigned *nonzero,unsigned *peak,unsigned *played);

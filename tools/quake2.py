@@ -108,6 +108,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument("command",choices=("install","start","stop","status","play","data"))
     p.add_argument("argument",nargs="?")
+    p.add_argument("--sounds",action="store_true",help="Download a separate sound-only PAK")
     p.add_argument("--port",default="COM10")
     p.add_argument("--no-wait",action="store_true",help="Return after submitting a data download")
     a=p.parse_args()
@@ -123,7 +124,7 @@ def main():
             if s["phase"]!="installed":raise RuntimeError("Install failed")
         elif a.command=="data":
             if not a.argument:p.error("data requires an HTTP URL for the original demo pak0.pak")
-            print(d.request("DBG_QDATA",a.argument))
+            print(d.request("DBG_QDATA",("sound:" if a.sounds else "")+a.argument))
             end=time.monotonic()+20*60+30
             while not a.no_wait:
                 progress=d.request("DBG_QDATA");print(progress,flush=True)

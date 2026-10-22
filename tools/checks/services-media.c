@@ -103,5 +103,29 @@ int main(void)
     platform_hook=stop_loop_buffer;pump();assert(!platform_hook);
     assert(ouse_media_get(owner2.app_id,&state)&&!state.active);
     assert(!effects.voices[0].pcm);free(data);
+    // Native stream copies the producer's memory, reports actual codec progress,
+    // and joins cleanup even when cancelled before the consumer starts.
+    int16_t pcm_clip[4096];for(unsigned i=0;i<4096;++i)pcm_clip[i]=(int16_t)i;
+    assert(ouse_media_stream_begin(&owner2,&id)==ESP_OK);claim(id);
+    assert(ouse_media_stream_write(id,pcm_clip,4096)==4096);
+    assert(ouse_media_stream_write(id,pcm_clip,1)==0);
+    pcm_clip[1]=-123;
+    assert(ouse_media_read(id,samples,2,&done,&error)==2 && samples[1]==1 && !done);
+    assert(ouse_media_stream_position(id)==0);ouse_media_consumed(id,2);
+    assert(ouse_media_stream_position(id)==2);
+    ouse_media_stream_end(id);assert(ouse_media_stream_write(id,pcm_clip,1)==0);
+    assert(ouse_media_get(owner2.app_id,&state)&&state.active);
+    ouse_media_consumer_done(id,ESP_OK,true);
+    assert(ouse_media_get(owner2.app_id,&state)&&!state.active);
+    assert(ouse_media_stream_begin(&owner2,&id)==ESP_OK);
+    ouse_media_stream_end(id);
+    assert(ouse_devices_take_audio(&req)&&!ouse_task_start(id,true));
+    ouse_media_consumer_done(id,ESP_OK,true);
+    assert(ouse_media_get(owner2.app_id,&state)&&!state.active);
+    assert(ouse_media_stream_begin(&owner2,&id)==ESP_OK);claim(id);
+    ouse_media_consumer_done(id,ESP_FAIL,false);
+    assert(ouse_media_get(owner2.app_id,&state)&&!state.active&&state.error==ESP_FAIL);
+    assert(!ouse_media_stream_write(id,pcm_clip,1));
+    puts("PASS native PCM copy/backpressure/codec clock/stop/queued cancellation/codec failure");
     puts("PASS media and game audio: five copied voices, clipping/ownership/pause/bounds/cleanup; repeated WAV loop and cancellation; existing source/focus/timeout paths");
 }

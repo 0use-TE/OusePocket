@@ -21,13 +21,14 @@ def wait_running(d,seconds=5):
     while time.monotonic()<end:
         s=status(d)
         if not s['active']:raise RuntimeError(str(s))
-        if counters(d)['frames']>=5:return
+        if s['phase']=='running' and counters(d)['frames']>=5:return
         time.sleep(.25)
     raise TimeoutError('No game frames')
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--port',default='COM10')
+    p.add_argument('--audio',action='store_true',help='Require engine PCM and codec consumption')
     p.add_argument('--output',type=Path,default=Path('.tools/quake-check'))
     a=p.parse_args();a.output.mkdir(parents=True,exist_ok=True)
     with Device(a.port) as d:
@@ -35,6 +36,10 @@ def main():
         firmware=Path(__file__).resolve().parents[1]/'build/ouse_core_desktop.elf'
         assert d.request('DBG_BUILD')==hashlib.sha256(firmware.read_bytes()).hexdigest(),'Firmware hash mismatch'
         d.request('DBG_HOME');d.request('DBG_CLOSE','ouse.native');d.request('DBG_CLOSE','ouse.quake2')
+        end=time.monotonic()+15
+        while status(d)['active']:
+            if time.monotonic()>end:raise TimeoutError('Previous game failed to stop')
+            time.sleep(.1)
         before=d.request('DBG_HEAP');print('BEFORE',before,flush=True)
         d.request('DBG_OPEN','ouse.quake2');wait_running(d,20)
         screen=d.state()
@@ -46,6 +51,13 @@ def main():
         time.sleep(15)
         if not status(d)['active']:raise RuntimeError(str(status(d)))
         d.screenshot(a.output/'map-before.jpg');print('MAP',counters(d),flush=True)
+        if a.audio:
+            def audio():return {k:int(v) for k,v in (item.split('=') for item in d.request('DBG_QAUDIO').split(','))}
+            first=audio();press(d,200,2);last=audio()
+            assert last['played']>first['played'] and last['written']>first['written'],(first,last)
+            assert last['nonzero']>first['nonzero'] and last['peak']>0,(first,last)
+            print('AUDIO firing:',first,'->',last,flush=True)
+            (a.output/'audio.json').write_text(json.dumps(dict(before=first,after=last),indent=2))
         press(d,131,1)
         d.request('DBG_QMOUSE','80:0');time.sleep(.5)
         d.screenshot(a.output/'map-after.jpg')

@@ -352,6 +352,10 @@ esp_err_t ouse_debug_command(const char *verb,const char *payload,char *out,size
         unsigned frames,keys,allocations;size_t bytes;ouse_game_get_stats(&frames,&keys,&allocations,&bytes);
         snprintf(out,cap,"frames=%u,keys=%u,allocations=%u,bytes=%zu",frames,keys,allocations,bytes);return ESP_OK;
     }
+    if(!strcmp(verb,"DBG_QAUDIO")){
+        unsigned written,nonzero,peak,played;ouse_game_audio_stats(&written,&nonzero,&peak,&played);
+        snprintf(out,cap,"written=%u,nonzero=%u,peak=%u,played=%u",written,nonzero,peak,played);return ESP_OK;
+    }
     if(!strcmp(verb,"DBG_QDATA")){
         static const ouse_task_owner_t owner={.app_id="system.quake2",.instance=0};
         if(!strcmp(payload,"-")){
@@ -361,7 +365,8 @@ esp_err_t ouse_debug_command(const char *verb,const char *payload,char *out,size
                 (unsigned long long)files.download_bytes,found?ouse_task_state_name(task.state):"idle",
                 found?esp_err_to_name(task.error):"ESP_OK");return ESP_OK;
         }
-        uint32_t id;esp_err_t e=ouse_files_download(&owner,payload,"Downloads/quake2.pak",&id);
+        uint32_t id;esp_err_t e=ouse_files_download(&owner,!strncmp(payload,"sound:",6)?payload+6:payload,
+            !strncmp(payload,"sound:",6)?"Downloads/quake2-sound.pak":"Downloads/quake2.pak",&id);
         if(e==ESP_OK){quake_download_id=id;snprintf(out,cap,"task=%lu",(unsigned long)id);}
         return e;
     }

@@ -430,6 +430,8 @@ image_t *GL_LoadPic (char *name, byte *pic, int width, int height, imagetype_t t
 
 	c = width*height;
 	image->pixels[0] = Q_Arena_Alloc (c);
+	if (!image->pixels[0])
+		ri.Sys_Error (ERR_DROP, "Draw_LoadPic: out of PSRAM for %s", name);
 	image->transparent = false;
 	for (i=0 ; i<c ; i++)
 	{
@@ -470,6 +472,13 @@ image_t *R_LoadWal (char *name)
 
 	size = image->width*image->height * (256+64+16+4)/256;
 	image->pixels[0] = Q_Arena_Alloc (size);
+	if (!image->pixels[0])
+	{
+		ri.FS_FreeFile ((void *)mt);
+		memset (image, 0, sizeof(*image));
+		ri.Sys_Error (ERR_DROP, "R_LoadWal: out of PSRAM for %s", name);
+		return r_notexture_mip;
+	}
 	image->pixels[1] = image->pixels[0] + image->width*image->height;
 	image->pixels[2] = image->pixels[1] + image->width*image->height/4;
 	image->pixels[3] = image->pixels[2] + image->width*image->height/16;
