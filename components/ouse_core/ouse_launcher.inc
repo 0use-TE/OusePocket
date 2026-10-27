@@ -1,6 +1,7 @@
 typedef struct {
     char (*ids)[48];
     unsigned count;
+    unsigned hidden_native;
     lv_obj_t **tiles,**badges,*ghost;
     unsigned tile_capacity,from,to;
     lv_indev_t *pointer;
@@ -16,6 +17,18 @@ typedef struct {
 } launcher_state_t;
 static OUSE_PSRAM_BSS launcher_state_t launcher;
 static void launcher_cancel(void);
+static void launcher_changed(void);
+static const char *const launcher_native_ids[]={"ouse.native","ouse.quake2","ouse.doom","ouse.nes"};
+static unsigned launcher_native_bit(const char *id)
+{
+    for(unsigned i=0;i<4;++i)if(!strcmp(id,launcher_native_ids[i]))return 1u<<i;
+    return 0;
+}
+static void launcher_restore_icons(lv_event_t *event)
+{
+    (void)event;if(!launcher.loaded)return;
+    launcher.hidden_native=0;launcher_changed();rebuild_launcher();
+}
 static void launcher_edit(bool enabled)
 {
     launcher.editing=enabled;
@@ -31,6 +44,8 @@ static void launcher_blank(lv_event_t *event)
 }
 static void launcher_remove_confirmed(void)
 {
+    unsigned native=launcher_native_bit(launcher.remove_id);
+    if(native){launcher.hidden_native|=native;launcher_changed();rebuild_launcher();return;}
     if(launcher.remove_request)return;
     esp_err_t error=ouse_manager_request(OUSE_MANAGER_UNINSTALL,launcher.remove_id,&launcher.remove_request);
     if(error!=ESP_OK)ouse_dialog_show(ouse_ui_locale() ? "Application service busy. Try again." : "应用服务繁忙，请稍后重试。",NULL,NULL);
@@ -39,8 +54,15 @@ static void launcher_remove_clicked(lv_event_t *event)
 {
     if(launcher.dragging || launcher.remove_request || ouse_dialog_active())return;
     const char *id=lv_event_get_user_data(event);ouse_app_info_t info;
-    if(!launcher.editing || strncmp(id,"user.",5) || ouse_app_find_info(id,&info)!=ESP_OK)return;
+    bool native=launcher_native_bit(id)!=0;
+    if(!launcher.editing || (!native && strncmp(id,"user.",5)) || ouse_app_find_info(id,&info)!=ESP_OK)return;
     strcpy(launcher.remove_id,id);
+    if(native){
+        char body[400];snprintf(body,sizeof(body),"%s\n\n%s",info.name,ouse_ui_locale() ?
+            "Remove this desktop icon? The program and SD files stay. Restore it in Settings > Appearance." :
+            "移除此桌面图标？程序和 SD 卡文件会保留，可在设置的外观中恢复图标。");
+        ouse_dialog_show(body,ouse_ui_locale() ? "Remove" : "移除",launcher_remove_confirmed);return;
+    }
     char body[360];snprintf(body,sizeof(body),"%s\n\n%s",info.name,ouse_ui_locale() ?
         "Uninstall this app and its local data and alarms? SD files stay." :
         "卸载应用并删除本地数据和闹钟？SD 卡文件会保留。");
@@ -49,7 +71,7 @@ static void launcher_remove_clicked(lv_event_t *event)
 static void launcher_badge(unsigned index,int cell_width)
 {
     launcher.badges[index]=NULL;
-    if(strncmp(core.icons[index].id,"user.",5)||!strcmp(core.icons[index].id,"user.store"))return;
+    if((strncmp(core.icons[index].id,"user.",5) && !launcher_native_bit(core.icons[index].id))||!strcmp(core.icons[index].id,"user.store"))return;
     lv_obj_t *badge=lv_button_create(launcher.tiles[index]);lv_obj_remove_style_all(badge);
     lv_obj_set_size(badge,ouse_ui_dp(28),ouse_ui_dp(28));
     lv_obj_set_pos(badge,(cell_width+ouse_ui_dp(40))/2-ouse_ui_dp(18),0);
@@ -108,18 +130,25 @@ static void launcher_forget(const char *id)
 }
 static bool launcher_parse(const char *value)
 {
-    if(!*value){free(launcher.ids);launcher.ids=NULL;launcher.count=0;return true;}
+    if(!*value){free(launcher.ids);launcher.ids=NULL;launcher.count=0;launcher.hidden_native=0;return true;}
     if(strncmp(value,"OUSE1\n",6))return false;
     unsigned count=0;const char *cursor=value+6;
     while(*cursor){const char *end=strchr(cursor,'\n');if(!end || end==cursor || end-cursor>=48)return false;++count;cursor=end+1;}
     char (*ids)[48]=ouse_psram_calloc(count ? count : 1,sizeof(*ids));if(!ids)return false;
-    cursor=value+6;
-    for(unsigned index=0;index<count;++index){
+    cursor=value+6;unsigned kept=0,hidden=0;
+    for(unsigned entry=0;entry<count;++entry){
+        unsigned index=kept;
         const char *end=strchr(cursor,'\n');memcpy(ids[index],cursor,(size_t)(end-cursor));cursor=end+1;
+        if(ids[index][0]=='-'){
+            unsigned bit=launcher_native_bit(ids[index]+1);
+            if(!bit || (hidden&bit)){free(ids);return false;}
+            hidden|=bit;memset(ids[index],0,sizeof(*ids));continue;
+        }
         for(const char *letter=ids[index];*letter;++letter)if(!((*letter>='a'&&*letter<='z') || (*letter>='0'&&*letter<='9') || *letter=='.' || *letter=='_' || *letter=='-')){free(ids);return false;}
         for(unsigned previous=0;previous<index;++previous)if(!strcmp(ids[index],ids[previous])){free(ids);return false;}
+        ++kept;
     }
-    free(launcher.ids);launcher.ids=ids;launcher.count=count;return true;
+    free(launcher.ids);launcher.ids=ids;launcher.count=kept;launcher.hidden_native=hidden;return true;
 }
 static void launcher_complete(void *context,uint32_t token,esp_err_t error,char *result)
 {
@@ -256,9 +285,11 @@ static void launcher_tick(lv_timer_t *timer)
     }
     if(launcher.dirty && launcher.restored){
         size_t size=7;for(unsigned index=0;index<launcher.count;++index)size+=strlen(launcher.ids[index])+1;
+        for(unsigned i=0;i<4;++i)if(launcher.hidden_native&(1u<<i))size+=strlen(launcher_native_ids[i])+2;
         char *value=ouse_psram_calloc(size,1);if(!value){launcher_error();return;}
         strcpy(value,"OUSE1\n");size_t offset=6;
         for(unsigned index=0;index<launcher.count;++index){size_t length=strlen(launcher.ids[index]);memcpy(value+offset,launcher.ids[index],length);offset+=length;value[offset++]='\n';}
+        for(unsigned i=0;i<4;++i)if(launcher.hidden_native&(1u<<i))offset+=(size_t)snprintf(value+offset,size-offset,"-%s\n",launcher_native_ids[i]);
         launcher.writing=true;launcher.saving_revision=launcher.revision;
         esp_err_t error=ouse_storage_launcher(true,value,launcher_complete,NULL);free(value);
         launcher.io=error==ESP_OK;if(error!=ESP_OK)launcher_error();

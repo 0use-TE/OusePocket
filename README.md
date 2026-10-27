@@ -1,4 +1,4 @@
-# OusePocket 0.45.2
+# OusePocket 0.46.2
 
 OusePocket 是运行在 ESP32-P4 上的轻量多媒体应用框架。仓库根目录是 ESP-IDF 工程：原生 C/C++ 提供系统和硬件服务，LVGL 提供桌面与设置，JSON＋JavaScript BPK 提供独立应用。
 
@@ -6,14 +6,15 @@ OusePocket 是运行在 ESP32-P4 上的轻量多媒体应用框架。仓库根�
 
 ## 当前版本
 
-- Core **0.45.2**，Native API **47**，JS API **1**。产品版本以 `version.txt` 为准。
+- Core **0.46.2**，Native API **49**，JS API **1**。产品版本以 `version.txt` 为准。
 - 桌面分页、最近应用、通知中心、快捷面板、横竖屏、锁屏与原生设置。
 - BPK 应用的串口/商店/SD 安装、权限、私有存储和后台生命周期。
 - 音频、摄像头、相册、录音、Wi-Fi、BLE/HID 等服务按各自接口和权限提供；硬件支持不代表全部外设功能均已验收。
-- 共享游戏框架支持 Canvas、精灵、音效、多点触摸、全屏与防误退出；游戏默认限制为 25 FPS。
+- 共享游戏框架支持 Canvas、精灵、音效、多点触摸、全屏与防误退出；新增固件 C++ 批量弹道/连续碰撞接口，荒野生存已接入，2.1.1 默认解除 25 FPS 上限。
+- 相机 1.3.1 默认等比铺满取景，可切换完整画面，控件按横竖屏叠加布局，三键导航保留；要求 API 49 以保证实时缩放优化。相册使用备用缩略图槽位，翻页保留当前画面。
 - 板级显示发送使用三份 PSRAM 快照和两个独立 DMA 缓冲。0.45.1 的防撕裂实现保留，0.45.2 回收 50 KiB 内部 RAM，将界面刷新调度改为 20ms；调度周期不等于物理显示帧率。
 
-最新验证与限制见 [显示发送与防撕裂](docs/0.45.1-bounded-lcd-sender.md)、[内存与刷新节奏](docs/0.45.2-memory-ui-cadence.md)。桌面翻页的最终手感仍以实际使用为准。
+最新验证与限制见 [0.46.2 合并审查](docs/0.46.2-merge-review.md)、[相机铺满取景](docs/0.46.1-camera-preview.md)、[游戏实机性能](docs/survivor-device-benchmark.md)、[固件游戏计算与相机、相册](docs/0.46.0-native-game2d-camera.md)、[显示发送与防撕裂](docs/0.45.1-bounded-lcd-sender.md)、[内存与刷新节奏](docs/0.45.2-memory-ui-cadence.md)。桌面翻页的最终手感仍以实际使用为准。
 
 ## 构建固件
 

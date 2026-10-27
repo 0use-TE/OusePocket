@@ -4,7 +4,7 @@ No application code is executed here; the application behavior test is separate.
 The schema is extracted verbatim from the production runtime, without LVGL I/O.
 """
 from pathlib import Path
-import os, subprocess
+import json, os, re, subprocess
 import bpk
 import argparse
 
@@ -14,6 +14,9 @@ QJS=ROOT/'managed_components/espressif__quickjs-ng/quickjs-ng'
 LVGL=ROOT/'managed_components/lvgl__lvgl'
 HOST=ROOT/'.tools/ouse-core-check'
 runtime=(ROOT/'components/ouse_runtime/ouse_runtime.c').read_text(encoding='utf-8')
+camera_runtime=(ROOT/'components/ouse_runtime/ouse_runtime_camera.inc').read_text(encoding='utf-8')
+native_names=re.search(r'static const char \*const native_image_names\[OUSE_CAMERA_IMAGES\]=(\{[^;]+\});',camera_runtime)[1]
+native_count=len(re.findall(r'"@[^\"]+"',native_names))
 def section(start,end):return runtime[runtime.index(start):runtime.index(end,runtime.index(start))]
 types=section('typedef enum { CONTAINER','typedef struct {\n    JSValue handler;')
 helpers=section('static bool copy_string(','static node_t *find_node(')
@@ -31,13 +34,13 @@ fixture=r'''
 #include <string.h>
 #define MAX_TEXT 256
 #define MAX_NODES 128
-#define OUSE_CAMERA_IMAGES 14
-static const char *const native_image_names[14]={"@camera","@photo","@thumb0","@thumb1","@thumb2","@thumb3","@thumb4","@thumb5","@thumb6","@thumb7","@thumb8","@thumb9","@thumb10","@thumb11"};
+#define OUSE_CAMERA_IMAGES NATIVE_COUNT
+static const char *const native_image_names[OUSE_CAMERA_IMAGES]=NATIVE_NAMES;
 /* TYPES */
 typedef struct {
  JSContext *context;bool dp_units,parsing_page,interrupted;int budget;
  unsigned node_count,image_count;node_t nodes[MAX_NODES];ouse_script_image_t images[16];
- bool camera_allowed,photos_allowed;lv_image_dsc_t native_images[14];
+ bool camera_allowed,photos_allowed;lv_image_dsc_t native_images[OUSE_CAMERA_IMAGES];
  struct {int app_width,app_height;unsigned density;} worker_ui;
  JSValue translations;
 } instance_t;
@@ -111,6 +114,8 @@ int main(int argc,char **argv){
 }
 '''
 for name,value in [('TYPES',types),('HELPERS',helpers),('WIDGETS',widgets),('SCHEMA',schema),('NODES',nodes)]:fixture=fixture.replace('/* '+name+' */',value)
+fixture=fixture.replace('NATIVE_COUNT',str(native_count)).replace('NATIVE_NAMES',native_names)
+fixture=fixture.replace('"2026-10-19"',json.dumps(json.loads((ROOT/'apps/store/manifest.json').read_text(encoding='utf-8'))['releasedAt']))
 # The service test is a single-root document, handled before array operations.
 fixture=fixture.replace('JSValue pages=JS_GetPropertyStr(ctx,doc,"pages"),length=JS_GetPropertyStr(ctx,pages,"length");unsigned count=0;assert(JS_ToUint32(ctx,&count,length)==0&&count<=16&&count);JS_FreeValue(ctx,length);',
  'JSValue pages=JS_GetPropertyStr(ctx,doc,"pages");unsigned count=1;if(!JS_IsUndefined(pages)){JSValue length=JS_GetPropertyStr(ctx,pages,"length");assert(JS_ToUint32(ctx,&count,length)==0&&count<=16&&count);JS_FreeValue(ctx,length);}')
@@ -140,6 +145,14 @@ parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--apps',nargs='+',default=['music','alarm','service-test','explorer'])
 names=parser.parse_args().apps
 for name in names:bpk.pack(ROOT/'apps'/name,OUT/f'{name}.bpk')
+last_thumb=OUT/'last-native-thumbnail';last_thumb.mkdir(exist_ok=True)
+manifest=json.loads((ROOT/'apps/camera/manifest.json').read_text(encoding='utf-8'))
+manifest.update(id='user.last-native-thumbnail',capabilities={'photos':True})
+(last_thumb/'manifest.json').write_text(json.dumps(manifest),encoding='utf-8')
+(last_thumb/'icon.bin').write_bytes((ROOT/'apps/camera/icon.bin').read_bytes())
+(last_thumb/'app.js').write_text('globalThis.app={};',encoding='utf-8')
+(last_thumb/'page.json').write_text(json.dumps({'api':1,'root':{'type':'container','id':'root','width':'fill','height':'fill','children':[{'type':'image','id':'last','src':json.loads(native_names.replace('{','[').replace('}',']'))[-1],'width':128,'height':96}]}}),encoding='utf-8')
+bpk.pack(last_thumb,OUT/'last-native-thumbnail.bpk');names.append('last-native-thumbnail')
 import io,json,zipfile
 source=io.BytesIO()
 with zipfile.ZipFile(source,'w',compression=zipfile.ZIP_STORED) as archive:
@@ -156,3 +169,16 @@ for ordinal,(key,value) in enumerate([('author','x'*65),('description','x'*513),
    output.writestr(entry.filename,data)
  rejects.append(str(target))
 subprocess.run([str(OUT/'packages.exe')]+[str(OUT/f'{name}.bpk') for name in names]+rejects,cwd=OUT,check=True,timeout=15)
+
+# Compile the same production parser against the previous firmware API. The
+# enlarged preview must not install without the bounded live sampling path.
+legacy=OUT/'legacy-api';legacy.mkdir(exist_ok=True)
+(legacy/'ouse_core.h').write_text('#include "'+(ROOT/'components/ouse_core/include/ouse_core.h').as_posix()+'"\n#undef OUSE_CORE_API_VERSION\n#define OUSE_CORE_API_VERSION 48\n',encoding='utf-8')
+legacy_command=command.copy();legacy_command.insert(1,'/I'+str(legacy))
+legacy_command[-1]='/Fe'+str(OUT/'legacy-packages.exe')
+result=subprocess.run(legacy_command,cwd=OUT,env=env,capture_output=True,text=True,errors='replace')
+assert result.returncode==0,(result.stdout,result.stderr)
+assert json.loads((ROOT/'apps/camera/manifest.json').read_text(encoding='utf-8'))['minNativeApi']>=49
+legacy_camera=OUT/'camera-api48.reject.bpk';bpk.pack(ROOT/'apps/camera',legacy_camera)
+subprocess.run([str(OUT/'legacy-packages.exe'),str(legacy_camera)],cwd=OUT,check=True,timeout=15)
+print('PASS previous API 48 rejects camera requiring optimized full-screen preview; current API accepts it')

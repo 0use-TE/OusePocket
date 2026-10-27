@@ -13,6 +13,7 @@ static JSValue camera_api(JSContext *context,JSValueConst self,int argc,JSValueC
         JS_SetPropertyStr(context,value,"inUse",JS_NewBool(context,state.in_use));
         JS_SetPropertyStr(context,value,"recoveryPending",JS_NewBool(context,state.recovery_pending));
         JS_SetPropertyStr(context,value,"error",JS_NewString(context,esp_err_to_name(state.error)));
+        JS_SetPropertyStr(context,value,"errorStage",JS_NewString(context,state.error_stage));
         JS_SetPropertyStr(context,value,"taskId",JS_NewUint32(context,state.task_id));
         JS_SetPropertyStr(context,value,"revision",JS_NewUint32(context,state.revision));
         JS_SetPropertyStr(context,value,"path",JS_NewString(context,state.path));
@@ -24,7 +25,7 @@ static JSValue camera_api(JSContext *context,JSValueConst self,int argc,JSValueC
             JS_SetPropertyStr(context,entry,"bytes",JS_NewFloat64(context,state.entries[index].bytes));
             JS_SetPropertyStr(context,entry,"video",JS_NewBool(context,state.entries[index].video));
             JS_SetPropertyStr(context,entry,"modified",JS_NewFloat64(context,state.entries[index].modified));
-            char image[16];snprintf(image,sizeof(image),"@thumb%u",index);JS_SetPropertyStr(context,entry,"image",JS_NewString(context,image));
+            char image[16];snprintf(image,sizeof(image),"@thumb%u",state.entries[index].image);JS_SetPropertyStr(context,entry,"image",JS_NewString(context,image));
             JS_SetPropertyUint32(context,entries,index,entry);
         }
         JS_SetPropertyStr(context,value,"entries",entries);return value;
@@ -43,7 +44,7 @@ static JSValue camera_api(JSContext *context,JSValueConst self,int argc,JSValueC
     uint32_t id=0;model_lock(app);esp_err_t error=app->closed || app->faulted || !app->visible ? ESP_ERR_INVALID_STATE : ouse_camera_request(&app->owner,action,path,offset,&id);model_unlock(app);
     return error==ESP_OK ? JS_NewUint32(context,id) : JS_FALSE;
 }
-static const char *const native_image_names[OUSE_CAMERA_IMAGES]={"@camera","@photo","@thumb0","@thumb1","@thumb2","@thumb3","@thumb4","@thumb5","@thumb6","@thumb7","@thumb8","@thumb9","@thumb10","@thumb11"};
+static const char *const native_image_names[OUSE_CAMERA_IMAGES]={"@camera","@photo","@thumb0","@thumb1","@thumb2","@thumb3","@thumb4","@thumb5","@thumb6","@thumb7","@thumb8","@thumb9","@thumb10","@thumb11","@thumb12","@thumb13","@thumb14","@thumb15","@thumb16","@thumb17","@thumb18","@thumb19","@thumb20","@thumb21","@thumb22","@thumb23"};
 static void native_images_pump(instance_t *app)
 {
     for(unsigned image=0;image<OUSE_CAMERA_IMAGES;++image){lv_image_dsc_t *descriptor=&app->native_images[image];

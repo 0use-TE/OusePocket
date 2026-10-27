@@ -70,6 +70,7 @@ static esp_err_t open(lv_obj_t *root,void *context)
     image=(lv_image_dsc_t){.header={.magic=LV_IMAGE_HEADER_MAGIC,.cf=LV_COLOR_FORMAT_RGB565,.w=WIDTH,.h=HEIGHT,.stride=WIDTH*2},
         .data_size=WIDTH*HEIGHT*2,.data=(const uint8_t *)front};
     video=lv_image_create(root);lv_image_set_src(video,&image);lv_obj_set_pos(video,0,0);
+    lv_obj_set_size(video,LV_PCT(100),LV_PCT(100));lv_image_set_inner_align(video,LV_IMAGE_ALIGN_STRETCH);
     failure_label=ouse_widget_text(root,"",18);lv_obj_set_width(failure_label,LV_PCT(100));
     lv_obj_set_style_text_align(failure_label,LV_TEXT_ALIGN_CENTER,0);lv_obj_center(failure_label);
     lv_obj_add_flag(failure_label,LV_OBJ_FLAG_HIDDEN);

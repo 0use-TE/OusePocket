@@ -37,6 +37,7 @@ uint32_t ouse_devices_resume_media(bool enqueue);
 bool ouse_devices_audio_current(uint32_t id);
 void ouse_devices_publish_audio(const ouse_audio_state_t *state,uint32_t id);
 bool ouse_devices_take_wifi(ouse_wifi_request_t *request);
+bool ouse_devices_take_wifi_disable(ouse_wifi_request_t *request);
 bool ouse_devices_wifi_current(uint32_t id);
 void ouse_devices_publish_wifi(const ouse_wifi_state_t *state,uint32_t id);
 void ouse_devices_remember_wifi(const ouse_wifi_request_t *request);

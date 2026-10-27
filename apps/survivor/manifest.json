@@ -8,12 +8,12 @@
     "en": "Wild Survivor"
   },
   "icon": "icon.bin",
-  "versionCode": 5,
-  "versionName": "2.0.0",
-  "minNativeApi": 47,
+  "versionCode": 7,
+  "versionName": "2.1.1",
+  "minNativeApi": 48,
   "author": "OusePocket",
   "description": "全屏大地图生存战：四名角色、六类枪械、四种支援伙伴、三个区域与首领挑战。",
-  "releasedAt": "2026-10-21",
+  "releasedAt": "2026-10-26",
   "capabilities": {
     "media": true
   },

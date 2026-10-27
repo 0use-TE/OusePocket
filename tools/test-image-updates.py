@@ -4,7 +4,7 @@ import os,subprocess
 root=Path(__file__).resolve().parents[1]
 out=root/'.tools/image-updates-check';out.mkdir(exist_ok=True)
 source=(root/'components/ouse_runtime/ouse_runtime.c').read_text(encoding='utf-8')
-functions=source[source.index('static JSValue ui_set_image_data('):source.index('static JSValue assets_api(')]
+functions=source[source.index('static JSValue ui_set_image_data('):source.index('#include "ouse_runtime_sd_images.inc"')]
 fixture=r'''
 #include "quickjs.h"
 #include "lvgl.h"

@@ -1,5 +1,6 @@
 #include "ouse_camera.h"
 #include "ouse_avi.h"
+#include "ouse_photo_slots.h"
 #include "ouse_files.h"
 #include "ouse_devices.h"
 #include "esp_heap_caps.h"
@@ -168,81 +169,8 @@ static esp_err_t load_photo(const ouse_task_owner_t *owner,const char *path,unsi
         if(fclose(file))read=false;}
     esp_err_t error=read ? decode_frame(owner,image,input,length) : ESP_FAIL;free(input);return error;
 }
-static esp_err_t capture(const job_t *job,char saved[128])
-{
-    if(!hardware || !same(&job->owner,&camera_owner) || !wanted(&job->owner) || !sd_ready())return ESP_ERR_INVALID_STATE;
-    ouse_camera_frame_t frame;esp_err_t error=driver.frame(&frame);if(error!=ESP_OK)return error;
-    jpeg_encoder_handle_t encoder=NULL;unsigned char *output=NULL;
-    jpeg_encode_engine_cfg_t engine={.timeout_ms=1000};error=jpeg_new_encoder_engine(&engine,&encoder);size_t capacity=0;uint32_t length=0;
-    if(error==ESP_OK){jpeg_encode_memory_alloc_cfg_t memory={.buffer_direction=JPEG_ENC_ALLOC_OUTPUT_BUFFER};output=jpeg_alloc_encoder_mem((size_t)frame.width*frame.height*2,&memory,&capacity);if(!output)error=ESP_ERR_NO_MEM;}
-    if(error==ESP_OK){jpeg_encode_cfg_t config={.width=frame.width,.height=frame.height,.src_type=JPEG_ENCODE_IN_FORMAT_RGB565,.sub_sample=JPEG_DOWN_SAMPLING_YUV420,.image_quality=85};
-        error=jpeg_encoder_process(encoder,&config,frame.pixels,frame.bytes,output,capacity,&length);}
-    driver.put();if(encoder)jpeg_del_encoder_engine(encoder);
-    char absolute[180]="",temporary[192];
-    if(error==ESP_OK && (!length || length>capacity || length>PHOTO_LIMIT))error=ESP_ERR_INVALID_SIZE;
-    snprintf(saved,128,"Pictures/IMG_%lld_%08lx_%04lx.jpg",(long long)time(NULL),(unsigned long)nonce,(unsigned long)++sequence);
-    if(!photo_path(saved,absolute))error=ESP_ERR_INVALID_ARG;
-    snprintf(temporary,sizeof(temporary),"%s.part",absolute);
-    if(error==ESP_OK && (!live(&job->owner) || ouse_task_cancel_requested(job->id) || !sd_ready()))error=ESP_ERR_INVALID_STATE;
-    if(error==ESP_OK){int descriptor=open(temporary,O_WRONLY|O_CREAT|O_EXCL,0600);if(descriptor<0)error=ESP_FAIL;
-        else {FILE *file=fdopen(descriptor,"wb");if(!file){close(descriptor);error=ESP_FAIL;}
-            else {bool written=true;for(uint32_t offset=0;offset<length;){uint32_t count=length-offset;if(count>4096)count=4096;if(fwrite(output+offset,1,count,file)!=count){written=false;break;}offset+=count;}
-                if(fflush(file) || fsync(fileno(file)))written=false;
-                if(fclose(file))written=false;
-                if(!written)error=ESP_FAIL;}
-            if(error==ESP_OK && (!live(&job->owner) || ouse_task_cancel_requested(job->id) || !wanted(&job->owner)))error=ESP_ERR_INVALID_STATE;
-            struct stat existing;if(error==ESP_OK && (stat(absolute,&existing)==0 || rename(temporary,absolute)))error=ESP_FAIL;
-            if(error!=ESP_OK)unlink(temporary);
-        }
-    }
-    free(output);if(error==ESP_OK)(void)ouse_files_refresh();return error;
-}
-static int recent_first(const void *first,const void *second)
-{
-    const ouse_photo_entry_t *left=first,*right=second;
-    if(left->modified!=right->modified)return left->modified>right->modified ? -1 : 1;
-    const char *left_name=strrchr(left->path,'/')+1,*right_name=strrchr(right->path,'/')+1;
-    if((!strncmp(left_name,"IMG_",4) || !strncmp(left_name,"VID_",4)) && (!strncmp(right_name,"IMG_",4) || !strncmp(right_name,"VID_",4)))return strcmp(right_name+4,left_name+4);
-    return strcmp(right_name,left_name);
-}
-static esp_err_t enumerate(const job_t *job)
-{
-    if(!sd_ready())return ESP_ERR_INVALID_STATE;
-    char directory[180];if(!ouse_files_path("Pictures/placeholder.jpg",directory,sizeof(directory)))return ESP_FAIL;
-    *strrchr(directory,'/')=0;DIR *handle=opendir(directory);if(!handle)return ESP_FAIL;
-    unsigned capacity=job->offset+OUSE_PHOTO_PAGE+1;
-    ouse_photo_entry_t *recent=heap_caps_calloc(capacity,sizeof(*recent),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
-    if(!recent){closedir(handle);return ESP_ERR_NO_MEM;}
-    unsigned total=0;struct dirent *entry;int64_t deadline=esp_timer_get_time()+3000000;
-    while((entry=readdir(handle))!=NULL){
-        if(esp_timer_get_time()>deadline || !live(&job->owner) || ouse_task_cancel_requested(job->id)){closedir(handle);free(recent);return ESP_ERR_TIMEOUT;}
-        char path[128],absolute[180];int length=snprintf(path,sizeof(path),"Pictures/%s",entry->d_name);if(length<0 || length>=sizeof(path) || !media_path(path,absolute))continue;
-        struct stat info;if(stat(absolute,&info) || !S_ISREG(info.st_mode) || info.st_size<=0)continue;
-        ouse_photo_entry_t candidate={.bytes=info.st_size,.video=video_path(path,absolute),.modified=info.st_mtime};strcpy(candidate.path,path);
-        if(total<capacity){recent[total++]=candidate;qsort(recent,total,sizeof(*recent),recent_first);}
-        else if(recent_first(&candidate,&recent[total-1])<0){recent[total-1]=candidate;qsort(recent,total,sizeof(*recent),recent_first);}
-    }
-    closedir(handle);
-    ouse_photo_entry_t entries[OUSE_PHOTO_PAGE]={0};unsigned count=total>job->offset ? total-job->offset : 0;
-    bool more=count>OUSE_PHOTO_PAGE;if(count>OUSE_PHOTO_PAGE)count=OUSE_PHOTO_PAGE;
-    if(count)memcpy(entries,recent+job->offset,count*sizeof(*recent));
-    free(recent);
-    bool cached[OUSE_PHOTO_PAGE]={0};
-    lock();client_t *client=find(&job->owner);if(client && !client->closed){
-        uint16_t *previous[OUSE_PHOTO_PAGE],*next[OUSE_PHOTO_PAGE]={0};
-        memcpy(previous,client->images+2,sizeof(previous));
-        for(unsigned index=0;index<count;++index)for(unsigned old=0;old<client->state.count;++old)
-            if(previous[old] && !strcmp(entries[index].path,client->state.entries[old].path) && entries[index].bytes==client->state.entries[old].bytes && entries[index].modified==client->state.entries[old].modified){next[index]=previous[old];previous[old]=NULL;cached[index]=true;break;}
-        for(unsigned index=0;index<OUSE_PHOTO_PAGE;++index){
-            if(!next[index])for(unsigned old=0;old<OUSE_PHOTO_PAGE;++old)if(previous[old]){next[index]=previous[old];previous[old]=NULL;break;}
-            client->images[index+2]=next[index];if(!cached[index] && next[index])memset(next[index],0,128*96*2);++client->versions[index+2];
-        }
-        memcpy(client->state.entries,entries,sizeof(entries));client->state.count=count;client->state.more=more;client->state.offset=job->offset;
-    }
-    unlock();
-    for(unsigned index=0;index<count && live(&job->owner) && !ouse_task_cancel_requested(job->id);++index)if(!cached[index])(void)load_photo(&job->owner,entries[index].path,index+2);
-    return ESP_OK;
-}
+#include "ouse_camera_capture.inc"
+#include "ouse_camera_gallery.inc"
 #include "ouse_camera_record.inc"
 #include "ouse_camera_playback.inc"
 static void worker(void *unused)
@@ -259,6 +187,7 @@ static void worker(void *unused)
             bool claimed=ouse_task_start(job.id,true);
             bool needs_sd=job.operation!=OUSE_CAMERA_START && job.operation!=OUSE_CAMERA_RECORD_STOP;
             bool leased=needs_sd && claimed && ouse_files_lease_begin();
+            if(needs_sd && claimed && !leased && job.operation==OUSE_CAMERA_CAPTURE)capture_stage(&job,"storage");
             if(claimed && (!needs_sd || leased) && live(&job.owner) && !ouse_task_cancel_requested(job.id)){
                 if(job.operation==OUSE_CAMERA_START){
                     if(wanted(&job.owner) && same(&job.owner,&camera_owner)){error=driver.start();hardware=error==ESP_OK;timeouts=0;

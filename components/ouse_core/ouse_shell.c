@@ -767,8 +767,9 @@ void ouse_shell_set_fullscreen(bool enabled)
 {
     shell.fullscreen=enabled;
     if(!shell.status || !shell.nav)return;
-    if(enabled){hide(shell.status);hide(shell.nav);hide(shell.bottom_guard);}
-    else{show(shell.status);show(shell.nav);if(!shell.navigation)show(shell.bottom_guard);}
+    if(enabled)hide(shell.status);else show(shell.status);
+    if(enabled && !shell.navigation)hide(shell.nav);else show(shell.nav);
+    if(enabled || shell.navigation)hide(shell.bottom_guard);else show(shell.bottom_guard);
 }
 unsigned ouse_shell_navigation(void) { return shell.navigation; }
 void ouse_shell_set_navigation(unsigned mode)
@@ -922,7 +923,7 @@ static void pointer_event(lv_event_t *event)
         shell.g.kind=G_CLOSE;shell.g.sheet_start=lv_obj_get_y(shell.sheet);
     } else if(quick && !control) {
         shell.g.kind=G_SWITCH;
-    } else if((!shell.navigation || shell.fullscreen) && !quick && p.y>=shell.height-D(shell.fullscreen?8:36)){shell.g.kind=G_BOTTOM;shell.g.from_recents=recent;}
+    } else if(!shell.navigation && !quick && p.y>=shell.height-D(shell.fullscreen?8:36)){shell.g.kind=G_BOTTOM;shell.g.from_recents=recent;}
     else if(!shell.fullscreen && !shell.navigation && !control && p.y>D(40) && p.y<shell.height-D(28) && (p.x<=D(24) || p.x>=shell.width-D(24))) {
         shell.g.kind=G_BACK;shell.g.left=p.x<shell.width/2;
         lv_label_set_text(shell.back_arrow,shell.g.left ? LV_SYMBOL_LEFT : LV_SYMBOL_RIGHT);

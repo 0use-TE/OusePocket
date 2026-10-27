@@ -8,7 +8,8 @@ source=(root/'components/ouse_runtime/ouse_runtime.c').read_text(encoding='utf-8
 timers=source[source.index('static JSValue timer_create('):source.index('static JSValue theme_snapshot(')]
 exception=source[source.index('static void exception('):source.index('static bool result_ok(')]
 page=source[source.index('static void show_fault('):source.index('static void enforce_permissions(')]
-bindings=source[source.index('    JSValue timers=JS_NewObject(context);'):source.index('    JS_SetPropertyStr(context,api,"apiVersion"')]
+binding_end='    JS_SetPropertyStr(context,api,"timers",timers);'
+bindings=source[source.index('    JSValue timers=JS_NewObject(context);'):source.index(binding_end)+len(binding_end)]
 fixture=r'''
 #include "quickjs.h"
 #include "lvgl.h"
@@ -19,9 +20,10 @@ fixture=r'''
 #include <stdbool.h>
 #include <string.h>
 #include <limits.h>
+#include <math.h>
 #define MAX_TIMERS 8
-typedef struct {uint32_t id,period,due,remaining;bool interval;JSValue handler;} script_timer_t;
-typedef struct {JSContext *context;bool interrupted;char id[48],fault_message[1024];script_timer_t timers[8];uint32_t next_timer;lv_obj_t *root;} instance_t;
+typedef struct {uint32_t id,period,due,remaining,frame_epoch;bool interval,frame;JSValue handler;} script_timer_t;
+typedef struct {JSContext *context;bool interrupted,visible,closed,faulted,validation_only,frame_waiting;char id[48],fault_message[1024];script_timer_t timers[8];uint32_t next_timer,frame_epoch;lv_obj_t *root;} instance_t;
 static instance_t *from_js(JSContext *context){return JS_GetContextOpaque(context);}
 static uint32_t now_ms(void){return 0;}
 static void begin_call(instance_t *app){app->interrupted=false;}
@@ -45,11 +47,11 @@ static lv_obj_t *find_label(lv_obj_t *object,const char *text){
 tests=r'''
 int main(void){
     JSRuntime *runtime=JS_NewRuntime();JSContext *context=JS_NewContext(runtime);assert(runtime&&context);
-    instance_t app={.context=context,.id="user.error-test"};for(unsigned index=0;index<8;++index)app.timers[index].handler=JS_UNDEFINED;
+    instance_t app={.context=context,.id="user.error-test",.visible=true};for(unsigned index=0;index<8;++index)app.timers[index].handler=JS_UNDEFINED;
     JS_SetContextOpaque(context,&app);JSValue api=JS_NewObject(context);
     /* BINDINGS */
     JSValue global=JS_GetGlobalObject(context);JS_SetPropertyStr(context,global,"Ouse",api);JS_FreeValue(context,global);
-    const char *script="let a=Ouse.timers.setInterval(()=>{},100);Ouse.timers.clearInterval(a);let b=Ouse.timers.setTimeout(()=>{},100);Ouse.timers.clearTimeout(b);let c=Ouse.timers.setInterval(()=>{},100);Ouse.timers.clear(c);";
+    const char *script="let a=Ouse.timers.setInterval(()=>{},100);Ouse.timers.clearInterval(a);let b=Ouse.timers.setTimeout(()=>{},100);Ouse.timers.clearTimeout(b);let c=Ouse.timers.setInterval(()=>{},100);Ouse.timers.clear(c);let d=Ouse.timers.requestFrame(()=>{});if(!d)throw Error('frame registration');Ouse.timers.clear(d);";
     JSValue value=JS_Eval(context,script,strlen(script),"timer-aliases.js",JS_EVAL_TYPE_GLOBAL);assert(!JS_IsException(value));JS_FreeValue(context,value);
     for(unsigned index=0;index<8;++index)assert(!app.timers[index].id);
     script="function afterPermission(){throw new TypeError('permission callback regression');} afterPermission();";

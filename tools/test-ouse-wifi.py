@@ -56,6 +56,11 @@ headers=r'''
 #define setenv mock_setenv
 #define tzset mock_tzset
 typedef int portMUX_TYPE;
+typedef int StaticSemaphore_t;
+typedef void *SemaphoreHandle_t;
+static SemaphoreHandle_t xSemaphoreCreateMutexStatic(StaticSemaphore_t *s){return s;}
+static int xSemaphoreTake(SemaphoreHandle_t s,unsigned wait){(void)s;(void)wait;return 1;}
+static int xSemaphoreGive(SemaphoreHandle_t s){(void)s;return 1;}
 typedef void *TaskHandle_t;
 typedef const char *esp_event_base_t;
 extern const char *WIFI_EVENT,*IP_EVENT,*ESP_HOSTED_EVENT;
@@ -91,6 +96,7 @@ int esp_wifi_scan_start(wifi_scan_config_t *,bool);
 int esp_wifi_scan_get_ap_records(uint16_t *,wifi_ap_record_t *);
 int esp_wifi_sta_get_ap_info(wifi_ap_record_t *);
 int esp_netif_sntp_init(esp_sntp_config_t *);
+int esp_netif_sntp_start(void);
 int64_t esp_timer_get_time(void);
 void *xTaskGetCurrentTaskHandle(void);
 void xTaskNotifyGive(void *);
@@ -100,11 +106,12 @@ int mock_setenv(const char *,const char *,int);
 void mock_tzset(void);
 '''
 (OUT/"fakes.h").write_text(headers)
-for name in ["esp_hosted.h","esp_wifi.h","esp_event.h","esp_netif.h","esp_netif_sntp.h","esp_timer.h","esp_log.h","freertos/FreeRTOS.h","freertos/task.h"]:
+for name in ["esp_hosted.h","esp_wifi.h","esp_event.h","esp_netif.h","esp_netif_sntp.h","esp_timer.h","esp_log.h","freertos/FreeRTOS.h","freertos/task.h","freertos/semphr.h"]:
  f=OUT/name;f.parent.mkdir(exist_ok=True,parents=True);f.write_text('#include "fakes.h"\n')
 fixture=r'''
 #include "fakes.h"
 #include "ouse_device_driver.h"
+#include "ouse_clock.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -122,7 +129,7 @@ int esp_netif_init(void){return 0;}
 int esp_event_loop_create_default(void){return 0;}
 int esp_event_handler_register(const char *b,int i,void(*f)(void*,const char*,int,void*),void *a){assert(b&&f);(void)i;(void)a;return 0;}
 int esp_hosted_init(void){++host_inits;return 0;}
-int esp_hosted_connect_to_slave(void){if(supersede_init){supersede_init=false;assert(ouse_wifi_set_enabled(false)==ESP_ERR_INVALID_STATE);}return missing_slave ? ESP_ERR_TIMEOUT : 0;}
+int esp_hosted_connect_to_slave(void){if(supersede_init){supersede_init=false;assert(ouse_wifi_set_enabled(false)==ESP_OK);}return missing_slave ? ESP_ERR_TIMEOUT : 0;}
 int esp_hosted_get_coprocessor_fwversion(esp_hosted_coprocessor_fwver_t *v){(void)v;++version_queries;return ESP_ERR_TIMEOUT;}
 esp_netif_t *esp_netif_create_default_wifi_sta(void){return (esp_netif_t *)1;}
 int esp_wifi_init(wifi_init_config_t *c){assert(c);++wifi_inits;if(wifi_init_error)return wifi_init_error;if(sdk_initialized)return ESP_ERR_INVALID_STATE;sdk_initialized=true;return 0;}
@@ -147,6 +154,11 @@ const char *esp_err_to_name(int e){(void)e;return "test";}
 int mock_setenv(const char *a,const char *b,int n){assert(a&&b&&n);return 0;}
 void mock_tzset(void){}
 void ouse_clock_note_sync(void) {}
+void ouse_clock_get(ouse_clock_state_t *out){memset(out,0,sizeof(*out));}
+void ouse_clock_note_attempt(void) {}
+void ouse_clock_note_failure(void) {}
+void ouse_clock_note_network(bool online){(void)online;}
+int esp_netif_sntp_start(void) {return 0;}
 #include "BOARD_WIFI"
 static void pump(void){if(!setjmp(boundary))ouse_board_wifi_worker(NULL);}
 static ouse_wifi_state_t snapshot(void){ouse_wifi_state_t w;assert(ouse_wifi_get(&w)==0);return w;}
@@ -158,7 +170,25 @@ static void setup(void){ouse_device_port_t p={0};ouse_device_config_t c={.volume
 static void connect_office(void){assert(ouse_wifi_set_enabled(true)==0);pump();event(NULL,WIFI_EVENT,WIFI_EVENT_SCAN_DONE,NULL);pump();assert(ouse_wifi_connect("Office","correctpass")==0);pump();}
 static int regression(const char *name){
  setup();
- if(!strcmp(name,"kernel-quiesce-queued")){
+ if(!strcmp(name,"kernel-disable-connecting") || !strcmp(name,"kernel-disable-scan") || !strcmp(name,"kernel-disable-recovery") || !strcmp(name,"kernel-disable-queued")){
+  bool connecting=!strcmp(name,"kernel-disable-connecting");
+  if(connecting)connect_office();else {assert(ouse_wifi_set_enabled(true)==ESP_OK);if(strcmp(name,"kernel-disable-queued"))pump();}
+  uint32_t old=snapshot().request_id;
+  if(!strcmp(name,"kernel-disable-recovery")){now+=16000000;pump();now+=6000000;pump();assert(awaiting_stop==EVENT_STOP);}
+  assert(ouse_wifi_set_enabled(false)==ESP_OK);uint32_t off=snapshot().request_id;
+  assert(!snapshot().enabled && !snapshot().connecting && !snapshot().scanning);
+  pump();
+  ouse_task_snapshot_t task;assert(ouse_task_get(NULL,old,&task)&&task.state==OUSE_TASK_CANCELLED);
+  if(strcmp(name,"kernel-disable-queued")){
+   assert(awaiting_stop==EVENT_STOP);assert(ouse_wifi_set_enabled(true)==ESP_ERR_INVALID_STATE);
+   queue_ip();queue_disconnect(WIFI_REASON_AUTH_FAIL);pump();assert(!snapshot().connected);
+   event(NULL,WIFI_EVENT,WIFI_EVENT_STA_STOP,NULL);pump();
+  }
+  assert(snapshot().stopped && !snapshot().enabled && !snapshot().connected && !reconnect_wanted && !retry_at && !auto_retry_at);
+  assert(ouse_task_get(NULL,off,&task)&&task.state==OUSE_TASK_SUCCEEDED);
+  assert(ouse_wifi_set_enabled(true)==ESP_OK);pump();assert(snapshot().enabled && sdk_started);
+  printf("PASS interrupt and disable Wi-Fi: %s\n",name);return 0;
+ }else if(!strcmp(name,"kernel-quiesce-queued")){
   connect_office();queue_ip();pump();assert(snapshot().connected);
   assert(ouse_wifi_scan()==ESP_OK);uint32_t queued=snapshot().request_id;
   ouse_tasks_quiesce(true);ouse_tasks_cancel_active(NULL,"restart");pump();
@@ -211,7 +241,8 @@ static int regression(const char *name){
   assert(w.connected&&!w.connecting&&connects==before&&ntps==1);
   // Opposite ordering must reject stale IP, even when it arrived in this batch.
   assert(ouse_wifi_connect("Office","correctpass")==0);pump();before=connects;queue_ip();queue_disconnect(1);pump();w=snapshot();
-  assert(!w.connected&&w.connecting&&connects==before+1&&ntps==1);
+  assert(!w.connected&&w.connecting&&connects==before&&ntps==1);
+  now+=600000;pump();assert(connects==before+1);
   queue_disconnect(WIFI_REASON_AUTH_FAIL);queue_ip();pump();assert(snapshot().connected&&!snapshot().connecting);
  }else if(!strcmp(name,"stop-retry")){
   assert(ouse_wifi_set_enabled(true)==0);pump();event(NULL,WIFI_EVENT,WIFI_EVENT_SCAN_DONE,NULL);pump();stop_error=ESP_FAIL;assert(ouse_wifi_set_enabled(false)==0);pump();assert(snapshot().error==ESP_FAIL&&sdk_started);
@@ -220,7 +251,7 @@ static int regression(const char *name){
   assert(stops==2&&!sdk_started&&!started&&snapshot().error==0);
   assert(ouse_wifi_set_enabled(true)==0);pump();assert(sdk_started&&snapshot().ready&&starts==2);
  }else if(!strcmp(name,"reconnect-failure")){
-  connect_office();connect_error=ESP_FAIL;disconnected(1);ouse_wifi_state_t w=snapshot();
+  connect_office();connect_error=ESP_FAIL;disconnected(1);now+=600000;pump();ouse_wifi_state_t w=snapshot();
   printf("reconnect immediate failure: error=%d completed=%u request=%u\n",w.error,w.completed_id,w.request_id);fflush(stdout);
   assert(w.error==ESP_FAIL&&!w.connecting&&w.completed_id==w.request_id);
   connect_error=0;assert(ouse_wifi_connect("Office","correctpass")==0);pump();queue_ip();pump();assert(snapshot().connected);
@@ -245,7 +276,7 @@ static int regression(const char *name){
   // A late old-SSID event must not erase the new request's queued IP event.
   queue_ip();queue_disconnect_from("Office",1);pump();assert(snapshot().connected&&!strcmp(snapshot().ssid,"Guest")&&connects==before);
  }else if(!strcmp(name,"untagged-disconnect")){
-  connect_office();unsigned before=connects;queue_disconnect_from("",1);pump();assert(snapshot().connecting&&connects==before+1);
+  connect_office();unsigned before=connects;queue_disconnect_from("",1);pump();assert(snapshot().connecting&&connects==before);now+=600000;pump();assert(connects==before+1);
  }else if(!strcmp(name,"transport-before-ip")){
   connect_office();queue_ip();event(NULL,ESP_HOSTED_EVENT,ESP_HOSTED_EVENT_TRANSPORT_DOWN,NULL);pump();ouse_wifi_state_t w=snapshot();ouse_device_config_t c;ouse_devices_get_config(&c);
   assert(!w.ready&&!w.connected&&!w.connecting&&w.error==ESP_ERR_TIMEOUT&&ntps==0&&!c.ssid[0]);
@@ -253,7 +284,7 @@ static int regression(const char *name){
   assert(ouse_wifi_set_enabled(true)==0);pump();event(NULL,WIFI_EVENT,WIFI_EVENT_SCAN_DONE,NULL);pump();stop_error=ESP_FAIL;assert(ouse_wifi_set_enabled(false)==0);pump();
   stop_error=0;assert(ouse_wifi_set_enabled(true)==0);pump();assert(snapshot().ready&&snapshot().error==0&&sdk_started&&starts==1);
  }else if(!strcmp(name,"superseded-init")){
-  supersede_init=true;assert(ouse_wifi_set_enabled(true)==0);pump();assert(snapshot().enabled&&starts==1&&scans==1&&sdk_started);
+  supersede_init=true;assert(ouse_wifi_set_enabled(true)==0);pump();pump();assert(!snapshot().enabled&&!starts&&!scans&&!sdk_started&&snapshot().stopped);
  }else assert(!"Unknown regression");
  printf("PASS actual Wi-Fi worker regression: %s\n",name);return 0;
 }
@@ -269,15 +300,18 @@ int main(int argc,char **argv){
  assert(ouse_wifi_set_enabled(true)==0);pump();w=snapshot();assert(host_inits==1 && wifi_inits==1 && starts==1 && scans==1 && w.scanning);
  event(NULL,WIFI_EVENT,WIFI_EVENT_SCAN_DONE,NULL);pump();w=snapshot();assert(w.count==2 && !w.scanning && !strcmp(w.aps[0].ssid,"Office"));
  assert(ouse_wifi_connect("Office","wrongpass")==0);pump();assert(snapshot().connecting && connects==1 && configured.sta.threshold.authmode==WIFI_AUTH_WPA2_PSK);
- disconnected(WIFI_REASON_AUTH_FAIL);w=snapshot();assert(!w.connecting && w.error==ESP_FAIL && connects==1);
+ disconnected(WIFI_REASON_AUTH_FAIL);assert(snapshot().connecting&&snapshot().error==ESP_OK&&connects==1);
+ for(unsigned retry=0;retry<3;++retry){now+=600000LL<<retry;pump();assert(snapshot().connecting&&connects==retry+2);disconnected(WIFI_REASON_AUTH_FAIL);}
+ w=snapshot();assert(!w.connecting && w.error==ESP_FAIL && connects==4);
  ouse_devices_get_config(&cfg);assert(!cfg.ssid[0]);
  assert(ouse_wifi_connect("Office","correctpass")==0);pump();
  queue_ip();pump();w=snapshot();
  assert(w.connected && !w.connecting && !strcmp(w.ip,"192.168.1.7") && ntps==1);
  ouse_devices_get_config(&cfg);assert(!strcmp(cfg.password,"correctpass") && !strcmp(cfg.ssid,"Office"));
  signal=-53;now+=5000000;pump();assert(snapshot().rssi==-53);
- unsigned before=connects;disconnected(1);assert(snapshot().connecting && connects==before+1);
- disconnected(1);assert(snapshot().connecting && connects==before+2);disconnected(1);assert(!snapshot().connecting && connects==before+2);
+ unsigned before=connects;disconnected(1);assert(!snapshot().connecting&&connects==before);now+=1100000;pump();assert(snapshot().connecting&&connects==before+1);
+ for(unsigned retry=0;retry<3;++retry){disconnected(1);now+=600000LL<<retry;pump();assert(snapshot().connecting&&connects==before+retry+2);}
+ disconnected(1);assert(!snapshot().connecting&&connects==before+4);
  assert(ouse_wifi_connect("Office","correctpass")==0);pump();now+=16000000;pump();w=snapshot();assert(w.error==ESP_ERR_TIMEOUT && !w.connecting);queue_disconnect(WIFI_REASON_ASSOC_LEAVE);pump();
  assert(ouse_wifi_set_enabled(true)==0);pump();queue_ip();pump();assert(snapshot().connected);
  event(NULL,ESP_HOSTED_EVENT,ESP_HOSTED_EVENT_TRANSPORT_DOWN,NULL);pump();assert(!snapshot().ready && snapshot().error==ESP_ERR_TIMEOUT);
@@ -292,9 +326,9 @@ int main(int argc,char **argv){
 (OUT/"check.c").write_text(fixture,encoding="utf-8")
 result=subprocess.run([str(compiler),"/nologo","/utf-8","/std:c11","/O2","/MD","/UNDEBUG","/I"+str(OUT),"/I"+str(ROOT/".tools/ouse-core-check"),"/I"+str(ROOT/"components/ouse_devices/include"),"/I"+str(ROOT/"components/ouse_tasks/include"),"/I"+str(ROOT/"components/ouse_media/include"),"/I"+str(ROOT/"components/ouse_system/include"),str(ROOT/"components/ouse_tasks/ouse_tasks.c"),str(OUT/"check.c"),str(ROOT/"components/ouse_devices/ouse_devices.c"),"/Fe"+str(OUT/"check.exe")],cwd=OUT,env=env,capture_output=True,text=True,errors="replace")
 assert result.returncode==0,(result.stdout,result.stderr)
+for case in ("kernel-drain","kernel-disconnect","kernel-owner-close","kernel-recover","kernel-recover-not-started","kernel-quiesce-queued","kernel-disable-connecting","kernel-disable-scan","kernel-disable-recovery","kernel-disable-queued"):
+ subprocess.run([str(OUT/"check.exe"),case],cwd=OUT,check=True,timeout=15)
 if "--kernel-only" in sys.argv:
- for case in ("kernel-drain","kernel-disconnect","kernel-owner-close","kernel-recover","kernel-recover-not-started","kernel-quiesce-queued"):
-  subprocess.run([str(OUT/"check.exe"),case],cwd=OUT,check=True,timeout=15)
  sys.exit(0)
 subprocess.run([str(OUT/"check.exe")],cwd=OUT,check=True)
 failures=[]

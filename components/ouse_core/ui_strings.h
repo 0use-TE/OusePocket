@@ -236,4 +236,5 @@ static const struct { const char *zh, *en; } ui_strings[] = {
 {"连接失败，请检查密码","Connection failed. Check password."},
 {"锁屏密码已开启","Screen lock is on"},
 {"锁屏密码未开启","Screen lock is off"},
+{"恢复原生程序和游戏图标","Restore native app and game icons"},
 };

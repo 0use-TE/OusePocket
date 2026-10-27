@@ -1,4 +1,4 @@
-idf_component_register(SRCS "ouse_board.c" "board_display.c" "board_lcd_frame.c" "board_lcd_frame_io.c" "board_lcd_scan_io.c" "board_lcd_sync.c" "display_flush_wake.c" "board_devices.c" "board_audio.c" "board_wifi.c" "board_sd.c" "board_sd_bus.c" "board_camera.c" "board_ble_probe.c" INCLUDE_DIRS "include"
+idf_component_register(SRCS "ouse_board.c" "board_display.c" "board_lcd_frame.c" "board_lcd_frame_io.c" "board_lcd_scan_io.c" "board_lcd_sync.c" "display_flush_wake.c" "board_devices.c" "board_audio.c" "board_wifi.c" "board_sd.c" "board_sd_bus.c" "board_sd_write.c" "board_camera.c" "board_ble_probe.c" INCLUDE_DIRS "include"
     REQUIRES ouse_core ouse_devices ouse_media ouse_files ouse_usb ouse_camera ouse_recorder espressif__esp_video waveshare__esp32_p4_wifi6_touch_lcd_3_5 espressif__esp_lvgl_adapter
     PRIV_REQUIRES esp_driver_i2s esp_driver_i2c esp_driver_sdmmc esp_driver_sd_intf sdmmc espressif__esp_codec_dev esp_wifi esp_event esp_netif nvs_flash esp_timer espressif__esp_hosted lwip)
 target_link_options(${COMPONENT_LIB} INTERFACE

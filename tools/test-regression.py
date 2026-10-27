@@ -34,12 +34,27 @@ CASES = {
     'weather-app': ['node', 'tools/test-weather-app.cjs'],
     'store-app': ['node', 'tools/test-store-app.cjs'],
     'file-open-apps': ['node', 'tools/test-file-open-apps.cjs'],
-    'image-updates': [sys.executable, 'tools/test-image-updates.py'],
     'package-requests': [sys.executable, 'tools/test-package-requests.py'],
     'packages': [sys.executable, 'tools/test-ouse-app-packages.py', '--apps', 'countdown', 'network', 'camera', 'gallery', 'music', 'recorder', 'store', 'explorer'],
+    'image-updates': [sys.executable, 'tools/test-image-updates.py'],
     'runtime-errors': [sys.executable, 'tools/test-runtime-errors.py'],
     'bluetooth-runtime': [sys.executable, 'tools/test-bluetooth-runtime.py'],
     'bluetooth-ownership': [sys.executable, 'tools/test-bluetooth-ownership.py'],
+    'wifi': [sys.executable, 'tools/test-ouse-wifi.py'],
+    'sd-write': [sys.executable, 'tools/test-sd-write-verification.py'],
+    'camera-pipeline': [sys.executable, 'tools/test-camera-pipeline.py'],
+    'camera-preview': [sys.executable, 'tools/test-camera-preview.py'],
+    'camera-apps': ['node', 'tools/test-camera-apps.cjs'],
+    'survivor': ['node', 'tools/test-survivor.cjs'],
+    'game2d': [sys.executable, 'tools/test-game2d.py'],
+    'native-elf': [sys.executable, 'tools/test-native-elf.py'],
+    'nes-controls': [sys.executable, 'tools/test-nes-controls.py'],
+    'quake2-controls': [sys.executable, 'tools/test-quake2-controls.py'],
+    'hosted-memory': [sys.executable, 'tools/test-hosted-memory.py'],
+    'display-flush': [sys.executable, 'tools/test-display-flush-wake.py'],
+    'lcd-async': [sys.executable, 'tools/test-lcd-async.py'],
+    'lcd-window': [sys.executable, 'tools/test-lcd-frame-window.py'],
+    'game-session': [sys.executable, 'tools/test-game-session.py'],
 }
 DEPENDENCIES = {
     'power-off': ['system'],
@@ -62,6 +77,13 @@ DEPENDENCIES = {
     'runtime-errors': ['ui', 'kernel', 'packages'],
     'bluetooth-runtime': ['kernel', 'packages'],
     'bluetooth-ownership': ['kernel'],
+    'wifi': ['ui', 'kernel'],
+    'sd-write': ['ui'],
+    'camera-pipeline': ['ui'],
+    'camera-preview': ['ui'],
+    'game2d': ['ui', 'packages'],
+    'hosted-memory': ['system'],
+    'display-flush': ['system'],
 }
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--only', nargs='+', choices=CASES)
@@ -70,8 +92,12 @@ output = ROOT / '.tools/regression'
 output.mkdir(parents=True, exist_ok=True)
 results = []
 selected = set(args.only or CASES)
-for name in list(selected):
-    selected.update(DEPENDENCIES.get(name, []))
+pending = list(selected)
+while pending:
+    for dependency in DEPENDENCIES.get(pending.pop(), []):
+        if dependency not in selected:
+            selected.add(dependency)
+            pending.append(dependency)
 for name in CASES:
     if name not in selected:
         continue

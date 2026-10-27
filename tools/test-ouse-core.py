@@ -619,6 +619,9 @@ int main(int argc, char **argv) {
     bool order=argc>1 && !strcmp(argv[1],"--launcher-order");
     bool reload=argc>1 && !strcmp(argv[1],"--launcher-order-reload");
     bool corrupt=argc>1 && !strcmp(argv[1],"--launcher-order-corrupt");
+    bool native_icons=argc>1 && (!strcmp(argv[1],"--native-icons") || !strcmp(argv[1],"--native-icons-reload"));
+    if(native_icons){definitions[1].id="ouse.nes";definitions[1].name="NES";}
+    if(argc>1 && !strcmp(argv[1],"--native-icons-reload"))host_launcher_order=_strdup("OUSE1\nouse.settings\nouse.counter\n-ouse.nes\n");
     bool pages=argc>1 && (!strcmp(argv[1],"--launcher-pages") || order || reload);
     if(reload)host_launcher_order=_strdup("OUSE1\nouse.counter\nouse.settings\n");
     if(corrupt)host_launcher_order=_strdup("OUSE1\nouse.settings\nouse.settings\n");
@@ -656,6 +659,7 @@ int main(int argc, char **argv) {
     assert(ouse_core_start(&config)==ESP_ERR_INVALID_ARG);
     definitions[1].id="ouse.fail";
     config.app_count=requested_count;
+    if(native_icons)definitions[1].id="ouse.nes";
     assert(ouse_core_start(&config) == ESP_OK && ouse_core_is_started());
     assert(brightness == 45);
     assert(ouse_core_start(&config) == ESP_ERR_INVALID_STATE);
@@ -957,6 +961,14 @@ int main(int argc, char **argv) {
         ouse_shell_get_state(&shell);assert(shell.fullscreen);
         assert(ouse_core_set_orientation(true)==ESP_OK);tick();
         ouse_core_app_size(&width,&height);assert(width==480 && height==320);
+        ouse_shell_set_navigation(1);tick();
+        ouse_core_app_size(&width,&height);assert(width==480 && height==280);
+        screenshot("fullscreen-three-buttons.ppm");
+        touch_step(240,300,true);touch_step(240,300,false);tick();
+        ouse_app_stats_t fullscreen_apps;ouse_app_get_stats(&fullscreen_apps);assert(!fullscreen_apps.active_id[0]);
+        assert(ouse_app_open("ouse.counter")==ESP_OK);tick();
+        ouse_shell_set_navigation(0);tick();
+        ouse_core_app_size(&width,&height);assert(width==480 && height==320);
         assert(ouse_app_open("ouse.settings")==ESP_OK);tick();
         ouse_core_app_size(&width,&height);assert(width==480 && height==256);
         ouse_shell_get_state(&shell);assert(!shell.fullscreen);
@@ -969,6 +981,22 @@ int main(int argc, char **argv) {
         assert(ouse_app_close()==ESP_OK);tick();
         ouse_shell_get_state(&shell);assert(!shell.fullscreen);
         puts("PASS fullscreen viewport, rotation, app switch, resume, background and close restore system chrome");return 0;
+    }
+    if(native_icons){
+        ouse_core_launcher_restored();tick();
+        if(!strcmp(argv[1],"--native-icons")){
+            lv_obj_t *name=label(root,"NES");assert(name);
+            lv_obj_send_event(lv_obj_get_parent(name),LV_EVENT_LONG_PRESSED,NULL);
+            assert(label(root,"X"));
+            click(root,"X");click(root,"移除");tick();
+        }
+        assert(!label(root,"NES") && strstr(host_launcher_order,"-ouse.nes\n"));
+        assert(host_uninstall_requests==0);
+        assert(ouse_app_open("ouse.settings")==ESP_OK);tick();click(root,"外观");
+        click(root,"恢复原生程序和游戏图标");tick();
+        assert(!strstr(host_launcher_order,"-ouse.nes\n"));
+        assert(ouse_app_background()==ESP_OK);tick();assert(label(root,"NES"));
+        puts("PASS native desktop icon removal, persistence/reload, restoration and SD/program retention");return 0;
     }
     if(argc>1 && !strcmp(argv[1],"--focused-native-ui")) {focused_native_ui(root);return 0;}
     assert(label(root, LV_SYMBOL_SETTINGS) && !label(root, "屏幕亮度"));
@@ -1013,15 +1041,17 @@ int main(int argc, char **argv) {
             saved=_strdup(host_launcher_order);
             touch_step(58,72,true);for(unsigned step=0;step<15;++step)touch_step(58,72,true);
             touch_step(258,450,true);touch_step(258,450,false);tick();assert(!strcmp(saved,host_launcher_order));free(saved);
-            ouse_app_definition_t added=definitions[1];added.id="user.order-test";assert(ouse_core_user_apply(&added)==ESP_OK);tick();
+            ouse_app_definition_t added=definitions[1];added.id="user.order-test";added.name="Order Test";assert(ouse_core_user_apply(&added)==ESP_OK);tick();
             assert(strstr(host_launcher_order,"user.order-test\n"));
             saved=_strdup(host_launcher_order);assert(ouse_core_user_apply(&added)==ESP_OK);tick();assert(!strcmp(saved,host_launcher_order));free(saved);
-            lv_obj_t *remove_mark=label(root,"X");assert(remove_mark);
-            lv_obj_send_event(lv_obj_get_parent(lv_obj_get_parent(remove_mark)),LV_EVENT_LONG_PRESSED,NULL);
+            lv_obj_t *added_name=label(root,"Order Test");assert(added_name);
+            lv_obj_t *added_tile=lv_obj_get_parent(added_name),*remove_badge=lv_obj_get_child(added_tile,-1);
+            lv_obj_t *remove_mark=lv_obj_get_child(remove_badge,0);assert(!strcmp(lv_label_get_text(remove_mark),"X"));
+            lv_obj_send_event(added_tile,LV_EVENT_LONG_PRESSED,NULL);
             assert(!lv_obj_has_flag(lv_obj_get_parent(remove_mark),LV_OBJ_FLAG_HIDDEN));
-            click(root,"X");assert(ouse_dialog_active() && host_uninstall_requests==0);
+            lv_obj_send_event(remove_badge,LV_EVENT_CLICKED,NULL);assert(ouse_dialog_active() && host_uninstall_requests==0);
             click(root,"取消");assert(!ouse_dialog_active() && host_uninstall_requests==0);
-            click(root,"X");click(root,"卸载");tick();
+            lv_obj_send_event(remove_badge,LV_EVENT_CLICKED,NULL);click(root,"卸载");tick();
             assert(host_uninstall_requests==1 && !strcmp(host_uninstall_target,added.id));
             assert(ouse_core_user_remove(added.id)==ESP_OK);tick();assert(!strstr(host_launcher_order,"user.order-test"));
             puts("PASS launcher long-hold insertion, cross-page drag, no accidental launch, cancelled drop, save failure/retry, theme rebuild, update retention and uninstall pruning");return 0;
@@ -1376,7 +1406,7 @@ os.environ["PATH"] = str(compiler.parent)+os.pathsep+env["PATH"]
 widget_only="--focused-widgets" in sys.argv[1:]
 current_ui="--focused-current-ui" in sys.argv[1:]
 focused=widget_only or current_ui or "--focused-native-ui" in sys.argv[1:]
-for new_case in ['--volume-slider','--game-mode','--fullscreen']:
+for new_case in ['--volume-slider','--game-mode','--fullscreen','--native-icons','--native-icons-reload']:
     subprocess.run([str(OUT / "check.exe"),new_case],check=True,cwd=OUT,timeout=60)
 if not focused:
     subprocess.run([str(OUT / "check.exe")], check=True, cwd=OUT, timeout=180)

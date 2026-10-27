@@ -255,20 +255,27 @@ esp_err_t ouse_wifi_submit(const ouse_task_owner_t *owner,ouse_wifi_action_t act
     // ESP Wi-Fi events carry no application instance token. Serialize accepted
     // operations instead of silently overwriting an active request's identity.
     ouse_task_snapshot_t active;
-    if(devices.wifi_pending || (ouse_task_get(NULL,devices.wifi_task,&active) && active.state<OUSE_TASK_SUCCEEDED)){
+    bool disabling=action==OUSE_WIFI_ENABLE && !enabled;
+    if(!disabling && (devices.wifi_pending || (ouse_task_get(NULL,devices.wifi_task,&active) && active.state<OUSE_TASK_SUCCEEDED))){
         unlock();return ESP_ERR_INVALID_STATE;
     }
     if(action!=OUSE_WIFI_ENABLE && action!=OUSE_WIFI_FORGET && action!=OUSE_WIFI_DISCONNECT && !devices.config.wifi_enabled){unlock();return ESP_ERR_INVALID_STATE;}
     static const char *names[]={"setEnabled","scan","connect","disconnect","forget"};
-    esp_err_t error=ouse_task_create(owner ? owner : &system_owner,OUSE_TASK_WIFI,names[action],OUSE_TASK_FINISH_ON_CLOSE,true,id);
+    // Off must retain its task until the physical STOP fence is discharged.
+    esp_err_t error=ouse_task_create(owner ? owner : &system_owner,OUSE_TASK_WIFI,names[action],OUSE_TASK_FINISH_ON_CLOSE,!disabling,id);
     if(error!=ESP_OK){unlock();return error;}
     if(action==OUSE_WIFI_ENABLE && devices.config.wifi_enabled!=enabled){devices.config.wifi_enabled=enabled;dirty();}
+    if(disabling && devices.wifi_task){
+        (void)ouse_task_cancel(NULL,devices.wifi_task,"wifi_disabled");
+        ouse_task_finish(devices.wifi_task,ESP_OK,true);
+    }
     if(action==OUSE_WIFI_FORGET){devices.config.ssid[0]=devices.config.password[0]=0;dirty();}
     devices.wifi_request=(ouse_wifi_request_t){.id=*id,.action=action,.enabled=devices.config.wifi_enabled};
     strcpy(devices.wifi_request.ssid,action==OUSE_WIFI_FORGET ? "" : ssid ? ssid : devices.config.ssid);
     strcpy(devices.wifi_request.password,action==OUSE_WIFI_FORGET ? "" : password ? password : devices.config.password);
     devices.wifi_task=*id;devices.wifi.request_id=*id;devices.wifi_pending=true;
     devices.wifi.enabled=devices.config.wifi_enabled;devices.wifi.error=ESP_OK;devices.wifi.reason=0;++devices.wifi.revision;
+    if(disabling){devices.wifi.connecting=devices.wifi.scanning=devices.wifi.connected=false;devices.wifi.ip[0]=0;}
     unlock();notify(0);notify(2);return ESP_OK;
 }
 esp_err_t ouse_wifi_set_enabled(bool enabled) {uint32_t id;return ouse_wifi_submit(NULL,OUSE_WIFI_ENABLE,enabled,NULL,NULL,&id);}
@@ -277,6 +284,11 @@ esp_err_t ouse_wifi_connect(const char *ssid,const char *password) {uint32_t id;
 esp_err_t ouse_wifi_disconnect(void) {uint32_t id;return ouse_wifi_submit(NULL,OUSE_WIFI_DISCONNECT,false,NULL,NULL,&id);}
 esp_err_t ouse_wifi_forget(void) {uint32_t id;return ouse_wifi_submit(NULL,OUSE_WIFI_FORGET,false,NULL,NULL,&id);}
 bool ouse_devices_take_wifi(ouse_wifi_request_t *out) {lock();bool pending=devices.wifi_pending;if(pending){*out=devices.wifi_request;devices.wifi_pending=false;}unlock();return pending;}
+bool ouse_devices_take_wifi_disable(ouse_wifi_request_t *out)
+{
+    lock();bool pending=devices.wifi_pending && devices.wifi_request.action==OUSE_WIFI_ENABLE && !devices.wifi_request.enabled;
+    if(pending){*out=devices.wifi_request;devices.wifi_pending=false;}unlock();return pending;
+}
 bool ouse_devices_wifi_current(uint32_t id) {lock();bool current=devices.wifi.request_id==id;unlock();return current;}
 void ouse_devices_publish_wifi(const ouse_wifi_state_t *state,uint32_t id)
 {

@@ -1,4 +1,5 @@
-const game=createSurvivorEngine(),content=game.content,sound=createSurvivorAudio(Ouse),loop=createGameRuntime(tick);
+const game=createSurvivorEngine(),content=game.content,sound=createSurvivorAudio(Ouse),loop=createGameRuntime(tick,0);
+console.log('SURVIVOR_ENGINE '+game.backend);
 let width=480,height=320,phase='home',active=true,closed=false,last=0,clock=0,camX=0,camY=0,held=false,joyX=0,joyY=0,tab=0,ready=false,best=0,hudKey='',shotAt=0,savedResult=false,reportAt=0;
 let loadout={hero:0,gun:0,pet:0,zone:0},preferences={hand:'left',effects:true};
 const tabKeys=['hero','gun','pet','zone'],lists=[content.heroes,content.guns,content.pets,content.zones];
@@ -134,7 +135,7 @@ function tick(){
    if(event==='shot'){if(now-shotAt>=120){sound.effect('shot');shotAt=now;}}else sound.effect(event);
   }
   const s=game.state;
-  if(now>=reportAt){reportAt=now+5000;console.log('SURVIVOR_STATE '+JSON.stringify({x:Math.round(s.hero.x),y:Math.round(s.hero.y),kills:s.kills,wave:s.wave,hero:s.loadout.hero,gun:s.loadout.gun,pet:s.loadout.pet,zone:s.loadout.zone,petKills:s.petKills,mode:s.mode}));}
+  if(now>=reportAt){reportAt=now+5000;console.log('SURVIVOR_STATE '+JSON.stringify({x:Math.round(s.hero.x),y:Math.round(s.hero.y),kills:s.kills,wave:s.wave,hero:s.loadout.hero,gun:s.loadout.gun,pet:s.loadout.pet,zone:s.loadout.zone,petKills:s.petKills,mode:s.mode,fps:loop.fps}));}
   if(s.mode==='upgrade')showModal(s.upgradeReason==='wave'?'波次完成':'角色升级','第 '+s.wave+' 波 · 等级 '+s.level,s.choices.map(key=>upgradeLabels[key]+(key==='weapon'?' '+(s.gunRank+1)+'级':'')));
   if(s.mode==='dead'||s.mode==='won'){
    if(!savedResult){savedResult=true;best=Math.max(best,s.kills);Ouse.storage.set('best',best).catch(()=>{});}

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // One task owns all QuickJS values. LVGL sees only bounded plain-data models.
 #include "ouse_runtime.h"
+#include "ouse_game2d.h"
 #include "ouse_budget.h"
 #include "ouse_core.h"
 #include "ouse_apps_internal.h"
@@ -545,7 +546,7 @@ static JSValue ui_set_image(JSContext *context,JSValueConst self,int argc,JSValu
 {
     (void)self;instance_t *app=from_js(context);node_t *node=argc==2 ? find_node(app,argv[0]) : NULL;char id[32];
     if(!node || node->model.type!=IMAGE || !copy_string(context,argv[1],id,sizeof(id)) || !find_image(app,id))return JS_ThrowTypeError(context,"setImage expects image widget and packaged image id");
-    model_lock(app);strcpy(node->model.image,id);++node->model.image_revision;model_unlock(app);return JS_UNDEFINED;
+    model_lock(app);if(strcmp(node->model.image,id)){strcpy(node->model.image,id);++node->model.image_revision;}model_unlock(app);return JS_UNDEFINED;
 }
 static JSValue ui_set_image_data(JSContext *context,JSValueConst self,int argc,JSValueConst *argv)
 {
@@ -889,6 +890,7 @@ static JSValue fullscreen_set(JSContext *context,JSValueConst self,int argc,JSVa
     if(accepted){app->pending_commands|=128u;app->fullscreen_requested=JS_ToBool(context,argv[0]);}
     model_unlock(app);return JS_NewBool(context,accepted);
 }
+#include "ouse_runtime_game2d.inc"
 static JSValue game_mode_set(JSContext *context,JSValueConst self,int argc,JSValueConst *argv)
 {
     (void)self;
@@ -1649,6 +1651,10 @@ static void install_api(instance_t *app)
     JS_SetPropertyStr(context,timers,"requestFrame",JS_NewCFunctionMagic(context,timer_create,"requestFrame",1,JS_CFUNC_generic_magic,2));
     JS_SetPropertyStr(context,api,"timers",timers);
     JSValue game=JS_NewObject(context);JS_SetPropertyStr(context,game,"setEnabled",JS_NewCFunction(context,game_mode_set,"setEnabled",1));JS_SetPropertyStr(context,api,"game",game);
+    JSValue game2d=JS_NewObject(context);
+    JS_SetPropertyStr(context,game2d,"version",JS_NewInt32(context,1));
+    JS_SetPropertyStr(context,game2d,"stepProjectiles",JS_NewCFunction(context,game2d_projectiles,"stepProjectiles",4));
+    JS_SetPropertyStr(context,api,"game2d",game2d);
     JS_SetPropertyStr(context,api,"apiVersion",JS_NewInt32(context,OUSE_RUNTIME_API_VERSION));
 
     const char *groups[]={"theme","locale","display"};
@@ -2619,7 +2625,13 @@ static void build_nodes(instance_t *app)
             lv_obj_set_style_text_color(object,lv_color_hex(ouse_theme_colors().text),0);
         }
         else if(model.type==SPRITE){node->sprite_revision=0;node->sprite_image=lv_image_create(object);lv_obj_remove_flag(node->sprite_image,LV_OBJ_FLAG_CLICKABLE);lv_image_set_src(node->sprite_image,find_image(app,model.image));lv_image_set_inner_align(node->sprite_image,LV_IMAGE_ALIGN_TOP_LEFT);lv_image_set_pivot(node->sprite_image,0,0);}
-        else if(model.type==IMAGE){lv_image_set_src(object,find_image(app,model.image));lv_image_set_inner_align(object,model.image[0]=='@' ? !strcmp(model.image,"@photo") ? LV_IMAGE_ALIGN_CONTAIN : LV_IMAGE_ALIGN_COVER : LV_IMAGE_ALIGN_STRETCH);}
+        else if(model.type==IMAGE){lv_image_set_src(object,find_image(app,model.image));lv_image_set_inner_align(object,model.image[0]=='@' ? (!strcmp(model.image,"@photo") || !strcmp(model.image,"@camera")) ? LV_IMAGE_ALIGN_CONTAIN : LV_IMAGE_ALIGN_COVER : LV_IMAGE_ALIGN_STRETCH);
+            // Live RGB565 preview is enlarged and clipped by the camera page.
+            // Bilinear sampling monopolizes the UI task on full-screen frames;
+            // nearest-neighbour keeps the live path bounded. Saved photos retain
+            // the regular filtered image path and original sensor resolution.
+            if(!strcmp(model.image,"@camera"))lv_image_set_antialias(object,false);
+        }
         else if(model.type==TEXT_INPUT){
             ouse_theme_apply(object,OUSE_STYLE_PANEL,0);
             lv_textarea_set_one_line(object,!model.multiline);lv_textarea_set_max_length(object,model.max_length);

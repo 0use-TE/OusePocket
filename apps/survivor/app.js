@@ -28,6 +28,8 @@ const SurvivorContent={
 };
 function createSurvivorEngine(seed=1){
  const dt=1/60,W=1280,H=960,MAX_FOES=24,MAX_SHOTS=32;
+ const native=typeof Ouse!=='undefined'&&Ouse.game2d&&Ouse.game2d.version===1?Ouse.game2d:null;
+ const shotData=native?new Float64Array(MAX_SHOTS*8):null,targetData=native?new Float64Array(MAX_FOES*4):null,hitData=native?new Uint32Array(MAX_SHOTS):null;
  let randomState=seed>>>0,s,acc=0,mx=0,my=0,events=[];
  const pool=n=>Array.from({length:n},(_,id)=>({id,on:false}));
  function random(){randomState=(Math.imul(randomState,1664525)+1013904223)>>>0;return randomState/4294967296;}
@@ -138,9 +140,16 @@ function createSurvivorEngine(seed=1){
   }
   const target=nearest(h,430);s.fire-=dt;
   if(target&&s.fire<=0){shoot(h,target,s.loadout.gun);s.fire=SurvivorContent.guns[s.loadout.gun].rate/s.haste*(s.gunRank>=5?.85:1);}
+  if(native){
+   for(let i=0;i<MAX_FOES;i++){const f=s.foes[i],k=i*4;targetData[k]=f.on?f.x:0;targetData[k+1]=f.on?f.y:0;targetData[k+2]=f.on?f.radius:0;targetData[k+3]=f.on?1:0;}
+   for(let i=0;i<MAX_SHOTS;i++){const b=s.shots[i],k=i*8;shotData[k]=b.on?b.x:0;shotData[k+1]=b.on?b.y:0;shotData[k+2]=b.on?b.dx:0;shotData[k+3]=b.on?b.dy:0;shotData[k+4]=b.on?b.life:0;shotData[k+5]=3;shotData[k+6]=b.on?1:0;shotData[k+7]=b.on?b.mask>>>0:0;}
+   native.stepProjectiles(shotData.buffer,targetData.buffer,hitData.buffer,dt);
+  }
   for(const b of s.shots)if(b.on){
-   const x=b.x,y=b.y;b.x+=b.dx*dt;b.y+=b.dy*dt;b.life-=dt;
-   for(const f of s.foes)if(f.on&&!(b.mask&(1<<f.id))&&segmentDistance(f,x,y,b.x,b.y)<(f.radius+3)**2){
+   const x=b.x,y=b.y;
+   if(native){const k=b.id*8;b.x=shotData[k];b.y=shotData[k+1];b.life=shotData[k+4];}
+   else {b.x+=b.dx*dt;b.y+=b.dy*dt;b.life-=dt;}
+   for(const f of s.foes)if(f.on&&!(b.mask&(1<<f.id))&&(native?!!(hitData[b.id]&(1<<f.id)):segmentDistance(f,x,y,b.x,b.y)<(f.radius+3)**2)){
     b.mask|=1<<f.id;if(b.gun===4){blast(b.x,b.y,48+s.gunRank*4,b.damage);b.on=false;break;}
     hit(f,b.damage);if(--b.pierce<=0){b.on=false;break;}
    }
@@ -170,7 +179,7 @@ function createSurvivorEngine(seed=1){
  function advance(seconds){if(!Number.isFinite(seconds)||seconds<=0)return;acc+=Math.min(.125,seconds);let steps=0;while(acc>=dt&&steps++<8){step();acc-=dt;}}
  function pause(){if(s.mode==='playing'){s.mode='paused';move(0,0);acc=0;}}
  function resume(){if(s.mode==='paused'){s.mode='playing';acc=0;}}
- reset();return {reset,move,advance,skill,choose,pause,resume,spawn,hit,hurt,blast,drop,drainEvents(){const result=events;events=[];return result;},get state(){return s;},content:SurvivorContent};
+ reset();return {backend:native?"native":"js",reset,move,advance,skill,choose,pause,resume,spawn,hit,hurt,blast,drop,drainEvents(){const result=events;events=[];return result;},get state(){return s;},content:SurvivorContent};
 }
 
 // Native playback/mixing owns PCM work. Only control messages run in the game loop.
@@ -201,7 +210,8 @@ function createSurvivorAudio(host){
  return {sync,update,effect,close(){if(closed)return;closed=true;wanted=false;host.media.stop();},get effects(){return effects;}};
 }
 
-const game=createSurvivorEngine(),content=game.content,sound=createSurvivorAudio(Ouse),loop=createGameRuntime(tick);
+const game=createSurvivorEngine(),content=game.content,sound=createSurvivorAudio(Ouse),loop=createGameRuntime(tick,0);
+console.log('SURVIVOR_ENGINE '+game.backend);
 let width=480,height=320,phase='home',active=true,closed=false,last=0,clock=0,camX=0,camY=0,held=false,joyX=0,joyY=0,tab=0,ready=false,best=0,hudKey='',shotAt=0,savedResult=false,reportAt=0;
 let loadout={hero:0,gun:0,pet:0,zone:0},preferences={hand:'left',effects:true};
 const tabKeys=['hero','gun','pet','zone'],lists=[content.heroes,content.guns,content.pets,content.zones];
@@ -337,7 +347,7 @@ function tick(){
    if(event==='shot'){if(now-shotAt>=120){sound.effect('shot');shotAt=now;}}else sound.effect(event);
   }
   const s=game.state;
-  if(now>=reportAt){reportAt=now+5000;console.log('SURVIVOR_STATE '+JSON.stringify({x:Math.round(s.hero.x),y:Math.round(s.hero.y),kills:s.kills,wave:s.wave,hero:s.loadout.hero,gun:s.loadout.gun,pet:s.loadout.pet,zone:s.loadout.zone,petKills:s.petKills,mode:s.mode}));}
+  if(now>=reportAt){reportAt=now+5000;console.log('SURVIVOR_STATE '+JSON.stringify({x:Math.round(s.hero.x),y:Math.round(s.hero.y),kills:s.kills,wave:s.wave,hero:s.loadout.hero,gun:s.loadout.gun,pet:s.loadout.pet,zone:s.loadout.zone,petKills:s.petKills,mode:s.mode,fps:loop.fps}));}
   if(s.mode==='upgrade')showModal(s.upgradeReason==='wave'?'波次完成':'角色升级','第 '+s.wave+' 波 · 等级 '+s.level,s.choices.map(key=>upgradeLabels[key]+(key==='weapon'?' '+(s.gunRank+1)+'级':'')));
   if(s.mode==='dead'||s.mode==='won'){
    if(!savedResult){savedResult=true;best=Math.max(best,s.kills);Ouse.storage.set('best',best).catch(()=>{});}

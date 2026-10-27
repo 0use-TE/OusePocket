@@ -274,6 +274,22 @@ void ouse_board_wifi_worker(void *argument)
         unsigned bits;int reason;esp_ip4_addr_t ip;
         portENTER_CRITICAL(&event_lock);bits=event_bits;event_bits=0;reason=disconnect_reason;ip=ip_address;portEXIT_CRITICAL(&event_lock);
         if(bits){handle_events(bits,reason,ip);changed=true;}
+        ouse_wifi_request_t off;
+        if(!draining && ouse_devices_take_wifi_disable(&off)){
+            // Preserve an existing STOP fence until the driver confirms it.
+            bool stopping=awaiting_stop==EVENT_STOP;
+            (void)ouse_task_start(off.id,false);
+            ouse_wifi_get(&state);
+            if(stopping){
+                session=off;retry_at=auto_retry_at=0;reconnect_wanted=false;
+                stop_result=ESP_OK;state.error=ESP_OK;
+            }else{
+                state.error=request(off);
+                if(awaiting_stop && !stop_since)stop_since=esp_timer_get_time();
+                if(state.error!=ESP_OK || !awaiting_stop)state.completed_id=off.id;
+            }
+            memset(off.password,0,sizeof(off.password));changed=true;
+        }
         if(!draining)drain_requested=false;
         if(draining && !drain_requested){
             drain_requested=true;

@@ -59,6 +59,7 @@ const ctx=vm.createContext({Ouse,console,Date:{now:()=>now}}),run=code=>vm.runIn
 function tick(n=1,ms=40){for(let i=0;i<n;i++){now+=ms;for(const [id,fn]of [...timers]){timers.delete(id);fn();}}}
 (async()=>{
  run(source('app.js'));await new Promise(setImmediate);tick();assert.equal(run('phase'),'home');assert(!gameMode);assert.equal(run('best'),17);
+ const clockBefore=run('clock');tick(3,16);assert(Math.abs(run('clock')-clockBefore-.048)<1e-9,'uncapped game must process every 16 ms frame callback');
  click('menuCamp');for(let tab=0;tab<4;tab++){click('tab'+tab);click('equip'+(tab===1?5:tab===3?2:3));tick();}
  assert.deepEqual(JSON.parse(run('JSON.stringify(loadout)')),{hero:3,gun:5,pet:3,zone:2});assert.deepEqual(storage.get('loadout-v2'),{hero:3,gun:5,pet:3,zone:2});
  click('campStart');assert(gameMode);handlers.get('joy:pointerdown')({x:80,y:48});const x=run('game.state.hero.x');tick(10);assert(run('game.state.hero.x')>x);handlers.get('joy:pointercancel')();const stopped=run('game.state.hero.x');tick(3);assert.equal(run('game.state.hero.x'),stopped);

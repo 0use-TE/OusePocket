@@ -1,6 +1,7 @@
 "use strict";
 let page="album",offset=0,entries=[],pending=0,kind="",notice=false,returning=false,selected=0,scrollTarget=0,lastScroll=0;
 let externalPath="";
+let scrollAnchor=0,scrollShift=false;
 function openExternal(){
  if(!externalPath||pending)return;
  if(!ready()){externalPath="";popup("SD 卡不可用，请检查连接。");return;}
@@ -18,7 +19,7 @@ function authorize(name,action){
 }
 function paint(){
  if(page!=="album")return;
- for(let index=0;index<12;++index){show("tile"+index,!!entries[index]);show("video"+index,!!(entries[index]&&entries[index].video));Ouse.ui.setEnabled("tile"+index,!!entries[index]&&!pending&&ready());}
+ for(let index=0;index<12;++index){if(entries[index])Ouse.ui.setImage("thumb"+index,entries[index].image);show("tile"+index,!!entries[index]);show("video"+index,!!(entries[index]&&entries[index].video));Ouse.ui.setEnabled("tile"+index,!!entries[index]&&ready());}
  for(let row=0;row<4;++row)show("row"+row,!!entries[row*3]);
  show("empty",ready()&&!pending&&!entries.length);
 }
@@ -26,7 +27,7 @@ function list(start,position=0){
  if(pending)return;
  start=Math.max(0,Math.min(4095,start));
  if(!ready()){paint();if(!notice){notice=true;popup("请插入 SD 卡后再打开相册。");}return;}
- notice=false;scrollTarget=position;pending=Ouse.photos.list(start);kind="list";if(!pending)popup("相册暂不可用，请重新进入。");paint();
+ notice=false;scrollTarget=position;scrollAnchor=Ouse.ui.getScroll("grid").y;scrollShift=entries.length>0&&start!==offset;pending=Ouse.photos.list(start);kind="list";if(!pending)popup("相册暂不可用，请重新进入。");paint();
 }
 function open(index){
  if(pending||!entries[index])return;if(!ready()){popup("请插入 SD 卡后再查看。");return;}
@@ -74,7 +75,7 @@ Ouse.tasks.onComplete(event=>{
  if(externalPath){openExternal();return;}
  if(event.state!=="succeeded"){popup(kind==="remove"?"删除失败，请检查 SD 卡。":"读取失败，请检查 SD 卡及文件格式。");paint();viewer();return;}
  const state=Ouse.photos.get();
- if(kind==="list"){entries=state.entries;offset=state.offset;paint();lastScroll=scrollTarget;Ouse.ui.scrollTo("grid",scrollTarget);}
+ if(kind==="list"){if(scrollShift)scrollTarget=Math.max(0,scrollTarget+Ouse.ui.getScroll("grid").y-scrollAnchor);entries=state.entries;offset=state.offset;paint();lastScroll=scrollTarget;Ouse.ui.scrollTo("grid",scrollTarget);}
  else if(kind==="remove"){returning=true;scrollTarget=0;offset=Math.max(0,offset-3);Ouse.navigation.back();}
  else if(page==="album"){returning=true;scrollTarget=Ouse.ui.getScroll("grid").y;Ouse.navigation.push("photo");}else viewer();
 });

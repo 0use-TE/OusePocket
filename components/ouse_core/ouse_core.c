@@ -527,6 +527,7 @@ static esp_err_t settings_open(lv_obj_t *root,void *context)
     section(core.appearance_page,"系统导航");
     core.navigation_marks[0]=choice(core.appearance_page,"全面屏手势",choose_navigation,0);
     core.navigation_marks[1]=choice(core.appearance_page,"三键导航",choose_navigation,1);
+    ouse_widget_row(core.appearance_page,NULL,"恢复原生程序和游戏图标",NULL,launcher_restore_icons,NULL,NULL);
     core.language_page=settings_column(root);page_heading(core.language_page,"语言",true);
     section(core.language_page,"语言");
     core.locale_marks[0]=choice(core.language_page,"简体中文",choose_language,0);
@@ -599,7 +600,8 @@ static void navigation_layout(int navigation_height)
     lv_obj_set_height(core.home,height-ouse_ui_dp(40)-navigation_height);
     lv_obj_set_height(core.grid,height-ouse_ui_dp(70)-navigation_height);
     int top=core.fullscreen?0:ouse_ui_dp(40);
-    ouse_apps_layout(top,core.fullscreen?height:height-top-navigation_height);
+    int bottom=core.fullscreen && !ouse_shell_navigation()?0:navigation_height;
+    ouse_apps_layout(top,height-top-bottom);
     ouse_shell_set_fullscreen(core.fullscreen);
     rebuild_launcher();
 }
@@ -642,6 +644,8 @@ static void rebuild_launcher(void)
     if (!core.grid) return;
     if(ouse_core_launch_active())launch_animation_end();
     launcher_cancel();
+    ouse_app_stats_t desktop_stats;ouse_app_get_stats(&desktop_stats);
+    core.app_count=desktop_stats.registered;
     unsigned wanted_pages=(core.app_count+11)/12;
     if(core.app_count>core.icon_capacity){
         ouse_app_info_t *icons=ouse_psram_calloc(core.app_count,sizeof(*icons));
@@ -659,7 +663,12 @@ static void rebuild_launcher(void)
     int cell_w=width/cols, name_h=2*ouse_ui_font(14)->line_height;
     int cell_h=height/rows;
     unsigned capacity=(unsigned)(rows*cols); lv_obj_t *page=NULL;
-    for(unsigned index=0;index<core.app_count;++index)(void)ouse_app_get_info(index,&core.icons[index]);
+    core.app_count=0;
+    for(unsigned index=0;index<desktop_stats.registered;++index){
+        ouse_app_info_t info;if(ouse_app_get_info(index,&info)!=ESP_OK)continue;
+        if(launcher.hidden_native&launcher_native_bit(info.id))continue;
+        core.icons[core.app_count++]=info;
+    }
     launcher_sort();
     if(!launcher_tiles(core.app_count))return;
     for(unsigned i=0;i<core.app_count;++i) {
@@ -727,7 +736,7 @@ static void monitor_errors(lv_timer_t *timer)
     permission_dialog();
     bluetooth_pair_prompt();
     static bool settings_failed;
-    static uint32_t saved_error,audio_error,wifi_error;
+    static uint32_t saved_error,audio_error;
     ouse_settings_state_t settings;
     if(core.port.get_settings_state && core.port.get_settings_state(core.port.context,&settings)==ESP_OK) {
         if(settings.pending || settings.last_error==ESP_OK)settings_failed=false;
@@ -739,10 +748,7 @@ static void monitor_errors(lv_timer_t *timer)
     if(ouse_audio_get(&audio)==ESP_OK && audio.error!=ESP_OK && audio.completed_id!=audio_error && !ouse_dialog_active()) {
         audio_error=audio.completed_id;ouse_dialog_show("无法录放音，请重试",NULL,NULL);
     }
-    ouse_wifi_state_t wifi;
-    if(ouse_wifi_get(&wifi)==ESP_OK && wifi.error!=ESP_OK && wifi.completed_id!=wifi_error && !ouse_dialog_active()) {
-        wifi_error=wifi.completed_id;ouse_dialog_show("Wi-Fi 操作失败，请检查网络或重试",NULL,NULL);
-    }
+    // Wi-Fi failures stay in connection status without interrupting apps.
 }
 esp_err_t ouse_core_sleep_display(void) {return core.started ? ouse_screen_sleep() : ESP_ERR_INVALID_STATE;}
 esp_err_t ouse_core_wake_display(void) {return core.started ? ouse_screen_wake() : ESP_ERR_INVALID_STATE;}

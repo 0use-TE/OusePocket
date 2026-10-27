@@ -13,7 +13,8 @@ static bool fail_rename;
 static unsigned published,cancelled;
 static time_t fake_time(time_t *out){if(out)*out=(time_t)wall;return (time_t)wall;}
 static int fake_rename(const char *from,const char *to)
-{if(fail_rename)return -1;return MoveFileExA(from,to,MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH) ? 0 : -1;}
+{if(fail_rename)return -1;if(MoveFileExA(from,to,MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH))return 0;
+ fprintf(stderr,"Host alarm rename failed: winerror=%lu %s -> %s\n",GetLastError(),from,to);return -1;}
 esp_err_t ouse_notifications_publish(const char *app,const ouse_notification_request_t *r)
 {assert(app&&r&&r->ongoing&&!strncmp(r->id,"alarm:",6));++published;return ESP_OK;}
 esp_err_t ouse_notifications_cancel(const char *app,const char *id)

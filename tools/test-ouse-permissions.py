@@ -85,7 +85,7 @@ int main(void){
 '''.replace('PERMISSIONS_SOURCE', (ROOT / 'components/ouse_system/ouse_permissions.c').as_posix())
 (OUT / 'check.c').write_text(source)
 runtime=(ROOT/'components/ouse_runtime/ouse_runtime.c').read_text(encoding='utf-8')
-enforcer=runtime[runtime.index('static void enforce_permissions('):runtime.index('static void ui_pump(')]
+enforcer=runtime[runtime.index('static void enforce_permissions('):runtime.index('static void publish_viewport_size(')]
 assert 'enforce_permissions(app);' in runtime[runtime.index('static void ui_pump('):runtime.index('// Worker functions below')]
 test_types=r'''
 typedef struct {unsigned instance;} test_owner_t;

@@ -1,6 +1,7 @@
 "use strict";
 let pending=0,kind="",opening=true,attempts=0,active=true;
 let permissionAsked=false;
+let fillPreview=true;
 const labels=Object.create(null);
 function text(id,value){if(labels[id]!==value){labels[id]=value;Ouse.ui.setText(id,value);}}
 function show(id,value){if(value)Ouse.ui.show(id);else Ouse.ui.hide(id);}
@@ -30,6 +31,7 @@ function refresh(){
 Ouse.ui.on("album","click",()=>{if(pending)return;if(!ready()){popup("请插入 SD 卡后再打开相册。");return;}Ouse.openApp("user.gallery");});
 Ouse.ui.on("permissionSettings","click",()=>{Ouse.ui.hide("dialog");Ouse.system.openSettings("permissions");});
 Ouse.ui.on("dismiss","click",()=>Ouse.ui.hide("dialog"));
+Ouse.ui.on("previewMode","click",()=>{fillPreview=!fillPreview;layout();});
 function capture(){
  if(pending||opening)return;
  const state=Ouse.camera.get();
@@ -42,11 +44,34 @@ Ouse.ui.on("shutter","click",capture);
 Ouse.keys.on("pwr",capture);
 Ouse.tasks.onComplete(event=>{
  if(event.id!==pending)return;pending=0;
- if(event.state!=="succeeded")popup(kind==="start"?"摄像头无法打开，请检查连接后重新进入相机。":kind==="list"?"无法读取相册。":"拍摄失败，请检查 SD 卡和剩余空间。");
- else if(kind==="list")show("albumThumb",!!Ouse.photos.get().entries.length);
+ if(event.state!=="succeeded"){
+  const stage=Ouse.camera.get().errorStage;
+  popup(kind==="start"?"摄像头无法打开，请检查连接后重新进入相机。":kind==="list"?"无法读取相册。":stage==="storage"?"照片保存失败，请检查 SD 卡和剩余空间。":stage==="encode"?"照片编码失败，请稍后重试。":"摄像头暂未就绪，请稍后再拍。");
+ }
+ else if(kind==="list"){const entries=Ouse.photos.get().entries;if(entries.length)Ouse.ui.setImage("albumThumb",entries[0].image);show("albumThumb",!!entries.length);}
  else if(kind==="start"||kind==="capture")thumbnail();
  refresh();
 });
 Ouse.timers.setInterval(refresh,200);
-globalThis.app={onPause(){active=false;opening=false;Ouse.camera.stop();},onResume(){active=true;pending=0;opening=true;attempts=0;refresh();},onClose(){active=false;Ouse.camera.stop();}};
+function layout(){
+ if(!active)return;
+ const display=Ouse.display.get(),w=Math.floor(display.contentWidthDp),h=Math.floor(display.contentHeightDp),land=w>h;
+ const rail=96;
+ // @camera is a 320x240 image. Keep its 4:3 ratio and let viewfinder clip
+ // the centered overflow. Whole 4x3 units avoid orientation-dependent stretch.
+ const unit=fillPreview?Math.ceil(Math.max(w/4,h/3))+1:Math.max(1,Math.floor(Math.min(w/4,h/3)));
+ const pw=unit*4,ph=unit*3;
+ text("previewMode",fillPreview?"完整画面":"铺满取景");
+ Ouse.ui.layout([
+  {id:"viewfinder",x:0,y:0,width:w,height:h},{id:"preview",x:Math.floor((w-pw)/2),y:Math.floor((h-ph)/2),width:pw,height:ph},
+  {id:"previewMode",x:12,y:12,width:100,height:36},
+  {id:"controls",x:land?w-rail:0,y:land?0:h-rail,width:land?rail:w,height:land?h:rail},
+  {id:"shutter",x:land?10:Math.floor((w-76)/2),y:land?Math.floor((h-76)/2):10,width:76,height:76},
+  {id:"album",x:20,y:land?Math.max(12,Math.floor(h/2)-116):20,width:56,height:56}
+ ]);
+}
+Ouse.display.onChange(layout);
+globalThis.app={onPause(){active=false;opening=false;Ouse.camera.stop();},onResume(){active=true;pending=0;opening=true;attempts=0;Ouse.display.setFullscreen(true);layout();refresh();},onClose(){active=false;Ouse.camera.stop();}};
+Ouse.display.setFullscreen(true);
+layout();
 refresh();

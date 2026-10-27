@@ -79,6 +79,7 @@ static int sdio_push_pkt_to_queue(void *pointer,unsigned length,unsigned offset)
 /* RX */
 /* GET */
 /* FREE */
+#define ouse_board_sd_verified_sector __real_sdmmc_write_sectors
 /* GATE */
 esp_err_t __real_sdmmc_host_do_transaction(int slot,sdmmc_command_t *command){(void)slot;(void)command;assert(bus->depth==2);return ESP_OK;}
 static unsigned single_writes;

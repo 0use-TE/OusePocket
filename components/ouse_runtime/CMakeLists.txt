@@ -1,4 +1,4 @@
-idf_component_register(SRCS "ouse_budget.c" "ouse_runtime.c" INCLUDE_DIRS "include"
+idf_component_register(SRCS "ouse_budget.c" "ouse_runtime.c" "ouse_game2d.cpp" INCLUDE_DIRS "include"
     REQUIRES ouse_tasks ouse_app_manager ouse_ble ouse_net ouse_alarm ouse_media ouse_files ouse_usb ouse_camera ouse_recorder ouse_core ouse_system ouse_storage esp_timer log espressif__quickjs-ng)
 
 if(NOT CMAKE_SCRIPT_MODE_FILE)
